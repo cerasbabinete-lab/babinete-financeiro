@@ -353,8 +353,8 @@ export async function restaurarBackup(clientes: Cliente[]): Promise<void> {
   // Evita que dados corrompidos ou malformados entrem no banco
   clientes.forEach((c, i) => {
     // id deve ser número inteiro positivo
-    if (typeof c.id !== 'number' || !Number.isInteger(c.id) || c.id <= 0) {
-      throw new Error(`Registro #${i + 1}: campo 'id' inválido (${c.id}). Esperado: inteiro positivo.`)
+    if (typeof c.id !== 'number' || !Number.isInteger(c.id) || c.id < 0) {
+      throw new Error(`Registro #${i + 1}: campo 'id' inválido (${c.id}). Esperado: inteiro não-negativo.`)
     }
     // razao deve ser string não-vazia (campo obrigatório na tabela)
     if (typeof c.razao !== 'string' || c.razao.trim() === '') {
