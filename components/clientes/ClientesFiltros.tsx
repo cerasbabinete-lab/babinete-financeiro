@@ -71,7 +71,11 @@ export default function ClientesFiltros({ filtros, onFiltrosChange }: ClientesFi
   // Atualiza filtro de status imediatamente (sem debounce)
   // ============================================================
   function handleStatus(e: React.ChangeEvent<HTMLSelectElement>) {
-    onFiltrosChange({ ...filtros, status: e.target.value })
+    const novoStatus = e.target.value
+    // Quando muda para inativos, reseta lista para 'todas'
+    // Inativos sempre têm nomelista='0' — nunca pertencem às listas 1-4/VAREJO
+    const novaLista = novoStatus === 'inativos' ? 'todas' : filtros.lista
+    onFiltrosChange({ ...filtros, status: novoStatus, lista: novaLista })
   }
 
   // Limpa o debounce ao desmontar o componente
@@ -138,11 +142,12 @@ export default function ClientesFiltros({ filtros, onFiltrosChange }: ClientesFi
         aria-label="Filtrar por lista"
       >
         <option value="todas">Todas as listas</option>
-        <option value="1">Lista 1</option>
-        <option value="2">Lista 2</option>
-        <option value="3">Lista 3</option>
-        <option value="4">Lista 4</option>
-        <option value="VAREJO">Varejo</option>
+        {/* Desabilitados quando inativos: inativos têm nomelista='0', nunca nas listas 1-4/VAREJO */}
+        <option value="1"     disabled={filtros.status === 'inativos'}>Lista 1</option>
+        <option value="2"     disabled={filtros.status === 'inativos'}>Lista 2</option>
+        <option value="3"     disabled={filtros.status === 'inativos'}>Lista 3</option>
+        <option value="4"     disabled={filtros.status === 'inativos'}>Lista 4</option>
+        <option value="VAREJO" disabled={filtros.status === 'inativos'}>Varejo</option>
       </select>
 
       {/* Dropdown — Status */}

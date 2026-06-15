@@ -6,7 +6,7 @@
 //         Camada de serviço entre UI e Supabase
 // Conecta com: supabase.ts (cliente), types/clientes.ts (tipos)
 //              ClientesTabela.tsx, ClientesModal.tsx,
-//              ExportDropdown.tsx, ClientesHeader.tsx
+//              ExportDropdown.tsx, ClientesHeader.tsx, Basebar.tsx
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
@@ -256,26 +256,82 @@ export async function fazerBackup(usuario: string): Promise<void> {
   // Remove caracteres especiais que podem causar problema no Storage
   const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
 
-  // Nome do arquivo inclui data e 1º nome do usuário logado
-  const nomeArquivo = `backup_clientes_${dataHoje()}_${nomeSeguro}.json`
+  // Nome inclui data + hora + usuário — garante unicidade sem precisar de upsert
+  // Exemplo: backup_clientes_2026-06-15_14h32m07s_maycon.json
+  const agora = new Date()
+  const hora = `${String(agora.getHours()).padStart(2,'0')}h${String(agora.getMinutes()).padStart(2,'0')}m${String(agora.getSeconds()).padStart(2,'0')}s`
+  const nomeArquivo = `backup_clientes_${dataHoje()}_${hora}_${nomeSeguro}.json`
 
   // Converte os dados para JSON e cria um Blob para upload
   const json = JSON.stringify(data, null, 2)
   const blob = new Blob([json], { type: 'application/json' })
 
   // Envia o arquivo para o bucket 'backups' no Supabase Storage
-  // upsert: true permite sobrescrever se já existir arquivo com mesmo nome
+  // upsert: false — nome único por data+hora garante que nunca haverá colisão
+  // Evita a necessidade de política UPDATE no RLS (só INSERT é necessário)
   const { error: uploadError } = await supabase.storage
     .from('backups')
     .upload(nomeArquivo, blob, {
       contentType: 'application/json',
-      upsert: true,
+      upsert: false,
     })
 
   if (uploadError) {
     console.error('[clientesService] fazerBackup upload error:', uploadError)
     throw new Error(`Erro ao salvar backup na nuvem: ${uploadError.message}`)
   }
+}
+
+// ============================================================
+// listarBackups()
+// Lista todos os arquivos de backup disponíveis no bucket 'backups'
+// Retorna array de nomes de arquivo ordenados do mais recente ao mais antigo
+// Chamado por: ClientesHeader.tsx e Basebar.tsx ao clicar em Restaurar
+// ============================================================
+export async function listarBackups(): Promise<string[]> {
+  const { data, error } = await supabase.storage
+    .from('backups')
+    .list('', { sortBy: { column: 'created_at', order: 'desc' } })
+
+  if (error) {
+    console.error('[clientesService] listarBackups error:', error)
+    throw new Error(error.message)
+  }
+
+  // Retorna apenas os nomes dos arquivos, do mais recente ao mais antigo
+  return (data ?? []).map(f => f.name)
+}
+
+// ============================================================
+// baixarBackup()
+// Baixa o conteúdo de um arquivo de backup específico do Storage
+// e retorna o array de clientes para ser passado a restaurarBackup()
+// Chamado por: ClientesHeader.tsx e Basebar.tsx após usuário escolher arquivo
+// ============================================================
+export async function baixarBackup(nomeArquivo: string): Promise<Cliente[]> {
+  // Faz download do arquivo como blob do Supabase Storage
+  const { data, error } = await supabase.storage
+    .from('backups')
+    .download(nomeArquivo)
+
+  if (error || !data) {
+    console.error('[clientesService] baixarBackup error:', error)
+    throw new Error(error?.message ?? 'Erro ao baixar backup')
+  }
+
+  // Converte o blob para texto e faz parse do JSON
+  const texto = await data.text()
+  const parsed = JSON.parse(texto)
+
+  // Valida estrutura básica antes de retornar
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error('Formato de backup inválido: esperado array não-vazio.')
+  }
+  if (typeof parsed[0].id !== 'number' || typeof parsed[0].razao !== 'string') {
+    throw new Error('Formato de backup inválido: registros não correspondem ao schema esperado.')
+  }
+
+  return parsed as Cliente[]
 }
 
 // ============================================================

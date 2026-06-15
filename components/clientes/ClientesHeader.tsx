@@ -4,15 +4,17 @@
 // Módulo: Clientes
 // Função: Header da tela desktop — título, contador de clientes
 //         ativos e botões Backup, Restaurar, Exportar, Novo Cliente
+//         Backup: salva no Supabase Storage (bucket backups)
+//         Restaurar: lista backups do Storage, usuário escolhe qual restaurar
 // Conecta com: app/clientes/page.tsx (callbacks e totalAtivos)
-//              clientesService.ts (fazerBackup, lerArquivoBackup, restaurarBackup)
+//              clientesService.ts (fazerBackup, listarBackups, baixarBackup, restaurarBackup)
 //              ExportDropdown.tsx (dropdown CSV/Excel)
 // ============================================================
 
 'use client'
 
-import { useRef, useState } from 'react'
-import { fazerBackup, lerArquivoBackup, restaurarBackup } from '@/lib/clientesService'
+import { useState } from 'react'
+import { fazerBackup, listarBackups, baixarBackup, restaurarBackup } from '@/lib/clientesService'
 import type { Cliente } from '@/types/clientes' // ModoModal removido — não usado neste componente
 import ExportDropdown from './ExportDropdown'
 
@@ -39,23 +41,21 @@ export default function ClientesHeader({
   onRestaurado,
 }: ClientesHeaderProps) {
 
-  // Ref para o input file oculto do Restaurar
-  const inputRestaurarRef = useRef<HTMLInputElement>(null)
-
   // Estado de loading para feedback durante backup/restore
   const [loadingBackup, setLoadingBackup] = useState(false)
   const [loadingRestore, setLoadingRestore] = useState(false)
 
   // ============================================================
   // handleBackup
-  // Dispara download do JSON completo da tabela clientes
+  // Salva backup completo da tabela clientes no Supabase Storage
   // ============================================================
   async function handleBackup() {
     setLoadingBackup(true)
     try {
       // Passa o 1º nome do usuário logado para incluir no nome do arquivo de backup
       await fazerBackup(usuario)
-    } catch (err) {
+      alert('Backup realizado com sucesso! O arquivo foi salvo na nuvem.')
+    } catch (err: unknown) {
       alert('Erro ao gerar backup. Tente novamente.')
       console.error(err)
     } finally {
@@ -64,44 +64,61 @@ export default function ClientesHeader({
   }
 
   // ============================================================
-  // handleRestaurarClick
-  // Abre o seletor de arquivo (input file oculto)
+  // handleRestaurar
+  // Lista backups disponíveis no Supabase Storage e deixa o
+  // usuário escolher qual restaurar via prompt com lista numerada
   // ============================================================
-  function handleRestaurarClick() {
-    inputRestaurarRef.current?.click()
-  }
-
-  // ============================================================
-  // handleArquivoSelecionado
-  // Lê o arquivo JSON e executa o upsert após confirmação
-  // ============================================================
-  async function handleArquivoSelecionado(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    // Confirmação obrigatória antes de sobrescrever dados
-    const confirmar = confirm(
-      `Restaurar backup "${file.name}"?\n\nOs registros existentes serão atualizados ou criados (upsert por ID). Esta ação não pode ser desfeita.`
-    )
-    if (!confirmar) {
-      e.target.value = ''
-      return
-    }
-
+  async function handleRestaurar() {
     setLoadingRestore(true)
     try {
-      const dados = await lerArquivoBackup(file)
+      // Busca lista de arquivos disponíveis no bucket backups
+      const arquivos = await listarBackups()
+
+      if (arquivos.length === 0) {
+        alert('Nenhum backup encontrado na nuvem.')
+        return
+      }
+
+      // Monta lista numerada para exibir ao usuário
+      const lista = arquivos
+        .map((nome, i) => `${i + 1}. ${nome}`)
+        .join('\n')
+
+      // Exibe lista e pede escolha via prompt
+      const escolha = prompt(
+        `Backups disponíveis na nuvem:\n\n${lista}\n\nDigite o número do backup que deseja restaurar:`
+      )
+
+      // Usuário cancelou ou não digitou nada
+      if (!escolha) return
+
+      const indice = parseInt(escolha.trim()) - 1
+
+      // Valida se o número digitado é válido
+      if (isNaN(indice) || indice < 0 || indice >= arquivos.length) {
+        alert('Número inválido. Tente novamente.')
+        return
+      }
+
+      const nomeArquivo = arquivos[indice]
+
+      // Confirmação obrigatória antes de sobrescrever dados
+      const confirmar = confirm(
+        `Restaurar o backup "${nomeArquivo}"?\n\nOs registros existentes serão atualizados ou criados (upsert por ID). Esta ação não pode ser desfeita.`
+      )
+      if (!confirmar) return
+
+      // Baixa o arquivo do Storage e restaura os dados
+      const dados = await baixarBackup(nomeArquivo)
       await restaurarBackup(dados)
       alert(`Backup restaurado com sucesso! ${dados.length} registros processados.`)
       onRestaurado() // Recarrega a lista na página pai
     } catch (err: unknown) {
-      // Narrows err para acessar .message com segurança — evita any implícito
       const msg = err instanceof Error ? err.message : 'Erro desconhecido'
       alert(`Erro ao restaurar: ${msg}`)
       console.error(err)
     } finally {
       setLoadingRestore(false)
-      e.target.value = '' // Reseta o input para permitir selecionar o mesmo arquivo novamente
     }
   }
 
@@ -146,7 +163,7 @@ export default function ClientesHeader({
         <button
           onClick={handleBackup}
           disabled={loadingBackup}
-          title="Exportar backup completo da tabela clientes"
+          title="Salvar backup completo na nuvem"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -169,9 +186,9 @@ export default function ClientesHeader({
 
         {/* Restaurar */}
         <button
-          onClick={handleRestaurarClick}
+          onClick={handleRestaurar}
           disabled={loadingRestore}
-          title="Restaurar backup da tabela clientes"
+          title="Restaurar backup da nuvem"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -191,15 +208,6 @@ export default function ClientesHeader({
           <i className="ti ti-restore" style={{ fontSize: '14px' }} aria-hidden="true" />
           {loadingRestore ? 'Restaurando...' : 'Restaurar'}
         </button>
-
-        {/* Input file oculto para Restaurar */}
-        <input
-          ref={inputRestaurarRef}
-          type="file"
-          accept=".json"
-          style={{ display: 'none' }}
-          onChange={handleArquivoSelecionado}
-        />
 
         {/* Exportar CSV / Excel — componente dropdown */}
         <ExportDropdown clientes={clientes} />

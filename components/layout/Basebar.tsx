@@ -4,16 +4,18 @@
 // Módulo: Global
 // Função: Basebar mobile fixa no rodapé — 4 botões:
 //         Backup (ti-database), Restaurar (ti-restore),
-//         Exportar (ti-database-import), Novo Cliente (ti-user-plus)
+//         Exportar (ti-table-export via ExportDropdown), Novo Cliente (ti-user-plus)
+//         Backup: salva no Supabase Storage (bucket backups)
+//         Restaurar: lista backups do Storage, usuário escolhe qual restaurar
 // Conecta com: app/clientes/page.tsx
-//              clientesService.ts (fazerBackup, lerArquivoBackup, restaurarBackup)
+//              clientesService.ts (fazerBackup, listarBackups, baixarBackup, restaurarBackup)
 //              ExportDropdown.tsx (exportar CSV/Excel)
 // ============================================================
 
 'use client'
 
-import { useRef, useState } from 'react'
-import { fazerBackup, lerArquivoBackup, restaurarBackup } from '@/lib/clientesService'
+import { useState } from 'react'
+import { fazerBackup, listarBackups, baixarBackup, restaurarBackup } from '@/lib/clientesService'
 import type { Cliente } from '@/types/clientes'
 import ExportDropdown from '@/components/clientes/ExportDropdown'
 
@@ -32,18 +34,20 @@ interface BasebarProps {
 // ============================================================
 export default function Basebar({ clientes, usuario, onNovoCliente, onRestaurado }: BasebarProps) {
 
-  const inputRestaurarRef = useRef<HTMLInputElement>(null)
+  // Estados de loading para feedback visual durante operações
   const [loadingBackup, setLoadingBackup] = useState(false)
   const [loadingRestore, setLoadingRestore] = useState(false)
 
   // ============================================================
   // handleBackup
+  // Salva backup completo da tabela clientes no Supabase Storage
   // ============================================================
   async function handleBackup() {
     setLoadingBackup(true)
     try {
       // Passa o 1º nome do usuário logado para incluir no nome do arquivo de backup
       await fazerBackup(usuario)
+      alert('Backup realizado com sucesso! O arquivo foi salvo na nuvem.')
     } catch {
       alert('Erro ao gerar backup.')
     } finally {
@@ -52,40 +56,61 @@ export default function Basebar({ clientes, usuario, onNovoCliente, onRestaurado
   }
 
   // ============================================================
-  // handleRestaurarClick
+  // handleRestaurar
+  // Lista backups disponíveis no Supabase Storage e deixa o
+  // usuário escolher qual restaurar via prompt com lista numerada
   // ============================================================
-  function handleRestaurarClick() {
-    inputRestaurarRef.current?.click()
-  }
-
-  // ============================================================
-  // handleArquivoSelecionado
-  // ============================================================
-  async function handleArquivoSelecionado(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    const confirmar = confirm(
-      `Restaurar backup "${file.name}"?\n\nOs registros existentes serão atualizados ou criados. Esta ação não pode ser desfeita.`
-    )
-    if (!confirmar) {
-      e.target.value = ''
-      return
-    }
-
+  async function handleRestaurar() {
     setLoadingRestore(true)
     try {
-      const dados = await lerArquivoBackup(file)
+      // Busca lista de arquivos disponíveis no bucket backups
+      const arquivos = await listarBackups()
+
+      if (arquivos.length === 0) {
+        alert('Nenhum backup encontrado na nuvem.')
+        return
+      }
+
+      // Monta lista numerada para exibir ao usuário
+      const lista = arquivos
+        .map((nome, i) => `${i + 1}. ${nome}`)
+        .join('\n')
+
+      // Exibe lista e pede escolha via prompt
+      const escolha = prompt(
+        `Backups disponíveis na nuvem:\n\n${lista}\n\nDigite o número do backup que deseja restaurar:`
+      )
+
+      // Usuário cancelou ou não digitou nada
+      if (!escolha) return
+
+      const indice = parseInt(escolha.trim()) - 1
+
+      // Valida se o número digitado é válido
+      if (isNaN(indice) || indice < 0 || indice >= arquivos.length) {
+        alert('Número inválido. Tente novamente.')
+        return
+      }
+
+      const nomeArquivo = arquivos[indice]
+
+      // Confirmação obrigatória antes de sobrescrever dados
+      const confirmar = confirm(
+        `Restaurar o backup "${nomeArquivo}"?\n\nOs registros existentes serão atualizados ou criados (upsert por ID). Esta ação não pode ser desfeita.`
+      )
+      if (!confirmar) return
+
+      // Baixa o arquivo do Storage e restaura os dados
+      const dados = await baixarBackup(nomeArquivo)
       await restaurarBackup(dados)
-      alert(`Backup restaurado! ${dados.length} registros processados.`)
-      onRestaurado()
+      alert(`Backup restaurado com sucesso! ${dados.length} registros processados.`)
+      onRestaurado() // Recarrega a lista na página pai
     } catch (err: unknown) {
-      // Narrows err para acessar .message com segurança — evita any implícito
       const msg = err instanceof Error ? err.message : 'Erro desconhecido'
       alert(`Erro ao restaurar: ${msg}`)
+      console.error(err)
     } finally {
       setLoadingRestore(false)
-      e.target.value = ''
     }
   }
 
@@ -104,9 +129,8 @@ export default function Basebar({ clientes, usuario, onNovoCliente, onRestaurado
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-around',
-        // padding shorthand define 10px bottom; paddingBottom usa calc() para
-        // somar o safe-area-inset (iPhones com home bar) ao padding base
-        // Em Android e desktop, env() resolve para 0px → resultado = 10px
+        // padding shorthand define base; paddingBottom soma safe-area-inset
+        // Em Android/desktop, env() resolve para 0px → resultado = 10px
         padding: '6px 0 0',
         paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
         zIndex: 100,
@@ -125,22 +149,13 @@ export default function Basebar({ clientes, usuario, onNovoCliente, onRestaurado
 
       {/* Restaurar — ti-restore */}
       <button
-        onClick={handleRestaurarClick}
+        onClick={handleRestaurar}
         disabled={loadingRestore}
         style={btnStyle}
       >
         <i className="ti ti-restore" style={{ fontSize: '20px', color: '#1a6094' }} aria-hidden="true" />
         <span style={labelStyle}>{loadingRestore ? '...' : 'Restaurar'}</span>
       </button>
-
-      {/* Input file oculto */}
-      <input
-        ref={inputRestaurarRef}
-        type="file"
-        accept=".json"
-        style={{ display: 'none' }}
-        onChange={handleArquivoSelecionado}
-      />
 
       {/* Exportar — ti-table-export via ExportDropdown mobile */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>

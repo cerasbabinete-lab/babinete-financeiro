@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+-e 
+# Arquivos compactados — nunca comitar no repositório
+*.zip
+*.tar.gz
+*.rar

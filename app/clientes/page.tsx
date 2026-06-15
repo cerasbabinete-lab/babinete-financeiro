@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { buscarClientes, contarClientesAtivos } from '@/lib/clientesService'
+import { buscarClientes, contarClientesAtivos, buscarClientePorId } from '@/lib/clientesService'
 import type { Cliente, FiltrosClientes, ModoModal } from '@/types/clientes'
 
 // Layout
@@ -169,8 +169,12 @@ export default function ClientesPage() {
     setModoModal('novo')
   }
 
-  function handleEditar(cliente: Cliente) {
-    setClienteSelecionado(cliente)
+  async function handleEditar(cliente: Cliente) {
+    // Busca dados frescos do servidor antes de abrir o modal de edição
+    // Evita que dados desatualizados sobrescrevam edições concorrentes
+    const clienteFresco = await buscarClientePorId(cliente.id)
+    // Fallback para dados da lista se o fetch falhar (ex: erro de rede)
+    setClienteSelecionado(clienteFresco ?? cliente)
     setModoModal('editar')
   }
 
