@@ -14,9 +14,9 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   // Permite que dispositivos na rede local acessem o servidor de desenvolvimento
-  // Necessário para testar no celular via IP (ex: http://192.168.0.5:3000)
+  // Formato correto: apenas o hostname, sem http:// e sem porta
   allowedDevOrigins: [
-    'http://192.168.0.5:3000',
+    '192.168.0.5',
   ],
 }
 
