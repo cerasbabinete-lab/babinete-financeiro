@@ -233,15 +233,13 @@ export function exportarExcel(clientes: Cliente[]): void {
 // ============================================================
 // fazerBackup()
 // Exporta a tabela clientes COMPLETA (sem filtros) como JSON
-// e envia direto para o Supabase Storage (bucket: backups)
-// O arquivo NÃO é baixado localmente — fica salvo na nuvem
+// Inclui todos os campos para restauração fiel
 // Parâmetro usuario: 1º nome do usuário logado — incluído no
 // nome do arquivo para identificar quem gerou o backup
 // Exemplo de nome: backup_clientes_2026-06-15_maycon.json
 // Chamado por: ClientesHeader.tsx e Basebar.tsx ao clicar em Backup
 // ============================================================
 export async function fazerBackup(usuario: string): Promise<void> {
-  // Busca todos os registros da tabela ordenados por id
   const { data, error } = await supabase
     .from(TABELA)
     .select('*')
@@ -253,29 +251,24 @@ export async function fazerBackup(usuario: string): Promise<void> {
   }
 
   // Sanitiza o nome do usuário para uso seguro no nome do arquivo
-  // Remove caracteres especiais que podem causar problema no Storage
+  // Remove caracteres especiais que podem causar problema no sistema de arquivos
   const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
 
-  // Nome do arquivo inclui data e 1º nome do usuário logado
-  const nomeArquivo = `backup_clientes_${dataHoje()}_${nomeSeguro}.json`
-
-  // Converte os dados para JSON e cria um Blob para upload
   const json = JSON.stringify(data, null, 2)
-  const blob = new Blob([json], { type: 'application/json' })
-
-  // Envia o arquivo para o bucket 'backups' no Supabase Storage
-  // upsert: true permite sobrescrever se já existir arquivo com mesmo nome
-  const { error: uploadError } = await supabase.storage
-    .from('backups')
-    .upload(nomeArquivo, blob, {
-      contentType: 'application/json',
-      upsert: true,
-    })
-
-  if (uploadError) {
-    console.error('[clientesService] fazerBackup upload error:', uploadError)
-    throw new Error(`Erro ao salvar backup na nuvem: ${uploadError.message}`)
-  }
+  const blob = new Blob([json], { type: 'application/json;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  // Nome do arquivo inclui data e 1º nome do usuário logado
+  link.download = `backup_clientes_${dataHoje()}_${nomeSeguro}.json`
+  // Adiciona ao DOM para compatibilidade cross-browser (Firefox requer)
+  document.body.appendChild(link)
+  link.click()
+  // setTimeout garante que o Firefox consiga buscar o blob antes de revogá-lo
+  setTimeout(() => {
+    URL.revokeObjectURL(url)
+    document.body.removeChild(link)
+  }, 100)
 }
 
 // ============================================================
