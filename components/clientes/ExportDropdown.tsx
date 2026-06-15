@@ -19,13 +19,14 @@ import type { Cliente } from '@/types/clientes'
 // ============================================================
 interface ExportDropdownProps {
   clientes: Cliente[]   // Lista filtrada atual para exportar
+  usuario: string       // 1º nome do usuário logado — incluído no nome do arquivo
   mobile?: boolean      // Ajusta estilo quando usado na Basebar mobile
 }
 
 // ============================================================
 // ExportDropdown
 // ============================================================
-export default function ExportDropdown({ clientes, mobile = false }: ExportDropdownProps) {
+export default function ExportDropdown({ clientes, usuario, mobile = false }: ExportDropdownProps) {
 
   // Controla visibilidade do dropdown
   const [aberto, setAberto] = useState(false)
@@ -49,7 +50,8 @@ export default function ExportDropdown({ clientes, mobile = false }: ExportDropd
   // Exporta lista filtrada como CSV e fecha dropdown
   // ============================================================
   function handleCSV() {
-    exportarCSV(clientes)
+    // Passa usuario para incluir no nome do arquivo exportado
+    exportarCSV(clientes, usuario)
     setAberto(false)
   }
 
@@ -58,7 +60,8 @@ export default function ExportDropdown({ clientes, mobile = false }: ExportDropd
   // Exporta lista filtrada como Excel e fecha dropdown
   // ============================================================
   function handleExcel() {
-    exportarExcel(clientes)
+    // Passa usuario para incluir no nome do arquivo exportado
+    exportarExcel(clientes, usuario)
     setAberto(false)
   }
 

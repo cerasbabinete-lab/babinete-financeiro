@@ -166,7 +166,9 @@ export async function editarCliente(cliente: ClienteUpdate): Promise<Cliente> {
 // Usa papaparse para geração client-side
 // Chamado por: ExportDropdown.tsx ao selecionar "CSV"
 // ============================================================
-export function exportarCSV(clientes: Cliente[]): void {
+export function exportarCSV(clientes: Cliente[], usuario: string): void {
+  // Sanitiza o nome do usuário para uso seguro no nome do arquivo
+  const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
   // Seleciona e mapeia os campos para exportação
   const dados = clientes.map(c => ({
     Código: c.id,
@@ -189,7 +191,7 @@ export function exportarCSV(clientes: Cliente[]): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `clientes_babinete_${dataHoje()}.csv`
+  link.download = `clientes_babinete_${dataHoje()}_${nomeSeguro}.csv`
   // Adiciona ao DOM para compatibilidade cross-browser (Firefox requer)
   document.body.appendChild(link)
   link.click()
@@ -207,7 +209,9 @@ export function exportarCSV(clientes: Cliente[]): void {
 // Usa SheetJS (xlsx) para geração client-side
 // Chamado por: ExportDropdown.tsx ao selecionar "Excel"
 // ============================================================
-export function exportarExcel(clientes: Cliente[]): void {
+export function exportarExcel(clientes: Cliente[], usuario: string): void {
+  // Sanitiza o nome do usuário para uso seguro no nome do arquivo
+  const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
   const dados = clientes.map(c => ({
     Código: c.id,
     'Nome Fantasia': c.fantasia ?? '',
@@ -227,7 +231,7 @@ export function exportarExcel(clientes: Cliente[]): void {
   XLSX.utils.book_append_sheet(wb, ws, 'Clientes')
   // SheetJS gera o blob e dispara o download internamente via writeFile
   // Não há URL para revogar — download é síncrono e seguro em todos os browsers
-  XLSX.writeFile(wb, `clientes_babinete_${dataHoje()}.xlsx`)
+  XLSX.writeFile(wb, `clientes_babinete_${dataHoje()}_${nomeSeguro}.xlsx`)
 }
 
 // ============================================================
