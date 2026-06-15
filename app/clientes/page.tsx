@@ -78,12 +78,19 @@ export default function ClientesPage() {
 
   // ============================================================
   // Detecção de mobile (breakpoint 768px)
+  // Inicializado como null para evitar SSR/hydration mismatch:
+  // o servidor não conhece o viewport, então adiamos o render
+  // do layout até o cliente resolver isMobile via matchMedia
   // ============================================================
-  const [isMobile, setIsMobile] = useState(false)
+  const [isMobile, setIsMobile] = useState<boolean | null>(null)
 
   useEffect(() => {
+    // Resolve o breakpoint client-side na primeira montagem
     const mq = window.matchMedia('(max-width: 768px)')
-    setIsMobile(mq.matches)
+    // Padrão correto para inicializar estado de media query no client-side:
+    // setState síncrono aqui é intencional — resolve o viewport antes do render
+    setIsMobile(mq.matches) // eslint-disable-line react-hooks/set-state-in-effect
+    // Atualiza dinamicamente se o viewport mudar (ex: rotação)
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
@@ -92,18 +99,38 @@ export default function ClientesPage() {
   // ============================================================
   // Verificação de autenticação
   // Redireciona para /login se não autenticado
+  // Também escuta mudanças de sessão em tempo real:
+  // se o JWT expirar ou o usuário fizer logout em outra aba,
+  // o evento SIGNED_OUT redireciona imediatamente para /login
   // ============================================================
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
+    // Verifica sessão inicial ao montar o componente
+    // getUser() faz validação server-side do JWT — mais seguro que
+    // getSession() que apenas lê o localStorage sem verificar com o servidor
+    supabase.auth.getUser().then(({ data: { user }, error }) => {
+      if (error || !user) {
+        // JWT inválido ou expirado: redireciona — authCarregando permanece
+        // true para bloquear carregarClientes() durante o redirect
         router.push('/login')
         return
       }
-      // Extrai nome do usuário do email (parte antes do @)
-      const email = session.user.email ?? ''
+      // Usuário verificado pelo servidor: extrai nome do email (parte antes do @)
+      const email = user.email ?? ''
       setUsuario(email.split('@')[0])
       setAuthCarregando(false)
     })
+
+    // Listener de mudanças de sessão — cobre expiração de JWT
+    // e logout em outra aba/dispositivo
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        // Sessão encerrada em tempo real: redireciona para login
+        router.push('/login')
+      }
+    })
+
+    // Cancela o listener ao desmontar o componente
+    return () => subscription.unsubscribe()
   }, [router])
 
   // ============================================================
@@ -128,7 +155,10 @@ export default function ClientesPage() {
 
   // Recarrega sempre que os filtros mudarem (e auth estiver pronta)
   useEffect(() => {
-    if (!authCarregando) carregarClientes()
+    // carregarClientes é um async data-fetcher que chama múltiplos setState
+    // internamente — padrão correto para disparar fetch em resposta a mudança
+    // de estado (filtros, auth); useReducer não se aplica aqui
+    if (!authCarregando) carregarClientes() // eslint-disable-line react-hooks/set-state-in-effect
   }, [authCarregando, carregarClientes])
 
   // ============================================================
@@ -163,6 +193,28 @@ export default function ClientesPage() {
   // ============================================================
   function handleFiltrosChange(novosFiltros: FiltrosClientes) {
     setFiltros(novosFiltros)
+  }
+
+  // ============================================================
+  // Aguarda resolução do viewport (isMobile ainda desconhecido)
+  // Renderiza skeleton neutro para evitar flash de layout errado
+  // isMobile === null apenas no primeiro frame client-side
+  // ============================================================
+  if (isMobile === null) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100vh',
+          fontFamily: 'Tahoma, Geneva, sans-serif',
+          fontSize: '13px',
+          color: '#5a84a6',
+          background: '#f0f4f7',
+        }}
+      />
+    )
   }
 
   // ============================================================

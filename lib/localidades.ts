@@ -7,8 +7,10 @@
 // Conecta com: ClientesModal.tsx (dropdowns UF e Cidade)
 // ============================================================
 
-// Importa o JSON direto — Next.js suporta import de JSON nativamente
-import localidades from '@/public/localidades_br.json'
+// Importa o JSON de lib/data/ — arquitetura correta para Next.js
+// public/ é para assets servidos pelo browser; imports JS devem usar lib/ ou src/
+// Caminho anterior (@/public/localidades_br.json) funcionava mas era anti-pattern
+import localidades from '@/lib/data/localidades_br.json'
 
 // Tipagem do JSON: objeto com chave UF e array de cidades
 const dados = localidades as Record<string, string[]>

@@ -77,8 +77,10 @@ export default function Basebar({ clientes, onNovoCliente, onRestaurado }: Baseb
       await restaurarBackup(dados)
       alert(`Backup restaurado! ${dados.length} registros processados.`)
       onRestaurado()
-    } catch (err: any) {
-      alert(`Erro ao restaurar: ${err.message}`)
+    } catch (err: unknown) {
+      // Narrows err para acessar .message com segurança — evita any implícito
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+      alert(`Erro ao restaurar: ${msg}`)
     } finally {
       setLoadingRestore(false)
       e.target.value = ''
@@ -100,10 +102,13 @@ export default function Basebar({ clientes, onNovoCliente, onRestaurado }: Baseb
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-around',
-        padding: '6px 0 10px',
+        // padding shorthand define 10px bottom; paddingBottom usa calc() para
+        // somar o safe-area-inset (iPhones com home bar) ao padding base
+        // Em Android e desktop, env() resolve para 0px → resultado = 10px
+        padding: '6px 0 0',
+        paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
         zIndex: 100,
         fontFamily: 'Tahoma, Geneva, sans-serif',
-        paddingBottom: 'env(safe-area-inset-bottom)',
       }}
     >
       {/* Backup — ti-database */}
@@ -135,7 +140,7 @@ export default function Basebar({ clientes, onNovoCliente, onRestaurado }: Baseb
         onChange={handleArquivoSelecionado}
       />
 
-      {/* Exportar — ti-database-import via ExportDropdown mobile */}
+      {/* Exportar — ti-table-export via ExportDropdown mobile */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <ExportDropdown clientes={clientes} mobile />
       </div>

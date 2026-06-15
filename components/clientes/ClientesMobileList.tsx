@@ -130,7 +130,7 @@ export default function ClientesMobileList({
             <button
               onClick={() => onEditar(cliente)}
               title="Editar cliente"
-              aria-label={`Editar ${cliente.fantasia}`}
+              aria-label={`Editar ${cliente.fantasia ?? cliente.razao}`}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -152,7 +152,7 @@ export default function ClientesMobileList({
             <button
               onClick={() => onVisualizar(cliente)}
               title="Visualizar cliente"
-              aria-label={`Visualizar ${cliente.fantasia}`}
+              aria-label={`Visualizar ${cliente.fantasia ?? cliente.razao}`}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',

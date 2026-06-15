@@ -32,8 +32,9 @@ export default function TopbarMobile({ usuario = '', onOpenDrawer }: TopbarMobil
   const meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']
   const dataFormatada = `${diasSemana[agora.getDay()]}, ${String(agora.getDate()).padStart(2,'0')} ${meses[agora.getMonth()]} ${agora.getFullYear()}`
 
-  // Extrai 1º nome — remove domínio de email se necessário, pega primeira palavra
-  const primeiroNome = (usuario.includes('@') ? usuario.split('@')[0] : usuario).split(/[\s._-]/)[0] || usuario
+  // Extrai 1º nome — usuario já chega sem domínio (pre-processado em page.tsx)
+  // includes('@') sempre false aqui; simplificado para evitar branch morto
+  const primeiroNome = usuario.split(/[\s._-]/)[0] || usuario
 
   return (
     <>
@@ -88,12 +89,19 @@ export default function TopbarMobile({ usuario = '', onOpenDrawer }: TopbarMobil
           />
         </div>
 
-        {/* Direita — "Olá! 1º nome" */}
-        <div style={{ flexShrink: 0, zIndex: 2 }}>
+        {/* Direita — "Olá!" na 1ª linha, nome na 2ª, ambos alinhados à direita */}
+        <div style={{ flexShrink: 0, zIndex: 2, textAlign: 'right' }}>
           {primeiroNome && (
-            <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 700 }}>
-              Olá! {primeiroNome}
-            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              {/* Linha 1: saudação */}
+              <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 700, lineHeight: 1.3 }}>
+                Olá!
+              </span>
+              {/* Linha 2: primeiro nome do usuário logado */}
+              <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 700, lineHeight: 1.3 }}>
+                {primeiroNome}
+              </span>
+            </div>
           )}
         </div>
       </header>

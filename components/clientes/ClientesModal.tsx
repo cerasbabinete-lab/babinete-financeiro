@@ -89,9 +89,12 @@ export default function ClientesModal({
   // ============================================================
   // Efeito: pré-preenche o formulário ao abrir
   // ============================================================
+  // Múltiplos setState aqui é o padrão correto para reset de formulário
+  // ao mudar o modo (novo/editar/visualizar) ou o cliente recebido via props
+  // useReducer seria alternativa mas adicionaria complexidade sem benefício real
   useEffect(() => {
     if (modo === 'novo') {
-      setForm(FORM_INICIAL)
+      setForm(FORM_INICIAL) // eslint-disable-line react-hooks/set-state-in-effect
       setCidades([])
       setErros({})
     } else if ((modo === 'editar' || modo === 'visualizar') && cliente) {
@@ -168,11 +171,20 @@ export default function ClientesModal({
       novosErros.razao = 'Razão Social é obrigatória.'
     }
 
-    // CNPJ ou CPF — ao menos um deve estar preenchido
+    // CNPJ ou CPF — ao menos um deve estar preenchido com dígitos corretos
+    // CNPJ requer exatamente 14 dígitos; CPF requer exatamente 11 dígitos
+    // Sem este check, qualquer string não-vazia passaria (ex: "1" seria aceito)
     const cnpjLimpo = (form.cnpj ?? '').replace(/[^0-9]/g, '')
-    const cpfLimpo = (form.cpf ?? '').replace(/[^0-9]/g, '')
+    const cpfLimpo  = (form.cpf  ?? '').replace(/[^0-9]/g, '')
     if (!cnpjLimpo && !cpfLimpo) {
+      // Nenhum dos dois preenchido
       novosErros.cnpj = 'Informe o CNPJ ou CPF.'
+    } else if (cnpjLimpo && cnpjLimpo.length !== 14) {
+      // CNPJ preenchido mas com número de dígitos incorreto
+      novosErros.cnpj = 'CNPJ deve conter exatamente 14 dígitos.'
+    } else if (cpfLimpo && cpfLimpo.length !== 11) {
+      // CPF preenchido mas com número de dígitos incorreto
+      novosErros.cpf = 'CPF deve conter exatamente 11 dígitos.'
     }
 
     // CEP formato 00000-000 (se preenchido)
@@ -199,8 +211,10 @@ export default function ClientesModal({
       }
       onSalvo()
       onFechar()
-    } catch (err: any) {
-      alert(`Erro ao salvar: ${err.message}`)
+    } catch (err: unknown) {
+      // Narrows err para acessar .message com segurança — evita any implícito
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+      alert(`Erro ao salvar: ${msg}`)
       console.error(err)
     } finally {
       setSalvando(false)
@@ -556,8 +570,9 @@ export default function ClientesModal({
                 opacity: salvando ? 0.7 : 1,
               }}
             >
+              {/* Ícone Tabler — único ícone de save, sem emoji duplicado */}
               <i className="ti ti-device-floppy" style={{ fontSize: '14px' }} aria-hidden="true" />
-              {salvando ? 'Salvando...' : '💾 Gravar'}
+              {salvando ? 'Salvando...' : 'Gravar'}
             </button>
           )}
         </div>

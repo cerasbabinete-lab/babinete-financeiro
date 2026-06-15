@@ -145,7 +145,13 @@ export default function ExportDropdown({ clientes, mobile = false }: ExportDropd
         <div
           style={{
             position: 'absolute',
-            top: 'calc(100% + 4px)',
+            // Mobile: abre para cima (componente fica na Basebar fixa no rodapé)
+            // Desktop: abre para baixo (comportamento padrão de dropdown)
+            // Sem esta inversão, o dropdown fica invisível abaixo da viewport no mobile
+            ...(mobile
+              ? { bottom: 'calc(100% + 4px)', top: undefined }
+              : { top: 'calc(100% + 4px)', bottom: undefined }
+            ),
             right: 0,
             background: '#ffffff',
             border: '1px solid #dde8f0',

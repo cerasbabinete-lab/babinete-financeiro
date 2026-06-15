@@ -13,7 +13,7 @@
 
 import { useRef, useState } from 'react'
 import { fazerBackup, lerArquivoBackup, restaurarBackup } from '@/lib/clientesService'
-import type { Cliente, ModoModal } from '@/types/clientes'
+import type { Cliente } from '@/types/clientes' // ModoModal removido — não usado neste componente
 import ExportDropdown from './ExportDropdown'
 
 // ============================================================
@@ -91,8 +91,10 @@ export default function ClientesHeader({
       await restaurarBackup(dados)
       alert(`Backup restaurado com sucesso! ${dados.length} registros processados.`)
       onRestaurado() // Recarrega a lista na página pai
-    } catch (err: any) {
-      alert(`Erro ao restaurar: ${err.message}`)
+    } catch (err: unknown) {
+      // Narrows err para acessar .message com segurança — evita any implícito
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+      alert(`Erro ao restaurar: ${msg}`)
       console.error(err)
     } finally {
       setLoadingRestore(false)

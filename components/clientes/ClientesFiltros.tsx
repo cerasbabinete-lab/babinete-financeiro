@@ -10,7 +10,7 @@
 
 'use client'
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react' // useCallback removido — não usado neste componente
 import type { FiltrosClientes } from '@/types/clientes'
 
 // ============================================================
@@ -29,6 +29,19 @@ export default function ClientesFiltros({ filtros, onFiltrosChange }: ClientesFi
   // Ref para o timer do debounce da busca textual
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Estado local do input de busca — necessário para input controlado
+  // defaultValue causaria desync se filtros.busca for resetado externamente
+  // (ex: futuro botão "Limpar filtros" não refletiria no campo visual)
+  const [inputValue, setInputValue] = useState(filtros.busca)
+
+  // Sincroniza inputValue com filtros.busca quando resetado externamente
+  // (ex: botão "Limpar filtros" no pai zera filtros.busca para '')
+  useEffect(() => {
+    // setState síncrono aqui é o padrão correto para sincronizar estado
+    // derivado de props — sem este efeito o campo visual fica desincronizado
+    setInputValue(filtros.busca) // eslint-disable-line react-hooks/set-state-in-effect
+  }, [filtros.busca])
+
   // ============================================================
   // handleBusca
   // Aplica debounce de 300ms antes de disparar o filtro
@@ -36,6 +49,9 @@ export default function ClientesFiltros({ filtros, onFiltrosChange }: ClientesFi
   // ============================================================
   function handleBusca(e: React.ChangeEvent<HTMLInputElement>) {
     const valor = e.target.value
+    // Atualiza o estado local imediatamente (input controlado — sem lag visual)
+    setInputValue(valor)
+    // Dispara o filtro com debounce de 300ms para evitar query a cada tecla
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
       onFiltrosChange({ ...filtros, busca: valor })
@@ -97,7 +113,7 @@ export default function ClientesFiltros({ filtros, onFiltrosChange }: ClientesFi
       {/* Search bar — ocupa o espaço restante */}
       <input
         type="text"
-        defaultValue={filtros.busca}
+        value={inputValue}
         onChange={handleBusca}
         placeholder="Buscar por nome, CNPJ ou cidade..."
         style={{

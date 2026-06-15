@@ -146,11 +146,12 @@ export default function ClientesTabela({
                   {/* Razão Social */}
                   <td style={tdStyle()}>{cliente.razao || '—'}</td>
 
-                  {/* CNPJ/CPF */}
+                  {/* CNPJ/CPF — exibe o primeiro preenchido ou '—' se ambos vazios */}
+                  {/* Comparações com mask-strings removidas: não devem existir no banco */}
                   <td style={tdStyle()}>
-                    {cliente.cnpj && cliente.cnpj !== '___.___.___-__'
+                    {cliente.cnpj
                       ? cliente.cnpj
-                      : cliente.cpf && cliente.cpf !== '___.___.___-__'
+                      : cliente.cpf
                       ? cliente.cpf
                       : '—'}
                   </td>
@@ -194,7 +195,7 @@ export default function ClientesTabela({
                       <button
                         onClick={() => onEditar(cliente)}
                         title="Editar cliente"
-                        aria-label={`Editar ${cliente.fantasia}`}
+                        aria-label={`Editar ${cliente.fantasia ?? cliente.razao}`}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -219,7 +220,7 @@ export default function ClientesTabela({
                       <button
                         onClick={() => onVisualizar(cliente)}
                         title="Visualizar cliente"
-                        aria-label={`Visualizar ${cliente.fantasia}`}
+                        aria-label={`Visualizar ${cliente.fantasia ?? cliente.razao}`}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',

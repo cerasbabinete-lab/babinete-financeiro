@@ -148,7 +148,9 @@ export default function WhatsAppSection({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           {contatos.map((c, index) => (
             <div
-              key={index}
+              // Chave estável combinando phone+name+index
+              // key={index} puro causa reuso incorreto de DOM ao remover do meio da lista
+              key={`${c.phone}-${c.name}-${index}`}
               style={{
                 display: 'flex',
                 alignItems: 'center',
