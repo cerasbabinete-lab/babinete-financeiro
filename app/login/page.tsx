@@ -74,7 +74,7 @@ export default function LoginPage() {
           }}
         >
           <Image
-            src="/img/logo_branca.png"
+            src="/img/logo_branca.svg"
             alt="Ceras Babinete"
             height={48}
             width={128}

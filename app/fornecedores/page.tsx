@@ -1,12 +1,12 @@
 // ============================================================
-// app/clientes/page.tsx
+// app/fornecedores/page.tsx
 // Projeto: Ceras Babinete — Gestão Financeira
-// Módulo: Clientes
-// Função: Página principal — orquestra todos os componentes
-//         Gerencia estado global: lista, filtros, modal, drawer
-//         Detecta desktop/mobile via useMediaQuery
-//         Requer autenticação Supabase
-// Conecta com: todos os componentes do módulo clientes e layout
+// Módulo: Fornecedores
+// Função: Página principal — clone funcional de app/clientes/page.tsx
+//         Sem lógica de Lista/Status, sem filtros dropdown
+//         Reutiliza Topbar, TopbarMobile, NavBar, Drawer, Basebar
+//         (componentes globais — NÃO alterados)
+// Conecta com: todos os componentes do módulo fornecedores e layout
 // ============================================================
 
 'use client'
@@ -14,73 +14,55 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { buscarClientes, contarClientesAtivos } from '@/lib/clientesService'
-import type { Cliente, FiltrosClientes, ModoModal } from '@/types/clientes'
+import { buscarFornecedores, contarFornecedores } from '@/lib/fornecedoresService'
+import type { Fornecedor, FiltrosFornecedores, ModoModal } from '@/types/fornecedores'
 
-// Layout
+// Layout — componentes globais, reutilizados sem alteração
 import Topbar from '@/components/layout/Topbar'
 import TopbarMobile from '@/components/layout/TopbarMobile'
 import NavBar from '@/components/layout/NavBar'
 import Drawer from '@/components/layout/Drawer'
-import BasebarClientes from '@/components/clientes/BasebarClientes'
 
-// Módulo Clientes
-import ClientesHeader from '@/components/clientes/ClientesHeader'
-import ClientesFiltros from '@/components/clientes/ClientesFiltros'
-import ClientesTabela from '@/components/clientes/ClientesTabela'
-import ClientesMobileList from '@/components/clientes/ClientesMobileList'
-import ClientesModal from '@/components/clientes/ClientesModal'
+// Módulo Fornecedores
+import FornecedoresHeader from '@/components/fornecedores/FornecedoresHeader'
+import FornecedoresFiltros from '@/components/fornecedores/FornecedoresFiltros'
+import FornecedoresTabela from '@/components/fornecedores/FornecedoresTabela'
+import FornecedoresMobileList from '@/components/fornecedores/FornecedoresMobileList'
+import FornecedoresModal from '@/components/fornecedores/FornecedoresModal'
+import BasebarFornecedores from '@/components/fornecedores/BasebarFornecedores'
 
 // ============================================================
-// Filtros iniciais padrão
+// Filtros iniciais padrão — sem lista/status, só busca
 // ============================================================
-const FILTROS_INICIAIS: FiltrosClientes = {
+const FILTROS_INICIAIS: FiltrosFornecedores = {
   busca: '',
-  lista: 'todas',
-  status: 'ativos',
 }
 
 // ============================================================
 // Page
 // ============================================================
-export default function ClientesPage() {
+export default function FornecedoresPage() {
 
   const router = useRouter()
 
-  // ============================================================
-  // Estado de autenticação
-  // ============================================================
   const [usuario, setUsuario] = useState<string>('')
   const [authCarregando, setAuthCarregando] = useState(true)
 
-  // ============================================================
-  // Estado da lista de clientes
-  // ============================================================
-  const [clientes, setClientes] = useState<Cliente[]>([])
-  const [totalAtivos, setTotalAtivos] = useState(0)
+  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
+  const [total, setTotal] = useState(0)
   const [carregando, setCarregando] = useState(true)
 
-  // ============================================================
-  // Estado dos filtros
-  // ============================================================
-  const [filtros, setFiltros] = useState<FiltrosClientes>(FILTROS_INICIAIS)
+  const [filtros, setFiltros] = useState<FiltrosFornecedores>(FILTROS_INICIAIS)
 
-  // ============================================================
-  // Estado do modal
-  // ============================================================
   const [modoModal, setModoModal] = useState<ModoModal>(null)
-  const [clienteSelecionado, setClienteSelecionado] = useState<Cliente | null>(null)
+  const [fornecedorSelecionado, setFornecedorSelecionado] = useState<Fornecedor | null>(null)
 
-  // ============================================================
-  // Estado do drawer mobile
-  // ============================================================
   const [drawerAberto, setDrawerAberto] = useState(false)
-
-  // ============================================================
-  // Detecção de mobile (breakpoint 768px)
-  // ============================================================
   const [isMobile, setIsMobile] = useState(false)
 
+  // ============================================================
+  // Detecção de mobile (breakpoint 768px) — mesmo padrão de Clientes
+  // ============================================================
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
     setIsMobile(mq.matches)
@@ -91,7 +73,6 @@ export default function ClientesPage() {
 
   // ============================================================
   // Verificação de autenticação
-  // Redireciona para /login se não autenticado
   // ============================================================
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -99,7 +80,6 @@ export default function ClientesPage() {
         router.push('/login')
         return
       }
-      // Extrai nome do usuário do email (parte antes do @)
       const email = session.user.email ?? ''
       setUsuario(email.split('@')[0])
       setAuthCarregando(false)
@@ -107,61 +87,57 @@ export default function ClientesPage() {
   }, [router])
 
   // ============================================================
-  // carregarClientes
-  // Busca lista filtrada e atualiza contador de ativos
+  // carregarFornecedores
+  // Busca lista filtrada e atualiza contador
   // ============================================================
-  const carregarClientes = useCallback(async () => {
+  const carregarFornecedores = useCallback(async () => {
     setCarregando(true)
     try {
-      const [lista, total] = await Promise.all([
-        buscarClientes(filtros),
-        contarClientesAtivos(),
+      const [lista, totalRegistros] = await Promise.all([
+        buscarFornecedores(filtros),
+        contarFornecedores(),
       ])
-      setClientes(lista)
-      setTotalAtivos(total)
+      setFornecedores(lista)
+      setTotal(totalRegistros)
     } catch (err) {
-      console.error('[ClientesPage] carregarClientes error:', err)
+      console.error('[FornecedoresPage] carregarFornecedores error:', err)
     } finally {
       setCarregando(false)
     }
   }, [filtros])
 
-  // Recarrega sempre que os filtros mudarem (e auth estiver pronta)
   useEffect(() => {
-    if (!authCarregando) carregarClientes()
-  }, [authCarregando, carregarClientes])
+    if (!authCarregando) carregarFornecedores()
+  }, [authCarregando, carregarFornecedores])
 
   // ============================================================
   // Handlers do modal
   // ============================================================
-  function handleNovoCliente() {
-    setClienteSelecionado(null)
+  function handleNovoFornecedor() {
+    setFornecedorSelecionado(null)
     setModoModal('novo')
   }
 
-  function handleEditar(cliente: Cliente) {
-    setClienteSelecionado(cliente)
+  function handleEditar(fornecedor: Fornecedor) {
+    setFornecedorSelecionado(fornecedor)
     setModoModal('editar')
   }
 
-  function handleVisualizar(cliente: Cliente) {
-    setClienteSelecionado(cliente)
+  function handleVisualizar(fornecedor: Fornecedor) {
+    setFornecedorSelecionado(fornecedor)
     setModoModal('visualizar')
   }
 
   function handleFecharModal() {
     setModoModal(null)
-    setClienteSelecionado(null)
+    setFornecedorSelecionado(null)
   }
 
   function handleSalvo() {
-    carregarClientes()
+    carregarFornecedores()
   }
 
-  // ============================================================
-  // Handler de filtros
-  // ============================================================
-  function handleFiltrosChange(novosFiltros: FiltrosClientes) {
+  function handleFiltrosChange(novosFiltros: FiltrosFornecedores) {
     setFiltros(novosFiltros)
   }
 
@@ -201,13 +177,9 @@ export default function ClientesPage() {
           fontFamily: 'Tahoma, Geneva, sans-serif',
         }}
       >
-        {/* Topbar */}
         <Topbar usuario={usuario} />
-
-        {/* NavBar */}
         <NavBar />
 
-        {/* Conteúdo principal */}
         <main
           style={{
             flex: 1,
@@ -215,39 +187,35 @@ export default function ClientesPage() {
             padding: '16px 20px',
           }}
         >
-          {/* Header: título + contador + botões */}
-          <ClientesHeader
-            totalAtivos={totalAtivos}
-            clientes={clientes}
+          <FornecedoresHeader
+            total={total}
+            fornecedores={fornecedores}
             usuario={usuario}
-            onNovoCliente={handleNovoCliente}
-            onRestaurado={carregarClientes}
+            onNovoFornecedor={handleNovoFornecedor}
+            onRestaurado={carregarFornecedores}
           />
 
-          {/* Filtros: busca + dropdowns */}
-          <ClientesFiltros
+          <FornecedoresFiltros
             filtros={filtros}
             onFiltrosChange={handleFiltrosChange}
           />
 
-          {/* Tabela de clientes */}
           {carregando ? (
             <div style={{ padding: '32px', textAlign: 'center', color: '#5a84a6', fontSize: '12px' }}>
-              Carregando clientes...
+              Carregando fornecedores...
             </div>
           ) : (
-            <ClientesTabela
-              clientes={clientes}
+            <FornecedoresTabela
+              fornecedores={fornecedores}
               onEditar={handleEditar}
               onVisualizar={handleVisualizar}
             />
           )}
         </main>
 
-        {/* Modal */}
-        <ClientesModal
+        <FornecedoresModal
           modo={modoModal}
-          cliente={clienteSelecionado}
+          fornecedor={fornecedorSelecionado}
           onFechar={handleFecharModal}
           onSalvo={handleSalvo}
         />
@@ -266,67 +234,62 @@ export default function ClientesPage() {
         minHeight: '100vh',
         background: '#f0f4f7',
         fontFamily: 'Tahoma, Geneva, sans-serif',
-        paddingBottom: '56px', // espaço para a Basebar fixa
+        paddingBottom: '56px',
       }}
     >
-      {/* Topbar mobile + datetime strip */}
       <TopbarMobile
         usuario={usuario}
         onOpenDrawer={() => setDrawerAberto(true)}
       />
 
-      {/* Drawer lateral */}
       <Drawer
         isOpen={drawerAberto}
         onClose={() => setDrawerAberto(false)}
       />
 
-      {/* Conteúdo */}
       <main style={{ flex: 1, padding: '10px 12px' }}>
 
-        {/* Header mobile: título + contador */}
         <div style={{ marginBottom: '8px' }}>
           <div style={{ fontSize: '12px', fontWeight: 700, color: '#1a6094' }}>
-            Carteira de Clientes
+            Carteira de Fornecedores
           </div>
           <div style={{ fontSize: '9px', color: '#5a84a6' }}>
-            {totalAtivos} clientes ativos
+            {total} fornecedores
           </div>
         </div>
 
-        {/* Filtros */}
-        <ClientesFiltros
+        <FornecedoresFiltros
           filtros={filtros}
           onFiltrosChange={handleFiltrosChange}
         />
 
-        {/* Lista mobile */}
         {carregando ? (
           <div style={{ padding: '32px', textAlign: 'center', color: '#5a84a6', fontSize: '12px' }}>
-            Carregando clientes...
+            Carregando fornecedores...
           </div>
         ) : (
-          <ClientesMobileList
-            clientes={clientes}
+          <FornecedoresMobileList
+            fornecedores={fornecedores}
             onEditar={handleEditar}
             onVisualizar={handleVisualizar}
           />
         )}
       </main>
 
-      {/* Basebar fixa — específica do módulo Clientes (BasebarClientes),
-          não o Basebar.tsx global (congelado por decisão do usuário) */}
-      <BasebarClientes
-        clientes={clientes}
+      {/* Basebar específica do módulo Fornecedores — componente separado
+          criado porque o Basebar.tsx global está acoplado ao módulo
+          Clientes (props/imports específicos) e está marcado como
+          "não alterar" pelo usuário. */}
+      <BasebarFornecedores
+        fornecedores={fornecedores}
         usuario={usuario}
-        onNovoCliente={handleNovoCliente}
-        onRestaurado={carregarClientes}
+        onNovoFornecedor={handleNovoFornecedor}
+        onRestaurado={carregarFornecedores}
       />
 
-      {/* Modal */}
-      <ClientesModal
+      <FornecedoresModal
         modo={modoModal}
-        cliente={clienteSelecionado}
+        fornecedor={fornecedorSelecionado}
         onFechar={handleFecharModal}
         onSalvo={handleSalvo}
       />

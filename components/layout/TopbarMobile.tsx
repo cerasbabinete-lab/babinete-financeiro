@@ -83,7 +83,7 @@ export default function TopbarMobile({ usuario = '', onOpenDrawer }: TopbarMobil
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/img/logo_branca.png"
+            src="/img/logo_branca.svg"
             alt="Ceras Babinete"
             style={{ height: '44px', objectFit: 'contain' }}
           />

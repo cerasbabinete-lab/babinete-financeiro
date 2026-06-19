@@ -3,7 +3,7 @@
 // Projeto: Ceras Babinete — Gestão Financeira
 // Módulo: Global
 // Função: Topbar desktop — 64px, fundo #1a6094
-//         Esquerda: logo_branca.png + subtítulos (sem nome empresa)
+//         Esquerda: logo_branca.svg + subtítulos (sem nome empresa)
 //         Centro: "Gestão Financeira" (22px)
 //         Direita: 1º nome usuário + ícones Trocar (48px) + Sair (48px)
 //         Ícones sem texto — tooltip no hover
@@ -53,7 +53,7 @@ export default function Topbar({ usuario = '' }: TopbarProps) {
       <div style={{ flexShrink: 0 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/img/logo_branca.png"
+          src="/img/logo_branca.svg"
           alt="Ceras Babinete"
           style={{ height: '44px', objectFit: 'contain' }}
         />
@@ -162,7 +162,7 @@ export default function Topbar({ usuario = '' }: TopbarProps) {
             }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/img/sair.png" alt="Sair do sistema" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
+            <img src="/img/sair.svg" alt="Sair do sistema" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
           </button>
           <div style={{
             position: 'absolute',

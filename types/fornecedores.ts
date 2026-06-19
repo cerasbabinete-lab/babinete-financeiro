@@ -1,39 +1,40 @@
 // ============================================================
-// types/clientes.ts
+// types/fornecedores.ts
 // Projeto: Ceras Babinete — Gestão Financeira
-// Módulo: Clientes
-// Função: Tipagem TypeScript completa da tabela clientes
-// Conecta com: clientesService.ts, ClientesModal.tsx,
-//              ClientesTabela.tsx, ClientesMobileList.tsx
+// Módulo: Fornecedores
+// Função: Tipagem TypeScript completa da tabela fornecedores
+//         Clone funcional de types/clientes.ts — sem nomelista,
+//         com campos novos: website, dados_bancarios, data_nascimento
+// Conecta com: fornecedoresService.ts, FornecedoresModal.tsx,
+//              FornecedoresTabela.tsx, FornecedoresMobileList.tsx
 // ============================================================
 
 // ============================================================
 // ContatoWhatsApp
-// Representa um contato da seção WhatsApp Business
-// Armazenado como array JSONB no campo contato_whatsapp
+// Reutiliza a mesma estrutura do módulo Clientes
 // ============================================================
 export interface ContatoWhatsApp {
   name: string   // Nome do contato WhatsApp
-  phone: string  // Número do telefone (ex: 44999990000)
+  phone: string  // Número do telefone
 }
 
 // ============================================================
-// Cliente
-// Representa um registro completo da tabela clientes
-// Todos os campos opcionais exceto id, razao e nomelista
+// Fornecedor
+// Representa um registro completo da tabela fornecedores
+// Sem nomelista — não existe conceito de ativo/inativo neste módulo
 // ============================================================
-export interface Cliente {
+export interface Fornecedor {
   id: number                          // Chave primária auto-increment (Código)
   razao: string                       // Razão Social (obrigatório)
   fantasia?: string                   // Nome Fantasia
   end?: string                        // Endereço
   num?: string                        // Número
   bairro?: string                     // Bairro
-  cep?: string                        // CEP formato 00000-000
+  cep?: string                        // CEP
   cidade?: string                     // Cidade
   uf?: string                         // UF — sigla do estado (2 chars)
   cnpj?: string                       // CNPJ formatado
-  cpf?: string                        // CPF formatado
+  cpf?: string                        // CPF formatado (fornecedor pode ser PF)
   ie?: string                         // Inscrição Estadual
   fone1?: string                      // Telefone principal
   fone2?: string                      // Telefone secundário
@@ -41,55 +42,37 @@ export interface Cliente {
   fone_contato?: string               // Telefone do contato
   email?: string                      // E-mail principal
   email_contato?: string              // E-mail do contato
-  nomelista: string                   // Lista: '0'=inativo, '1','2','3','4','VAREJO'
+  website?: string                    // Website do fornecedor — campo novo
+  dados_bancarios?: string            // Dados bancários (free text) — campo novo
+  data_nascimento?: string            // Data nascimento (CPF/pessoa física) — modal only
   observacoes?: string                // Observações livres
   contato_whatsapp?: ContatoWhatsApp[] // Contatos WhatsApp Business (JSONB)
-  telefone_whatsapp?: string          // Campo legado do CSV (depreciado)
-  data_nascimento?: string            // Data de nascimento (CPF/pessoa física) — modal only, nunca na tabela
   created_at?: string                 // Criado em (ISO string)
   updated_at?: string                 // Atualizado em (ISO string)
 }
 
 // ============================================================
-// ClienteInsert
+// FornecedorInsert
 // Tipo para INSERT — omite campos gerados automaticamente
-// Usado em clientesService.ts → criarCliente()
 // ============================================================
-export type ClienteInsert = Omit<Cliente, 'id' | 'created_at' | 'updated_at'>
+export type FornecedorInsert = Omit<Fornecedor, 'id' | 'created_at' | 'updated_at'>
 
 // ============================================================
-// ClienteUpdate
+// FornecedorUpdate
 // Tipo para UPDATE — todos os campos opcionais exceto id
-// Usado em clientesService.ts → editarCliente()
 // ============================================================
-export type ClienteUpdate = Partial<ClienteInsert> & { id: number }
+export type FornecedorUpdate = Partial<FornecedorInsert> & { id: number }
 
 // ============================================================
-// FiltrosClientes
-// Estado dos filtros ativos na tela de listagem
-// Usado em ClientesFiltros.tsx e clientesService.ts
+// FiltrosFornecedores
+// Apenas busca textual — sem filtros de Lista/Status (não existem neste módulo)
 // ============================================================
-export interface FiltrosClientes {
-  busca: string      // Texto livre — busca em fantasia, razao, cnpj, cpf, cidade
-  lista: string      // 'todas' | '1' | '2' | '3' | '4' | 'VAREJO'
-  status: string     // 'ativos' | 'inativos' | 'todos'
+export interface FiltrosFornecedores {
+  busca: string  // Texto livre — busca em fantasia, razao, cnpj, cpf, cidade
 }
 
 // ============================================================
 // ModoModal
-// Controla o modo de abertura do modal de cliente
+// Controla o modo de abertura do modal de fornecedor
 // ============================================================
 export type ModoModal = 'novo' | 'editar' | 'visualizar' | null
-
-// ============================================================
-// OpcaoLista
-// Valores válidos para o campo nomelista
-// ============================================================
-export const OPCOES_LISTA = [
-  { value: '0', label: '0 — Inativo' },
-  { value: '1', label: 'Lista 1' },
-  { value: '2', label: 'Lista 2' },
-  { value: '3', label: 'Lista 3' },
-  { value: '4', label: 'Lista 4' },
-  { value: 'VAREJO', label: 'Varejo' },
-] as const

@@ -1,40 +1,40 @@
 // ============================================================
-// components/clientes/ClientesModal.tsx
+// components/fornecedores/FornecedoresModal.tsx
 // Projeto: Ceras Babinete — Gestão Financeira
-// Módulo: Clientes
-// Função: Modal completo para Novo Cliente, Editar Cliente
-//         e Visualizar Cliente (read-only)
-//         Contém todos os campos do spec + validações + WhatsApp
-// Conecta com: app/clientes/page.tsx (modo, cliente, onFechar, onSalvo)
-//              clientesService.ts (criarCliente, editarCliente)
-//              localidades.ts (getUFs, getCidades)
-//              WhatsAppSection.tsx (contatos WhatsApp)
-//              types/clientes.ts (Cliente, ModoModal, OPCOES_LISTA)
+// Módulo: Fornecedores
+// Função: Modal completo Novo/Editar/Visualizar Fornecedor
+//         Clone de ClientesModal.tsx — SEM dropdown Lista,
+//         COM Website, Dados Bancários e Data de Nascimento
+// Conecta com: app/fornecedores/page.tsx (modo, fornecedor, onFechar, onSalvo)
+//              fornecedoresService.ts (criarFornecedor, editarFornecedor)
+//              lib/localidades.ts (getUFs, getCidades — reutilizado de Clientes)
+//              WhatsAppSection.tsx (reutilizado de Clientes — sem alteração)
+//              types/fornecedores.ts (Fornecedor, ModoModal)
 // ============================================================
 
 'use client'
 
 import { useEffect, useState } from 'react'
-import { criarCliente, editarCliente } from '@/lib/clientesService'
+import { criarFornecedor, editarFornecedor } from '@/lib/fornecedoresService'
 import { getUFs, getCidades } from '@/lib/localidades'
-import WhatsAppSection from './WhatsAppSection'
-import type { Cliente, ClienteInsert, ContatoWhatsApp, ModoModal } from '@/types/clientes'
-import { OPCOES_LISTA } from '@/types/clientes'
+import WhatsAppSection from '@/components/clientes/WhatsAppSection'
+import type { Fornecedor, FornecedorInsert, ContatoWhatsApp, ModoModal } from '@/types/fornecedores'
 
 // ============================================================
 // Props
 // ============================================================
-interface ClientesModalProps {
-  modo: ModoModal                        // 'novo' | 'editar' | 'visualizar' | null
-  cliente?: Cliente | null               // Cliente pré-preenchido (editar/visualizar)
-  onFechar: () => void                   // Fecha o modal sem salvar
-  onSalvo: () => void                    // Callback após salvar — recarrega lista
+interface FornecedoresModalProps {
+  modo: ModoModal
+  fornecedor?: Fornecedor | null
+  onFechar: () => void
+  onSalvo: () => void
 }
 
 // ============================================================
-// Estado inicial do formulário (cliente em branco)
+// Estado inicial do formulário (fornecedor em branco)
+// Sem nomelista — não existe neste módulo
 // ============================================================
-const FORM_INICIAL: ClienteInsert = {
+const FORM_INICIAL: FornecedorInsert = {
   razao: '',
   fantasia: '',
   end: '',
@@ -52,39 +52,29 @@ const FORM_INICIAL: ClienteInsert = {
   fone_contato: '',
   email: '',
   email_contato: '',
-  nomelista: '1',
+  website: '',
+  dados_bancarios: '',
+  data_nascimento: '',
   observacoes: '',
   contato_whatsapp: [],
-  telefone_whatsapp: '',
-  data_nascimento: '',
 }
 
 // ============================================================
-// ClientesModal
+// FornecedoresModal
 // ============================================================
-export default function ClientesModal({
+export default function FornecedoresModal({
   modo,
-  cliente,
+  fornecedor,
   onFechar,
   onSalvo,
-}: ClientesModalProps) {
+}: FornecedoresModalProps) {
 
-  // Estado do formulário
-  const [form, setForm] = useState<ClienteInsert>(FORM_INICIAL)
-
-  // Lista de cidades filtrada pela UF selecionada
+  const [form, setForm] = useState<FornecedorInsert>(FORM_INICIAL)
   const [cidades, setCidades] = useState<string[]>([])
-
-  // Estado de loading durante o save
   const [salvando, setSalvando] = useState(false)
-
-  // Erros de validação por campo
   const [erros, setErros] = useState<Record<string, string>>({})
 
-  // Lista de UFs carregada uma vez
   const ufs = getUFs()
-
-  // Read-only quando modo é 'visualizar'
   const readOnly = modo === 'visualizar'
 
   // ============================================================
@@ -95,53 +85,49 @@ export default function ClientesModal({
       setForm(FORM_INICIAL)
       setCidades([])
       setErros({})
-    } else if ((modo === 'editar' || modo === 'visualizar') && cliente) {
+    } else if ((modo === 'editar' || modo === 'visualizar') && fornecedor) {
       setForm({
-        razao: cliente.razao ?? '',
-        fantasia: cliente.fantasia ?? '',
-        end: cliente.end ?? '',
-        num: cliente.num ?? '',
-        bairro: cliente.bairro ?? '',
-        cep: cliente.cep ?? '',
-        cidade: cliente.cidade ?? '',
-        uf: cliente.uf ?? '',
-        cnpj: cliente.cnpj ?? '',
-        cpf: cliente.cpf ?? '',
-        ie: cliente.ie ?? '',
-        fone1: cliente.fone1 ?? '',
-        fone2: cliente.fone2 ?? '',
-        contato: cliente.contato ?? '',
-        fone_contato: cliente.fone_contato ?? '',
-        email: cliente.email ?? '',
-        email_contato: cliente.email_contato ?? '',
-        nomelista: cliente.nomelista ?? '1',
-        observacoes: cliente.observacoes ?? '',
-        contato_whatsapp: cliente.contato_whatsapp ?? [],
-        telefone_whatsapp: cliente.telefone_whatsapp ?? '',
-        data_nascimento: cliente.data_nascimento ?? '',
+        razao: fornecedor.razao ?? '',
+        fantasia: fornecedor.fantasia ?? '',
+        end: fornecedor.end ?? '',
+        num: fornecedor.num ?? '',
+        bairro: fornecedor.bairro ?? '',
+        cep: fornecedor.cep ?? '',
+        cidade: fornecedor.cidade ?? '',
+        uf: fornecedor.uf ?? '',
+        cnpj: fornecedor.cnpj ?? '',
+        cpf: fornecedor.cpf ?? '',
+        ie: fornecedor.ie ?? '',
+        fone1: fornecedor.fone1 ?? '',
+        fone2: fornecedor.fone2 ?? '',
+        contato: fornecedor.contato ?? '',
+        fone_contato: fornecedor.fone_contato ?? '',
+        email: fornecedor.email ?? '',
+        email_contato: fornecedor.email_contato ?? '',
+        website: fornecedor.website ?? '',
+        dados_bancarios: fornecedor.dados_bancarios ?? '',
+        data_nascimento: fornecedor.data_nascimento ?? '',
+        observacoes: fornecedor.observacoes ?? '',
+        contato_whatsapp: fornecedor.contato_whatsapp ?? [],
       })
-      // Carrega cidades da UF do cliente
-      if (cliente.uf) setCidades(getCidades(cliente.uf))
+      if (fornecedor.uf) setCidades(getCidades(fornecedor.uf))
       setErros({})
     }
-  }, [modo, cliente])
+  }, [modo, fornecedor])
 
   // ============================================================
   // handleChange
-  // Atualiza campo do formulário pelo nome
   // ============================================================
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) {
     const { name, value } = e.target
     setForm(prev => ({ ...prev, [name]: value }))
-    // Limpa erro do campo ao digitar
     if (erros[name]) setErros(prev => ({ ...prev, [name]: '' }))
   }
 
   // ============================================================
   // handleUFChange
-  // Atualiza UF e recarrega lista de cidades
   // ============================================================
   function handleUFChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const uf = e.target.value
@@ -151,7 +137,6 @@ export default function ClientesModal({
 
   // ============================================================
   // handleWhatsApp
-  // Atualiza array de contatos WhatsApp
   // ============================================================
   function handleWhatsApp(contatos: ContatoWhatsApp[]) {
     setForm(prev => ({ ...prev, contato_whatsapp: contatos }))
@@ -159,25 +144,21 @@ export default function ClientesModal({
 
   // ============================================================
   // validar
-  // Valida campos obrigatórios e formatos
-  // Retorna true se válido
+  // Mesma regra de Clientes: Razão Social obrigatória, CNPJ ou CPF
   // ============================================================
   function validar(): boolean {
     const novosErros: Record<string, string> = {}
 
-    // Razão Social obrigatória
     if (!form.razao.trim()) {
       novosErros.razao = 'Razão Social é obrigatória.'
     }
 
-    // CNPJ ou CPF — ao menos um deve estar preenchido
     const cnpjLimpo = (form.cnpj ?? '').replace(/[^0-9]/g, '')
     const cpfLimpo = (form.cpf ?? '').replace(/[^0-9]/g, '')
     if (!cnpjLimpo && !cpfLimpo) {
       novosErros.cnpj = 'Informe o CNPJ ou CPF.'
     }
 
-    // CEP formato 00000-000 (se preenchido)
     if (form.cep && !/^\d{5}-\d{3}$/.test(form.cep)) {
       novosErros.cep = 'CEP inválido. Use o formato 00000-000.'
     }
@@ -188,16 +169,15 @@ export default function ClientesModal({
 
   // ============================================================
   // handleSalvar
-  // Valida e salva (INSERT ou UPDATE)
   // ============================================================
   async function handleSalvar() {
     if (!validar()) return
     setSalvando(true)
     try {
       if (modo === 'novo') {
-        await criarCliente(form)
-      } else if (modo === 'editar' && cliente) {
-        await editarCliente({ ...form, id: cliente.id })
+        await criarFornecedor(form)
+      } else if (modo === 'editar' && fornecedor) {
+        await editarFornecedor({ ...form, id: fornecedor.id })
       }
       onSalvo()
       onFechar()
@@ -209,24 +189,19 @@ export default function ClientesModal({
     }
   }
 
-  // Não renderiza se modo for null
   if (!modo) return null
 
-  // ============================================================
-  // Título do modal conforme modo
-  // ============================================================
   const titulo =
     modo === 'novo'
-      ? 'Novo Cliente'
+      ? 'Novo Fornecedor'
       : modo === 'editar'
-      ? 'Editar Cliente'
-      : 'Visualizar Cliente'
+      ? 'Editar Fornecedor'
+      : 'Visualizar Fornecedor'
 
   // ============================================================
   // Render
   // ============================================================
   return (
-    // Overlay escuro
     <div
       style={{
         position: 'fixed',
@@ -241,7 +216,6 @@ export default function ClientesModal({
       }}
       onClick={e => { if (e.target === e.currentTarget) onFechar() }}
     >
-      {/* Card do modal */}
       <div
         style={{
           background: '#ffffff',
@@ -293,19 +267,17 @@ export default function ClientesModal({
             flex: 1,
           }}
         >
-          {/* Row 1: Código | Razão Social | Nome Fantasia | Lista */}
+          {/* Row 1: Código | Razão Social | Nome Fantasia — SEM Lista */}
           <div style={rowStyle}>
-            {/* Código — auto, read-only */}
             <div style={colStyle('80px')}>
               <label style={labelStyle}>Código</label>
               <input
-                value={cliente?.id ?? 'Auto'}
+                value={fornecedor?.id ?? 'Auto'}
                 readOnly
                 style={{ ...inputStyle, background: '#f0f4f7', color: '#5a84a6' }}
               />
             </div>
 
-            {/* Razão Social */}
             <div style={colStyle()}>
               <label style={labelStyle}>Razão Social *</label>
               <input
@@ -319,7 +291,6 @@ export default function ClientesModal({
               {erros.razao && <span style={erroStyle}>{erros.razao}</span>}
             </div>
 
-            {/* Nome Fantasia */}
             <div style={colStyle()}>
               <label style={labelStyle}>Nome Fantasia</label>
               <input
@@ -330,22 +301,6 @@ export default function ClientesModal({
                 placeholder="Nome Fantasia"
                 style={inputStyle}
               />
-            </div>
-
-            {/* Lista */}
-            <div style={colStyle('110px')}>
-              <label style={labelStyle}>Lista</label>
-              <select
-                name="nomelista"
-                value={form.nomelista}
-                onChange={handleChange}
-                disabled={readOnly}
-                style={selectStyle}
-              >
-                {OPCOES_LISTA.map(op => (
-                  <option key={op.value} value={op.value}>{op.label}</option>
-                ))}
-              </select>
             </div>
           </div>
 
@@ -379,7 +334,6 @@ export default function ClientesModal({
 
           {/* Row 3: UF | Cidade | CNPJ | CPF | I. Estadual */}
           <div style={rowStyle}>
-            {/* UF */}
             <div style={colStyle('80px')}>
               <label style={labelStyle}>UF</label>
               <select
@@ -396,7 +350,6 @@ export default function ClientesModal({
               </select>
             </div>
 
-            {/* Cidade */}
             <div style={colStyle()}>
               <label style={labelStyle}>Cidade</label>
               <select
@@ -415,7 +368,6 @@ export default function ClientesModal({
               </select>
             </div>
 
-            {/* CNPJ */}
             <div style={colStyle()}>
               <label style={labelStyle}>CNPJ</label>
               <input
@@ -429,13 +381,11 @@ export default function ClientesModal({
               {erros.cnpj && <span style={erroStyle}>{erros.cnpj}</span>}
             </div>
 
-            {/* CPF */}
             <div style={colStyle()}>
               <label style={labelStyle}>CPF</label>
               <input name="cpf" value={form.cpf ?? ''} onChange={handleChange} readOnly={readOnly} placeholder="000.000.000-00" style={inputStyle} />
             </div>
 
-            {/* I. Estadual */}
             <div style={colStyle()}>
               <label style={labelStyle}>I. Estadual</label>
               <input name="ie" value={form.ie ?? ''} onChange={handleChange} readOnly={readOnly} placeholder="I. Estadual" style={inputStyle} />
@@ -462,7 +412,7 @@ export default function ClientesModal({
             </div>
           </div>
 
-          {/* Row 5: E-mail | E-mail Contato */}
+          {/* Row 5: E-mail | E-mail Contato | Website (campo novo) */}
           <div style={rowStyle}>
             <div style={colStyle()}>
               <label style={labelStyle}>E-mail</label>
@@ -472,9 +422,13 @@ export default function ClientesModal({
               <label style={labelStyle}>E-mail Contato</label>
               <input name="email_contato" value={form.email_contato ?? ''} onChange={handleChange} readOnly={readOnly} placeholder="contato@empresa.com.br" type="email" style={inputStyle} />
             </div>
+            <div style={colStyle()}>
+              <label style={labelStyle}>Website</label>
+              <input name="website" value={form.website ?? ''} onChange={handleChange} readOnly={readOnly} placeholder="www.empresa.com.br" style={inputStyle} />
+            </div>
           </div>
 
-          {/* Row 6: Data de Nascimento — modal-only, nunca exibido na tabela/lista */}
+          {/* Row 6: Data de Nascimento — modal-only, campo novo */}
           <div style={rowStyle}>
             <div style={colStyle('180px')}>
               <label style={labelStyle}>Data de Nascimento</label>
@@ -492,12 +446,34 @@ export default function ClientesModal({
           {/* Divider */}
           <hr style={{ border: 'none', borderTop: '1px solid #dde8f0', margin: '12px 0' }} />
 
-          {/* Seção WhatsApp Business */}
+          {/* Seção WhatsApp Business — componente reutilizado de Clientes, sem alteração */}
           <WhatsAppSection
             contatos={form.contato_whatsapp ?? []}
             onChange={handleWhatsApp}
             readOnly={readOnly}
           />
+
+          {/* Dados Bancários — campo novo, mesmo tratamento visual de Observações */}
+          <div style={{ marginTop: '12px' }}>
+            <label style={labelStyle}>Dados Bancários</label>
+            <textarea
+              name="dados_bancarios"
+              value={form.dados_bancarios ?? ''}
+              onChange={handleChange}
+              readOnly={readOnly}
+              placeholder="BRADESCO - AG: 0000-0 - C/C: 00000-0"
+              rows={2}
+              style={{
+                ...inputStyle,
+                height: 'auto',
+                minHeight: '56px',
+                width: '100%',
+                boxSizing: 'border-box',
+                resize: 'vertical',
+                padding: '6px 8px',
+              }}
+            />
+          </div>
 
           {/* Observações */}
           <div style={{ marginTop: '12px' }}>
@@ -534,7 +510,6 @@ export default function ClientesModal({
             flexShrink: 0,
           }}
         >
-          {/* Cancelar / Fechar */}
           <button
             onClick={onFechar}
             style={{
@@ -552,7 +527,6 @@ export default function ClientesModal({
             {readOnly ? 'Fechar' : 'Cancelar'}
           </button>
 
-          {/* Gravar — oculto em modo visualizar */}
           {!readOnly && (
             <button
               onClick={handleSalvar}
@@ -584,7 +558,7 @@ export default function ClientesModal({
 }
 
 // ============================================================
-// Estilos auxiliares
+// Estilos auxiliares — idênticos ao ClientesModal.tsx
 // ============================================================
 
 const rowStyle: React.CSSProperties = {

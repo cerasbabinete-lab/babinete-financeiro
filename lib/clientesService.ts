@@ -6,7 +6,7 @@
 //         Camada de serviço entre UI e Supabase
 // Conecta com: supabase.ts (cliente), types/clientes.ts (tipos)
 //              ClientesTabela.tsx, ClientesModal.tsx,
-//              ExportDropdown.tsx, ClientesHeader.tsx, Basebar.tsx
+//              ExportDropdown.tsx, ClientesHeader.tsx
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
@@ -25,6 +25,12 @@ import * as XLSX from 'xlsx'
 
 // Nome da tabela no Supabase
 const TABELA = 'clientes'
+
+// Colunas exibidas na tabela e exportadas
+const COLUNAS_EXPORT = [
+  'id', 'fantasia', 'razao', 'cnpj', 'cpf',
+  'cidade', 'uf', 'fone1', 'email', 'contato', 'nomelista',
+]
 
 // ============================================================
 // buscarClientes()
@@ -50,12 +56,8 @@ export async function buscarClientes(filtros: FiltrosClientes): Promise<Cliente[
   }
 
   // Busca textual em múltiplos campos simultaneamente
-  // IMPORTANTE: sanitiza o termo antes de interpolar na string .or()
-  // Os caracteres , ( ) têm significado especial na sintaxe do filtro
-  // Supabase e podem quebrar a query silenciosamente se não removidos
   if (filtros.busca && filtros.busca.trim() !== '') {
-    const termoSanitizado = filtros.busca.trim().replace(/[,()]/g, '')
-    const termo = `%${termoSanitizado}%`
+    const termo = `%${filtros.busca.trim()}%`
     query = query.or(
       `fantasia.ilike.${termo},razao.ilike.${termo},cnpj.ilike.${termo},cpf.ilike.${termo},cidade.ilike.${termo}`
     )
@@ -166,10 +168,8 @@ export async function editarCliente(cliente: ClienteUpdate): Promise<Cliente> {
 // Usa papaparse para geração client-side
 // Chamado por: ExportDropdown.tsx ao selecionar "CSV"
 // ============================================================
-export function exportarCSV(clientes: Cliente[], usuario: string): void {
-  // Sanitiza o nome do usuário para uso seguro no nome do arquivo
-  const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
-  // Seleciona e mapeia os campos para exportação
+export function exportarCSV(clientes: Cliente[]): void {
+  // Seleciona apenas as colunas definidas em COLUNAS_EXPORT
   const dados = clientes.map(c => ({
     Código: c.id,
     'Nome Fantasia': c.fantasia ?? '',
@@ -191,16 +191,9 @@ export function exportarCSV(clientes: Cliente[], usuario: string): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `clientes_babinete_${dataHoje()}_${nomeSeguro}.csv`
-  // Adiciona ao DOM para compatibilidade cross-browser (Firefox requer)
-  document.body.appendChild(link)
+  link.download = `clientes_babinete_${dataHoje()}.csv`
   link.click()
-  // setTimeout garante que o Firefox consiga buscar o blob antes de revogá-lo
-  // chamada síncrona após click() falha silenciosamente no Firefox
-  setTimeout(() => {
-    URL.revokeObjectURL(url)
-    document.body.removeChild(link)
-  }, 100)
+  URL.revokeObjectURL(url)
 }
 
 // ============================================================
@@ -209,9 +202,7 @@ export function exportarCSV(clientes: Cliente[], usuario: string): void {
 // Usa SheetJS (xlsx) para geração client-side
 // Chamado por: ExportDropdown.tsx ao selecionar "Excel"
 // ============================================================
-export function exportarExcel(clientes: Cliente[], usuario: string): void {
-  // Sanitiza o nome do usuário para uso seguro no nome do arquivo
-  const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
+export function exportarExcel(clientes: Cliente[]): void {
   const dados = clientes.map(c => ({
     Código: c.id,
     'Nome Fantasia': c.fantasia ?? '',
@@ -229,23 +220,17 @@ export function exportarExcel(clientes: Cliente[], usuario: string): void {
   const ws = XLSX.utils.json_to_sheet(dados)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Clientes')
-  // SheetJS gera o blob e dispara o download internamente via writeFile
-  // Não há URL para revogar — download é síncrono e seguro em todos os browsers
-  XLSX.writeFile(wb, `clientes_babinete_${dataHoje()}_${nomeSeguro}.xlsx`)
+  XLSX.writeFile(wb, `clientes_babinete_${dataHoje()}.xlsx`)
 }
 
 // ============================================================
 // fazerBackup()
 // Exporta a tabela clientes COMPLETA (sem filtros) como JSON
-// e envia direto para o Supabase Storage (bucket: backups)
-// O arquivo NÃO é baixado localmente — fica salvo na nuvem
-// Parâmetro usuario: 1º nome do usuário logado — incluído no
-// nome do arquivo para identificar quem gerou o backup
-// Exemplo de nome: backup_clientes_2026-06-15_maycon.json
+// Inclui todos os campos para restauração fiel
+// Nome do arquivo inclui o usuário logado que gerou o backup
 // Chamado por: ClientesHeader.tsx e Basebar.tsx ao clicar em Backup
 // ============================================================
-export async function fazerBackup(usuario: string): Promise<void> {
-  // Busca todos os registros da tabela ordenados por id
+export async function fazerBackup(usuario?: string): Promise<void> {
   const { data, error } = await supabase
     .from(TABELA)
     .select('*')
@@ -256,86 +241,15 @@ export async function fazerBackup(usuario: string): Promise<void> {
     throw new Error(error.message)
   }
 
-  // Sanitiza o nome do usuário para uso seguro no nome do arquivo
-  // Remove caracteres especiais que podem causar problema no Storage
-  const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
-
-  // Nome inclui data + hora + usuário — garante unicidade sem precisar de upsert
-  // Exemplo: backup_clientes_2026-06-15_14h32m07s_maycon.json
-  const agora = new Date()
-  const hora = `${String(agora.getHours()).padStart(2,'0')}h${String(agora.getMinutes()).padStart(2,'0')}m${String(agora.getSeconds()).padStart(2,'0')}s`
-  const nomeArquivo = `backup_clientes_${dataHoje()}_${hora}_${nomeSeguro}.json`
-
-  // Converte os dados para JSON e cria um Blob para upload
   const json = JSON.stringify(data, null, 2)
-  const blob = new Blob([json], { type: 'application/json' })
-
-  // Envia o arquivo para o bucket 'backups' no Supabase Storage
-  // upsert: false — nome único por data+hora garante que nunca haverá colisão
-  // Evita a necessidade de política UPDATE no RLS (só INSERT é necessário)
-  const { error: uploadError } = await supabase.storage
-    .from('backups')
-    .upload(nomeArquivo, blob, {
-      contentType: 'application/json',
-      upsert: false,
-    })
-
-  if (uploadError) {
-    console.error('[clientesService] fazerBackup upload error:', uploadError)
-    throw new Error(`Erro ao salvar backup na nuvem: ${uploadError.message}`)
-  }
-}
-
-// ============================================================
-// listarBackups()
-// Lista todos os arquivos de backup disponíveis no bucket 'backups'
-// Retorna array de nomes de arquivo ordenados do mais recente ao mais antigo
-// Chamado por: ClientesHeader.tsx e Basebar.tsx ao clicar em Restaurar
-// ============================================================
-export async function listarBackups(): Promise<string[]> {
-  const { data, error } = await supabase.storage
-    .from('backups')
-    .list('', { sortBy: { column: 'created_at', order: 'desc' } })
-
-  if (error) {
-    console.error('[clientesService] listarBackups error:', error)
-    throw new Error(error.message)
-  }
-
-  // Retorna apenas os nomes dos arquivos, do mais recente ao mais antigo
-  return (data ?? []).map(f => f.name)
-}
-
-// ============================================================
-// baixarBackup()
-// Baixa o conteúdo de um arquivo de backup específico do Storage
-// e retorna o array de clientes para ser passado a restaurarBackup()
-// Chamado por: ClientesHeader.tsx e Basebar.tsx após usuário escolher arquivo
-// ============================================================
-export async function baixarBackup(nomeArquivo: string): Promise<Cliente[]> {
-  // Faz download do arquivo como blob do Supabase Storage
-  const { data, error } = await supabase.storage
-    .from('backups')
-    .download(nomeArquivo)
-
-  if (error || !data) {
-    console.error('[clientesService] baixarBackup error:', error)
-    throw new Error(error?.message ?? 'Erro ao baixar backup')
-  }
-
-  // Converte o blob para texto e faz parse do JSON
-  const texto = await data.text()
-  const parsed = JSON.parse(texto)
-
-  // Valida estrutura básica antes de retornar
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error('Formato de backup inválido: esperado array não-vazio.')
-  }
-  if (typeof parsed[0].id !== 'number' || typeof parsed[0].razao !== 'string') {
-    throw new Error('Formato de backup inválido: registros não correspondem ao schema esperado.')
-  }
-
-  return parsed as Cliente[]
+  const blob = new Blob([json], { type: 'application/json;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  const sufixoUsuario = usuario ? `_${usuario}` : ''
+  link.download = `backup_clientes_${dataHoje()}${sufixoUsuario}.json`
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 // ============================================================
@@ -345,32 +259,8 @@ export async function baixarBackup(nomeArquivo: string): Promise<Cliente[]> {
 // Estratégia: upsert por id (insert ou update se já existir)
 // Chamado por: ClientesHeader.tsx e Basebar.tsx após leitura do arquivo
 // ============================================================
-// Valores válidos para o campo nomelista — usados na validação de backup
-const NOMELISTA_VALIDOS = ['0', '1', '2', '3', '4', 'VAREJO']
-
 export async function restaurarBackup(clientes: Cliente[]): Promise<void> {
-  // Valida schema de cada registro antes do upsert
-  // Evita que dados corrompidos ou malformados entrem no banco
-  clientes.forEach((c, i) => {
-    // id deve ser número inteiro positivo
-    if (typeof c.id !== 'number' || !Number.isInteger(c.id) || c.id < 0) {
-      throw new Error(`Registro #${i + 1}: campo 'id' inválido (${c.id}). Esperado: inteiro não-negativo.`)
-    }
-    // razao deve ser string não-vazia (campo obrigatório na tabela)
-    if (typeof c.razao !== 'string' || c.razao.trim() === '') {
-      throw new Error(`Registro #${i + 1} (id=${c.id}): campo 'razao' inválido. Esperado: string não-vazia.`)
-    }
-    // nomelista deve ser um dos valores permitidos pelo sistema
-    if (!NOMELISTA_VALIDOS.includes(c.nomelista)) {
-      throw new Error(`Registro #${i + 1} (id=${c.id}): 'nomelista' inválido (${c.nomelista}). Esperado: ${NOMELISTA_VALIDOS.join(', ')}.`)
-    }
-  })
-
-  // Remove campos gerados automaticamente (created_at, updated_at)
-  // para evitar conflito com triggers do Supabase durante upsert
-  // Desestrutura created_at e updated_at para excluí-los do upsert
-  // (campos gerados por trigger Supabase — não devem ser sobrescritos)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Remove campos gerados automaticamente para evitar conflitos
   const registros = clientes.map(({ created_at, updated_at, ...resto }) => resto)
 
   const { error } = await supabase
@@ -395,21 +285,8 @@ export function lerArquivoBackup(file: File): Promise<Cliente[]> {
     reader.onload = (e) => {
       try {
         const conteudo = e.target?.result as string
-        const dados = JSON.parse(conteudo)
-        // Valida que o resultado é um array não-vazio antes de retornar
-        // JSON.parse aceita null, {}, números — todos passariam sem este check
-        if (!Array.isArray(dados) || dados.length === 0) {
-          reject(new Error('Formato de backup inválido: esperado array não-vazio.'))
-          return
-        }
-        // Valida que o primeiro elemento tem os campos mínimos obrigatórios
-        // Evita que um array de objetos arbitrários seja aceito como backup
-        const primeiro = dados[0]
-        if (typeof primeiro.id !== 'number' || typeof primeiro.razao !== 'string') {
-          reject(new Error('Formato de backup inválido: registros não correspondem ao schema esperado.'))
-          return
-        }
-        resolve(dados as Cliente[])
+        const dados = JSON.parse(conteudo) as Cliente[]
+        resolve(dados)
       } catch {
         reject(new Error('Arquivo de backup inválido ou corrompido.'))
       }

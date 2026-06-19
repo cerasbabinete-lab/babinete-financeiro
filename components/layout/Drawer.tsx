@@ -18,17 +18,17 @@ import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 const MODULOS = [
-  { label: 'Início',       href: '/',             icon: '/img/home.png' },
-  { label: 'Dashboard',    href: '/dashboard',    icon: '/img/dashboard.png' },
-  { label: 'Receitas',     href: '/receitas',     icon: '/img/receitas.png' },
-  { label: 'Despesas',     href: '/despesas',     icon: '/img/despesas.png' },
-  { label: 'Contas a Receber', href: '/receber',  icon: '/img/contas_receber.png' },
-  { label: 'Contas a Pagar',   href: '/pagar',    icon: '/img/contas_pagar.png' },
-  { label: 'Clientes',     href: '/clientes',     icon: '/img/clientes.png' },
-  { label: 'Fornecedores', href: '/fornecedores', icon: '/img/fornecedores.png' },
-  { label: 'Relatórios',   href: '/relatorios',   icon: '/img/relatorios.png' },
-  { label: 'Usuários',     href: '/usuarios',     icon: '/img/usuarios.png' },
-  { label: 'Backup',       href: '/backup',       icon: '/img/backup.png' },
+  { label: 'Início',       href: '/',             icon: '/img/home.svg' },
+  { label: 'Dashboard',    href: '/dashboard',    icon: '/img/dashboard.svg' },
+  { label: 'Receitas',     href: '/receitas',     icon: '/img/receitas.svg' },
+  { label: 'Despesas',     href: '/despesas',     icon: '/img/despesas.svg' },
+  { label: 'Contas a Receber', href: '/receber',  icon: '/img/contas_receber.svg' },
+  { label: 'Contas a Pagar',   href: '/pagar',    icon: '/img/contas_pagar.svg' },
+  { label: 'Clientes',     href: '/clientes',     icon: '/img/clientes.svg' },
+  { label: 'Fornecedores', href: '/fornecedores', icon: '/img/fornecedores.svg' },
+  { label: 'Relatórios',   href: '/relatorios',   icon: '/img/relatorios.svg' },
+  { label: 'Usuários',     href: '/usuarios',     icon: '/img/usuarios.svg' },
+  { label: 'Backup',       href: '/backup',       icon: '/img/backup.svg' },
 ]
 
 interface DrawerProps {
@@ -88,7 +88,7 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
         {/* Header */}
         <div style={{ background: '#1a6094', padding: '14px 16px 12px' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/img/logo_branca.png" alt="Ceras Babinete" style={{ height: '28px', objectFit: 'contain', marginBottom: '4px' }} />
+          <img src="/img/logo_branca.svg" alt="Ceras Babinete" style={{ height: '28px', objectFit: 'contain', marginBottom: '4px' }} />
           <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '8px', marginTop: '2px' }}>
             Gestão Financeira
           </div>
@@ -156,7 +156,7 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
             }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/img/trocar_user.png" alt="Trocar usuário" style={{ width: '22px', height: '22px', objectFit: 'contain', flexShrink: 0 }} />
+            <img src="/img/trocar_user.svg" alt="Trocar usuário" style={{ width: '22px', height: '22px', objectFit: 'contain', flexShrink: 0 }} />
             Trocar Usuário
           </button>
 
@@ -182,7 +182,7 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
             }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/img/sair.png" alt="Sair do sistema" style={{ width: '22px', height: '22px', objectFit: 'contain', flexShrink: 0 }} />
+            <img src="/img/sair.svg" alt="Sair do sistema" style={{ width: '22px', height: '22px', objectFit: 'contain', flexShrink: 0 }} />
             Sair do Sistema
           </button>
 
