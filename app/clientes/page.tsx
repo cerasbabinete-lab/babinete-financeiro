@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { buscarClientes, contarClientesAtivos } from '@/lib/clientesService'
+import { buscarClientes, contarClientesAtivos, excluirCliente } from '@/lib/clientesService'
 import type { Cliente, FiltrosClientes, ModoModal } from '@/types/clientes'
 
 // Layout
@@ -149,6 +149,16 @@ export default function ClientesPage() {
     setModoModal('visualizar')
   }
 
+  async function handleExcluir(cliente: Cliente) {
+    try {
+      await excluirCliente(cliente.id)
+      carregarClientes()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+      console.error('[clientes/page] handleExcluir error:', msg)
+    }
+  }
+
   function handleFecharModal() {
     setModoModal(null)
     setClienteSelecionado(null)
@@ -240,6 +250,7 @@ export default function ClientesPage() {
               clientes={clientes}
               onEditar={handleEditar}
               onVisualizar={handleVisualizar}
+              onExcluir={handleExcluir}
             />
           )}
         </main>
@@ -310,6 +321,7 @@ export default function ClientesPage() {
             clientes={clientes}
             onEditar={handleEditar}
             onVisualizar={handleVisualizar}
+            onExcluir={handleExcluir}
           />
         )}
       </main>

@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { buscarFornecedores, contarFornecedores } from '@/lib/fornecedoresService'
+import { buscarFornecedores, contarFornecedores, excluirFornecedor } from '@/lib/fornecedoresService'
 import type { Fornecedor, FiltrosFornecedores, ModoModal } from '@/types/fornecedores'
 
 // Layout — componentes globais, reutilizados sem alteração
@@ -128,6 +128,16 @@ export default function FornecedoresPage() {
     setModoModal('visualizar')
   }
 
+  async function handleExcluir(fornecedor: Fornecedor) {
+    try {
+      await excluirFornecedor(fornecedor.id)
+      carregarFornecedores()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+      console.error('[fornecedores/page] handleExcluir error:', msg)
+    }
+  }
+
   function handleFecharModal() {
     setModoModal(null)
     setFornecedorSelecionado(null)
@@ -209,6 +219,7 @@ export default function FornecedoresPage() {
               fornecedores={fornecedores}
               onEditar={handleEditar}
               onVisualizar={handleVisualizar}
+              onExcluir={handleExcluir}
             />
           )}
         </main>
@@ -272,6 +283,7 @@ export default function FornecedoresPage() {
             fornecedores={fornecedores}
             onEditar={handleEditar}
             onVisualizar={handleVisualizar}
+            onExcluir={handleExcluir}
           />
         )}
       </main>

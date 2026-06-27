@@ -6,7 +6,7 @@
 //         Linhas alternadas, hover, botões editar e visualizar
 //         Colunas: Cód. | Nome Fantasia | Razão Social | CNPJ/CPF
 //                  Cidade/UF | Telefone | E-mail | Contato | Lista | Ações
-// Conecta com: app/clientes/page.tsx (clientes, onEditar, onVisualizar)
+// Conecta com: app/clientes/page.tsx (clientes, onEditar, onVisualizar, onExcluir)
 //              types/clientes.ts (Cliente)
 // ============================================================
 
@@ -22,6 +22,7 @@ interface ClientesTabelaProps {
   clientes: Cliente[]
   onEditar: (cliente: Cliente) => void
   onVisualizar: (cliente: Cliente) => void
+  onExcluir: (cliente: Cliente) => void
 }
 
 // ============================================================
@@ -31,9 +32,12 @@ export default function ClientesTabela({
   clientes,
   onEditar,
   onVisualizar,
+  onExcluir,
 }: ClientesTabelaProps) {
 
   const [hoverId, setHoverId] = useState<number | null>(null)
+  // id do cliente aguardando confirmação de exclusão (null = nenhum)
+  const [confirmandoExcluirId, setConfirmandoExcluirId] = useState<number | null>(null)
 
   // ============================================================
   // formatarLista
@@ -95,7 +99,7 @@ export default function ClientesTabela({
             <th style={thStyle()}>E-mail</th>
             <th style={thStyle()}>Contato</th>
             <th style={thStyle('50px')}>Lista</th>
-            <th style={thStyle('56px', true)}>Ações</th>
+            <th style={thStyle('80px', true)}>Ações</th>
           </tr>
         </thead>
 
@@ -188,60 +192,67 @@ export default function ClientesTabela({
                   </td>
 
                   {/* Ações */}
-                  <td style={{ ...tdStyle('56px'), textAlign: 'center' }}>
-                    <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                  <td style={{ ...tdStyle('80px'), textAlign: 'center' }}>
+                    {confirmandoExcluirId === cliente.id ? (
+                      // Confirmação inline — sem alert/confirm
+                      <div style={{ display: 'flex', gap: '3px', justifyContent: 'center' }}>
+                        <button
+                          onClick={() => { onExcluir(cliente); setConfirmandoExcluirId(null) }}
+                          title="Confirmar exclusão"
+                          style={{ ...btnAcaoStyle, color: '#dc2626', fontSize: '10px', width: 'auto', padding: '2px 5px' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#fef2f2')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          Excluir
+                        </button>
+                        <button
+                          onClick={() => setConfirmandoExcluirId(null)}
+                          title="Cancelar exclusão"
+                          style={{ ...btnAcaoStyle, fontSize: '10px', width: 'auto', padding: '2px 5px' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#e0ecf7')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          Não
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
 
-                      {/* Botão Editar */}
-                      <button
-                        onClick={() => onEditar(cliente)}
-                        title="Editar cliente"
-                        aria-label={`Editar ${cliente.fantasia ?? cliente.razao}`}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: '24px',
-                          height: '24px',
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          padding: '2px 4px',
-                          borderRadius: '3px',
-                          fontSize: '13px',
-                          color: '#1a6094',
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#e0ecf7')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                      >
-                        <i className="ti ti-writing" aria-hidden="true" />
-                      </button>
+                        <button
+                          onClick={() => onEditar(cliente)}
+                          title="Editar cliente"
+                          aria-label={`Editar ${cliente.fantasia ?? cliente.razao}`}
+                          style={btnAcaoStyle}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#e0ecf7')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          <i className="ti ti-writing" aria-hidden="true" />
+                        </button>
 
-                      {/* Botão Visualizar */}
-                      <button
-                        onClick={() => onVisualizar(cliente)}
-                        title="Visualizar cliente"
-                        aria-label={`Visualizar ${cliente.fantasia ?? cliente.razao}`}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: '24px',
-                          height: '24px',
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          padding: '2px 4px',
-                          borderRadius: '3px',
-                          fontSize: '13px',
-                          color: '#1a6094',
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#e0ecf7')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                      >
-                        <i className="ti ti-eye" aria-hidden="true" />
-                      </button>
+                        <button
+                          onClick={() => onVisualizar(cliente)}
+                          title="Visualizar cliente"
+                          aria-label={`Visualizar ${cliente.fantasia ?? cliente.razao}`}
+                          style={btnAcaoStyle}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#e0ecf7')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          <i className="ti ti-eye" aria-hidden="true" />
+                        </button>
 
-                    </div>
+                        <button
+                          onClick={() => setConfirmandoExcluirId(cliente.id)}
+                          title="Excluir cliente"
+                          aria-label={`Excluir ${cliente.fantasia ?? cliente.razao}`}
+                          style={{ ...btnAcaoStyle, color: '#dc2626' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#fef2f2')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          <i className="ti ti-trash" aria-hidden="true" />
+                        </button>
+
+                      </div>
+                    )}
                   </td>
                 </tr>
               )
@@ -274,4 +285,19 @@ function tdStyle(width?: string): React.CSSProperties {
     verticalAlign: 'middle',
     ...(width ? { width } : {}),
   }
+}
+
+const btnAcaoStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '24px',
+  height: '24px',
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  padding: '2px 4px',
+  borderRadius: '3px',
+  fontSize: '13px',
+  color: '#1a6094',
 }

@@ -123,22 +123,41 @@ export async function verificarDuplicidadeCliente(
   cpf: string,
   excludeId?: number
 ): Promise<Cliente | null> {
-  // Limpa os valores para comparação
+  // Strip para dígitos — base de comparação final no JS
   const cnpjLimpo = cnpj.replace(/[^0-9]/g, '')
   const cpfLimpo  = cpf.replace(/[^0-9]/g, '')
 
   // Só verifica se há pelo menos um documento preenchido
   if (!cnpjLimpo && !cpfLimpo) return null
 
+  // Formata para o padrão armazenado no banco
+  // CRÍTICO: ilike com dígitos brutos (ex: "11506178000125") NÃO bate com
+  // o valor formatado no banco ("11.506.178/0001-25") porque os dígitos
+  // não são contíguos — a busca precisa usar o formato com pontuação
+  const cnpjFmt = cnpjLimpo.length === 14
+    ? cnpjLimpo.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+    : cnpjLimpo
+  const cpfFmt = cpfLimpo.length === 11
+    ? cpfLimpo.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+    : cpfLimpo
+
   let query = supabase.from(TABELA).select('id, razao, fantasia, cnpj, cpf, nomelista, cidade, uf, fone1, email, contato, contato_whatsapp')
 
-  // Monta filtro OR para CNPJ e/ou CPF
+  // OR duplo por campo: busca pelo valor formatado E pelo valor sem formatação
+  // Cobre registros antigos que possam estar armazenados sem pontuação
   const filtros: string[] = []
-  if (cnpjLimpo) filtros.push(`cnpj.ilike.%${cnpjLimpo}%`)
-  if (cpfLimpo)  filtros.push(`cpf.ilike.%${cpfLimpo}%`)
+  if (cnpjLimpo) {
+    filtros.push(`cnpj.ilike.%${cnpjFmt}%`)    // formatado  ex: 11.506.178/0001-25
+    filtros.push(`cnpj.ilike.%${cnpjLimpo}%`)  // sem format ex: 11506178000125
+  }
+  if (cpfLimpo) {
+    filtros.push(`cpf.ilike.%${cpfFmt}%`)      // formatado  ex: 218.962.308-14
+    filtros.push(`cpf.ilike.%${cpfLimpo}%`)    // sem format ex: 21896230814
+  }
   query = query.or(filtros.join(','))
 
-  const { data, error } = await query.limit(5)
+  // limit generoso para cobrir possíveis falsos positivos do ilike
+  const { data, error } = await query.limit(10)
 
   if (error) {
     console.error('[clientesService] verificarDuplicidadeCliente error:', error)
@@ -147,7 +166,7 @@ export async function verificarDuplicidadeCliente(
 
   if (!data || data.length === 0) return null
 
-  // Filtra o próprio registro em caso de edição
+  // Segunda etapa: comparação exata por dígitos — elimina falsos positivos do ilike
   const duplicados = data.filter(c => {
     if (excludeId !== undefined && c.id === excludeId) return false
     const cCnpj = (c.cnpj ?? '').replace(/[^0-9]/g, '')
@@ -201,6 +220,24 @@ export async function editarCliente(cliente: ClienteUpdate): Promise<Cliente> {
   }
 
   return data as Cliente
+}
+
+// ============================================================
+// excluirCliente()
+// Remove permanentemente um cliente pelo id
+// Chamado por: ClientesTabela.tsx / ClientesMobileList.tsx
+//              após confirmação inline do usuário
+// ============================================================
+export async function excluirCliente(id: number): Promise<void> {
+  const { error } = await supabase
+    .from(TABELA)
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    console.error('[clientesService] excluirCliente error:', error)
+    throw new Error(error.message)
+  }
 }
 
 // ============================================================

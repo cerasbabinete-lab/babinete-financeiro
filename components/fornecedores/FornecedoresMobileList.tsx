@@ -5,12 +5,13 @@
 // Função: Lista mobile simplificada de fornecedores
 //         Clone de ClientesMobileList.tsx — SEM linha de Lista
 //         Cada item mostra Nome Fantasia, Cidade/UF, botões de ação
-// Conecta com: app/fornecedores/page.tsx (fornecedores, onEditar, onVisualizar)
+// Conecta com: app/fornecedores/page.tsx (fornecedores, onEditar, onVisualizar, onExcluir)
 //              types/fornecedores.ts (Fornecedor)
 // ============================================================
 
 'use client'
 
+import { useState } from 'react'
 import type { Fornecedor } from '@/types/fornecedores'
 
 // ============================================================
@@ -20,6 +21,7 @@ interface FornecedoresMobileListProps {
   fornecedores: Fornecedor[]
   onEditar: (fornecedor: Fornecedor) => void
   onVisualizar: (fornecedor: Fornecedor) => void
+  onExcluir: (fornecedor: Fornecedor) => void
 }
 
 // ============================================================
@@ -29,7 +31,11 @@ export default function FornecedoresMobileList({
   fornecedores,
   onEditar,
   onVisualizar,
+  onExcluir,
 }: FornecedoresMobileListProps) {
+
+  // id do fornecedor aguardando confirmação de exclusão (null = nenhum)
+  const [confirmandoExcluirId, setConfirmandoExcluirId] = useState<number | null>(null)
 
   if (fornecedores.length === 0) {
     return (
@@ -101,51 +107,77 @@ export default function FornecedoresMobileList({
           {/* Botões de ação */}
           <div style={{ display: 'flex', gap: '6px', marginLeft: '10px', flexShrink: 0 }}>
 
-            <button
-              onClick={() => onEditar(fornecedor)}
-              title="Editar fornecedor"
-              aria-label={`Editar ${fornecedor.fantasia}`}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '28px',
-                height: '28px',
-                background: '#ffffff',
-                border: '1px solid #c4d8eb',
-                borderRadius: '4px',
-                color: '#1a6094',
-                cursor: 'pointer',
-                padding: 0,
-              }}
-            >
-              <i className="ti ti-writing" style={{ fontSize: '14px' }} aria-hidden="true" />
-            </button>
+            {confirmandoExcluirId === fornecedor.id ? (
+              // Confirmação inline de exclusão — sem alert/confirm
+              <>
+                <button
+                  onClick={() => { onExcluir(fornecedor); setConfirmandoExcluirId(null) }}
+                  title="Confirmar exclusão"
+                  style={{ ...btnMobileStyle, color: '#dc2626', borderColor: '#fca5a5', fontSize: '9px', width: 'auto', padding: '0 7px' }}
+                >
+                  Excluir
+                </button>
+                <button
+                  onClick={() => setConfirmandoExcluirId(null)}
+                  title="Cancelar"
+                  style={{ ...btnMobileStyle, fontSize: '9px', width: 'auto', padding: '0 7px' }}
+                >
+                  Não
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => onEditar(fornecedor)}
+                  title="Editar fornecedor"
+                  aria-label={`Editar ${fornecedor.fantasia}`}
+                  style={btnMobileStyle}
+                >
+                  <i className="ti ti-writing" style={{ fontSize: '14px' }} aria-hidden="true" />
+                </button>
 
-            <button
-              onClick={() => onVisualizar(fornecedor)}
-              title="Visualizar fornecedor"
-              aria-label={`Visualizar ${fornecedor.fantasia}`}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '28px',
-                height: '28px',
-                background: '#ffffff',
-                border: '1px solid #c4d8eb',
-                borderRadius: '4px',
-                color: '#1a6094',
-                cursor: 'pointer',
-                padding: 0,
-              }}
-            >
-              <i className="ti ti-eye" style={{ fontSize: '14px' }} aria-hidden="true" />
-            </button>
+                <button
+                  onClick={() => onVisualizar(fornecedor)}
+                  title="Visualizar fornecedor"
+                  aria-label={`Visualizar ${fornecedor.fantasia}`}
+                  style={btnMobileStyle}
+                >
+                  <i className="ti ti-eye" style={{ fontSize: '14px' }} aria-hidden="true" />
+                </button>
+
+                <button
+                  onClick={() => setConfirmandoExcluirId(fornecedor.id)}
+                  title="Excluir fornecedor"
+                  aria-label={`Excluir ${fornecedor.fantasia}`}
+                  style={{ ...btnMobileStyle, color: '#dc2626', borderColor: '#fca5a5' }}
+                >
+                  <i className="ti ti-trash" style={{ fontSize: '14px' }} aria-hidden="true" />
+                </button>
+              </>
+            )}
 
           </div>
         </div>
       ))}
     </div>
   )
+}
+
+// ============================================================
+// Estilos auxiliares
+// ============================================================
+const btnMobileStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '28px',
+  height: '28px',
+  background: '#ffffff',
+  border: '1px solid #c4d8eb',
+  borderRadius: '4px',
+  color: '#1a6094',
+  cursor: 'pointer',
+  padding: 0,
+  fontFamily: 'Tahoma, Geneva, sans-serif',
+  fontSize: '12px',
 }

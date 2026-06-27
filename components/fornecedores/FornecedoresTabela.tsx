@@ -6,7 +6,7 @@
 //         Clone de ClientesTabela.tsx — SEM coluna Lista
 //         Colunas: Cód. | Nome Fantasia | Razão Social | CNPJ/CPF
 //                  Cidade/UF | Telefone | E-mail | Contato | Ações
-// Conecta com: app/fornecedores/page.tsx (fornecedores, onEditar, onVisualizar)
+// Conecta com: app/fornecedores/page.tsx (fornecedores, onEditar, onVisualizar, onExcluir)
 //              types/fornecedores.ts (Fornecedor)
 // ============================================================
 
@@ -22,6 +22,7 @@ interface FornecedoresTabelaProps {
   fornecedores: Fornecedor[]
   onEditar: (fornecedor: Fornecedor) => void
   onVisualizar: (fornecedor: Fornecedor) => void
+  onExcluir: (fornecedor: Fornecedor) => void
 }
 
 // ============================================================
@@ -31,9 +32,12 @@ export default function FornecedoresTabela({
   fornecedores,
   onEditar,
   onVisualizar,
+  onExcluir,
 }: FornecedoresTabelaProps) {
 
   const [hoverId, setHoverId] = useState<number | null>(null)
+  // id do fornecedor aguardando confirmação de exclusão (null = nenhum)
+  const [confirmandoExcluirId, setConfirmandoExcluirId] = useState<number | null>(null)
 
   function formatarCidadeUF(cidade?: string, uf?: string): string {
     if (cidade && uf) return `${cidade}/${uf}`
@@ -82,7 +86,7 @@ export default function FornecedoresTabela({
             <th style={thStyle()}>Telefone</th>
             <th style={thStyle()}>E-mail</th>
             <th style={thStyle()}>Contato</th>
-            <th style={thStyle('56px', true)}>Ações</th>
+            <th style={thStyle('80px', true)}>Ações</th>
           </tr>
         </thead>
 
@@ -156,32 +160,67 @@ export default function FornecedoresTabela({
                   <td style={tdStyle()}>{fornecedor.contato || '—'}</td>
 
                   {/* Ações */}
-                  <td style={{ ...tdStyle('56px'), textAlign: 'center' }}>
-                    <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                  <td style={{ ...tdStyle('80px'), textAlign: 'center' }}>
+                    {confirmandoExcluirId === fornecedor.id ? (
+                      // Confirmação inline — sem alert/confirm
+                      <div style={{ display: 'flex', gap: '3px', justifyContent: 'center' }}>
+                        <button
+                          onClick={() => { onExcluir(fornecedor); setConfirmandoExcluirId(null) }}
+                          title="Confirmar exclusão"
+                          style={{ ...btnAcaoStyle, color: '#dc2626', fontSize: '10px', width: 'auto', padding: '2px 5px' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#fef2f2')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          Excluir
+                        </button>
+                        <button
+                          onClick={() => setConfirmandoExcluirId(null)}
+                          title="Cancelar exclusão"
+                          style={{ ...btnAcaoStyle, fontSize: '10px', width: 'auto', padding: '2px 5px' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#e0ecf7')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          Não
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
 
-                      <button
-                        onClick={() => onEditar(fornecedor)}
-                        title="Editar fornecedor"
-                        aria-label={`Editar ${fornecedor.fantasia}`}
-                        style={btnAcaoStyle}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#e0ecf7')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                      >
-                        <i className="ti ti-writing" aria-hidden="true" />
-                      </button>
+                        <button
+                          onClick={() => onEditar(fornecedor)}
+                          title="Editar fornecedor"
+                          aria-label={`Editar ${fornecedor.fantasia}`}
+                          style={btnAcaoStyle}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#e0ecf7')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          <i className="ti ti-writing" aria-hidden="true" />
+                        </button>
 
-                      <button
-                        onClick={() => onVisualizar(fornecedor)}
-                        title="Visualizar fornecedor"
-                        aria-label={`Visualizar ${fornecedor.fantasia}`}
-                        style={btnAcaoStyle}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#e0ecf7')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                      >
-                        <i className="ti ti-eye" aria-hidden="true" />
-                      </button>
+                        <button
+                          onClick={() => onVisualizar(fornecedor)}
+                          title="Visualizar fornecedor"
+                          aria-label={`Visualizar ${fornecedor.fantasia}`}
+                          style={btnAcaoStyle}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#e0ecf7')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          <i className="ti ti-eye" aria-hidden="true" />
+                        </button>
 
-                    </div>
+                        <button
+                          onClick={() => setConfirmandoExcluirId(fornecedor.id)}
+                          title="Excluir fornecedor"
+                          aria-label={`Excluir ${fornecedor.fantasia}`}
+                          style={{ ...btnAcaoStyle, color: '#dc2626' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#fef2f2')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          <i className="ti ti-trash" aria-hidden="true" />
+                        </button>
+
+                      </div>
+                    )}
                   </td>
                 </tr>
               )
