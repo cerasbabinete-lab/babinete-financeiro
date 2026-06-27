@@ -18,17 +18,17 @@ import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 const MODULOS = [
-  { label: 'Início',       href: '/',             icon: '/img/home.svg' },
-  { label: 'Dashboard',    href: '/dashboard',    icon: '/img/dashboard.svg' },
-  { label: 'Receitas',     href: '/receitas',     icon: '/img/receitas.svg' },
-  { label: 'Despesas',     href: '/despesas',     icon: '/img/despesas.svg' },
-  { label: 'Contas a Receber', href: '/receber',  icon: '/img/contas_receber.svg' },
-  { label: 'Contas a Pagar',   href: '/pagar',    icon: '/img/contas_pagar.svg' },
-  { label: 'Clientes',     href: '/clientes',     icon: '/img/clientes.svg' },
-  { label: 'Fornecedores', href: '/fornecedores', icon: '/img/fornecedores.svg' },
-  { label: 'Relatórios',   href: '/relatorios',   icon: '/img/relatorios.svg' },
-  { label: 'Usuários',     href: '/usuarios',     icon: '/img/usuarios.svg' },
-  { label: 'Backup',       href: '/backup',       icon: '/img/backup.svg' },
+  { label: 'Início',           href: '/',            icon: '/img/home.svg' },
+  { label: 'Dashboard',        href: '/dashboard',   icon: '/img/dashboard.svg' },
+  { label: 'Relatórios',       href: '/relatorios',  icon: '/img/relatorios.svg' },
+  { label: 'Receitas',         href: '/receitas',    icon: '/img/receitas.svg' },
+  { label: 'Despesas',         href: '/despesas',    icon: '/img/despesas.svg' },
+  { label: 'Contas a Receber', href: '/receber',     icon: '/img/contas_receber.svg' },
+  { label: 'Contas a Pagar',   href: '/pagar',       icon: '/img/contas_pagar.svg' },
+  { label: 'Clientes',         href: '/clientes',    icon: '/img/clientes.svg' },
+  { label: 'Fornecedores',     href: '/fornecedores',icon: '/img/fornecedores.svg' },
+  { label: 'Usuários',         href: '/usuarios',    icon: '/img/usuarios.svg' },
+  { label: 'Backup',           href: '/backup',      icon: '/img/backup.svg' },
 ]
 
 interface DrawerProps {

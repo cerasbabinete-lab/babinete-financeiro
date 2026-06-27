@@ -43,16 +43,16 @@ import Drawer from '@/components/layout/Drawer'
 // Para ativar um módulo futuro: alterar ativo para true aqui.
 // ============================================================
 const MODULOS: { label: string; href: string; icon: string; ativo: boolean }[] = [
-  { label: 'Dashboard',       href: '/dashboard',  icon: '/img/dashboard.svg',      ativo: false },
-  { label: 'Receitas',        href: '/receitas',   icon: '/img/receitas.svg',        ativo: false },
-  { label: 'Despesas',        href: '/despesas',   icon: '/img/despesas.svg',        ativo: false },
-  { label: 'Contas a Receber',href: '/receber',    icon: '/img/contas_receber.svg',  ativo: false },
-  { label: 'Contas a Pagar',  href: '/pagar',      icon: '/img/contas_pagar.svg',    ativo: false },
-  { label: 'Clientes',        href: '/clientes',   icon: '/img/clientes.svg',        ativo: true  },
-  { label: 'Fornecedores',    href: '/fornecedores',icon: '/img/fornecedores.svg',   ativo: true  },
-  { label: 'Relatórios',      href: '/relatorios', icon: '/img/relatorios.svg',      ativo: false },
-  { label: 'Usuários',        href: '/usuarios',   icon: '/img/usuarios.svg',        ativo: false },
-  { label: 'Backup',          href: '/backup',     icon: '/img/backup.svg',          ativo: false },
+  { label: 'Dashboard',       href: '/dashboard',   icon: '/img/dashboard.svg',     ativo: false },
+  { label: 'Relatórios',      href: '/relatorios',  icon: '/img/relatorios.svg',    ativo: false },
+  { label: 'Receitas',        href: '/receitas',    icon: '/img/receitas.svg',      ativo: false },
+  { label: 'Despesas',        href: '/despesas',    icon: '/img/despesas.svg',      ativo: false },
+  { label: 'Contas a Receber',href: '/receber',     icon: '/img/contas_receber.svg',ativo: false },
+  { label: 'Contas a Pagar',  href: '/pagar',       icon: '/img/contas_pagar.svg',  ativo: false },
+  { label: 'Clientes',        href: '/clientes',    icon: '/img/clientes.svg',      ativo: true  },
+  { label: 'Fornecedores',    href: '/fornecedores',icon: '/img/fornecedores.svg',  ativo: true  },
+  { label: 'Usuários',        href: '/usuarios',    icon: '/img/usuarios.svg',      ativo: false },
+  { label: 'Backup',          href: '/backup',      icon: '/img/backup.svg',        ativo: false },
 ]
 
 // ============================================================

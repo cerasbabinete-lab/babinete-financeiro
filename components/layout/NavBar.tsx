@@ -19,17 +19,17 @@ import { usePathname } from 'next/navigation'
 // Módulos do sistema — ordem e rotas conforme mockup aprovado
 // ============================================================
 const MODULOS = [
-  { label: 'Início',       href: '/',             icon: 'ti-home-star' },
-  { label: 'Dashboard',    href: '/dashboard',    icon: null },
-  { label: 'Receitas',     href: '/receitas',     icon: null },
-  { label: 'Despesas',     href: '/despesas',     icon: null },
-  { label: 'Contas a Receber', href: '/receber',  icon: null },
-  { label: 'Contas a Pagar',   href: '/pagar',    icon: null },
-  { label: 'Clientes',     href: '/clientes',     icon: null },
-  { label: 'Fornecedores', href: '/fornecedores', icon: null },
-  { label: 'Relatórios',   href: '/relatorios',   icon: null },
-  { label: 'Usuários',     href: '/usuarios',     icon: null },
-  { label: 'Backup',       href: '/backup',       icon: null },
+  { label: 'Início',           href: '/',            icon: 'ti-home-star' },
+  { label: 'Dashboard',        href: '/dashboard',   icon: null },
+  { label: 'Relatórios',       href: '/relatorios',  icon: null },
+  { label: 'Receitas',         href: '/receitas',    icon: null },
+  { label: 'Despesas',         href: '/despesas',    icon: null },
+  { label: 'Contas a Receber', href: '/receber',     icon: null },
+  { label: 'Contas a Pagar',   href: '/pagar',       icon: null },
+  { label: 'Clientes',         href: '/clientes',    icon: null },
+  { label: 'Fornecedores',     href: '/fornecedores',icon: null },
+  { label: 'Usuários',         href: '/usuarios',    icon: null },
+  { label: 'Backup',           href: '/backup',      icon: null },
 ]
 
 // ============================================================
