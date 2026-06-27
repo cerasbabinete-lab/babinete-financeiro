@@ -44,7 +44,7 @@ export interface Fornecedor {
   email_contato?: string              // E-mail do contato
   website?: string                    // Website do fornecedor — campo novo
   dados_bancarios?: string            // Dados bancários (free text) — campo novo
-  data_nascimento?: string            // Data nascimento (CPF/pessoa física) — modal only
+  data_nascimento?: string | null     // Data nascimento (CPF/pessoa física) — modal only; null quando vazio
   observacoes?: string                // Observações livres
   contato_whatsapp?: ContatoWhatsApp[] // Contatos WhatsApp Business (JSONB)
   created_at?: string                 // Criado em (ISO string)

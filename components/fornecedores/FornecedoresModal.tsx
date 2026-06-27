@@ -78,6 +78,45 @@ function mascaraTelefone(tel: string): string {
 }
 
 // ============================================================
+// Helpers de normalização de dados
+// Aplicados tanto nos dados recebidos das APIs (BrasilAPI / CNPJá)
+// quanto nos campos digitados manualmente ao salvar
+// Garante consistência no banco independente da fonte do dado
+// ============================================================
+
+// normalizarTexto — remove espaços extras nas bordas
+// Evita "  Empresa Ltda  " ser gravado diferente de "Empresa Ltda"
+function normalizarTexto(s: string): string {
+  return (s ?? '').trim()
+}
+
+// normalizarEmail — minúsculas + trim
+// "Vendas@Empresa.COM.BR" e "vendas@empresa.com.br" são o mesmo endereço
+function normalizarEmail(s: string): string {
+  return (s ?? '').trim().toLowerCase()
+}
+
+// normalizarUF — maiúsculas + trim (segurança contra API retornar "pr" ou " PR ")
+function normalizarUF(s: string): string {
+  return (s ?? '').trim().toUpperCase()
+}
+
+// normalizarCidade — encontra o nome EXATO de localidades_br.json
+// BrasilAPI retorna "MARINGÁ" (CAPS), localidades_br.json tem "Maringá" (Title Case)
+// Comparação é case-insensitive + ignora acentos para máxima tolerância
+// Se não encontrar match exato, retorna o texto original trimado
+function normalizarCidade(cidade: string, uf: string): string {
+  if (!cidade || !uf) return normalizarTexto(cidade)
+  const lista = getCidades(uf)
+  // Remove acentos e converte para minúscula para comparação neutra
+  const sem = (s: string) =>
+    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const cidadeSem = sem(cidade.trim())
+  // Retorna a string exata do JSON se achar, ou o valor trimado original
+  return lista.find(c => sem(c) === cidadeSem) ?? normalizarTexto(cidade)
+}
+
+// ============================================================
 // FornecedoresModal
 // ============================================================
 export default function FornecedoresModal({
@@ -258,29 +297,34 @@ export default function FornecedoresModal({
 
   // ============================================================
   // mapBrasilAPI — mapeia resposta BrasilAPI → campos do form
+  // Aplica normalização em todos os campos para garantir padrão
+  // consistente independente do formato retornado pela API
   // ============================================================
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function mapBrasilAPI(json: any, cnpjLimpo: string): Partial<FornecedorInsert> {
     const cep = (json.cep ?? '').replace(/\D/g, '')
-    const ddd = json.ddd_telefone_1 ?? ''
+    const ddd = normalizarTexto(json.ddd_telefone_1 ?? '')
+    // Normaliza UF antes de usá-la para lookup de cidade
+    const uf = normalizarUF(json.uf ?? '')
 
     return {
-      razao: json.razao_social ?? '',
-      fantasia: json.nome_fantasia && json.nome_fantasia.trim() !== '' ? json.nome_fantasia : '',
-      cnpj: mascaraCNPJ(cnpjLimpo),
-      end: json.logradouro ?? '',
-      num: json.numero ?? '',
-      bairro: json.bairro ?? '',
-      cep: mascaraCEP(cep),
-      uf: json.uf ?? '',
-      cidade: json.municipio ?? '',
-      email: json.email ?? '',
-      fone1: ddd ? mascaraTelefone(ddd.replace(/\D/g, '')) : '',
+      razao:    normalizarTexto(json.razao_social ?? ''),          // trim — registro oficial sempre vem em CAPS
+      fantasia: normalizarTexto(json.nome_fantasia ?? ''),         // trim — mantém casing da API
+      cnpj:     mascaraCNPJ(cnpjLimpo),                           // já mascarado
+      end:      normalizarTexto(json.logradouro ?? ''),            // trim
+      num:      normalizarTexto(json.numero ?? ''),                // trim
+      bairro:   normalizarTexto(json.bairro ?? ''),                // trim
+      cep:      mascaraCEP(cep),                                   // já mascarado
+      uf,                                                          // normalizado acima
+      cidade:   normalizarCidade(json.municipio ?? '', uf),        // match exato no localidades_br.json
+      email:    normalizarEmail(json.email ?? ''),                 // lowercase + trim
+      fone1:    ddd ? mascaraTelefone(ddd.replace(/\D/g, '')) : '', // já mascarado
     }
   }
 
   // ============================================================
   // mapCNPJa — mapeia resposta CNPJá → campos do form
+  // Aplica normalização em todos os campos (mesmo padrão de mapBrasilAPI)
   // ============================================================
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function mapCNPJa(json: any, cnpjLimpo: string): Partial<FornecedorInsert> {
@@ -291,25 +335,24 @@ export default function FornecedoresModal({
       ? mascaraTelefone(`${phone.area ?? ''}${phone.number ?? ''}`)
       : ''
 
-    // IE: busca em registrations pelo estado
-    const uf = addr.state ?? ''
+    // Normaliza UF antes de usá-la para lookup de IE e cidade
+    const uf = normalizarUF(addr.state ?? '')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const regIE = json.registrations?.find((r: any) => r.state === uf)
-    const ie = regIE?.number ?? ''
 
     return {
-      razao: json.company?.name ?? '',
-      fantasia: json.alias && json.alias.trim() !== '' ? json.alias : '',
-      cnpj: mascaraCNPJ(cnpjLimpo),
-      end: addr.street ?? '',
-      num: addr.number ?? '',
-      bairro: addr.district ?? '',
-      cep: mascaraCEP(cep),
-      uf,
-      cidade: addr.city ?? '',
-      email: json.emails?.[0]?.address ?? '',
-      fone1,
-      ie,
+      razao:    normalizarTexto(json.company?.name ?? ''),         // trim
+      fantasia: normalizarTexto(json.alias ?? ''),                 // trim
+      cnpj:     mascaraCNPJ(cnpjLimpo),                           // já mascarado
+      end:      normalizarTexto(addr.street ?? ''),                // trim
+      num:      normalizarTexto(addr.number ?? ''),                // trim
+      bairro:   normalizarTexto(addr.district ?? ''),              // trim
+      cep:      mascaraCEP(cep),                                   // já mascarado
+      uf,                                                          // normalizado acima
+      cidade:   normalizarCidade(addr.city ?? '', uf),             // match exato no localidades_br.json
+      email:    normalizarEmail(json.emails?.[0]?.address ?? ''),  // lowercase + trim
+      fone1,                                                       // já mascarado
+      ie:       normalizarTexto(regIE?.number ?? ''),              // trim
     }
   }
 
@@ -339,17 +382,48 @@ export default function FornecedoresModal({
 
   // ============================================================
   // handleSalvar
+  // Normaliza TODOS os campos antes de enviar ao Supabase
+  // Garante padrão consistente independente de como o usuário digitou
+  // ou de qual API preencheu os dados
   // ============================================================
   async function handleSalvar() {
     if (!validar()) return
     setSalvando(true)
     try {
+      // Monta payload normalizado — aplica as mesmas funções usadas no auto-fill
+      // para garantir que dados digitados manualmente sigam o mesmo padrão
+      const payload: FornecedorInsert = {
+        razao:           normalizarTexto(form.razao),
+        fantasia:        normalizarTexto(form.fantasia ?? ''),
+        end:             normalizarTexto(form.end ?? ''),
+        num:             normalizarTexto(form.num ?? ''),
+        bairro:          normalizarTexto(form.bairro ?? ''),
+        cep:             normalizarTexto(form.cep ?? ''),
+        uf:              normalizarUF(form.uf ?? ''),
+        cidade:          normalizarTexto(form.cidade ?? ''),
+        cnpj:            normalizarTexto(form.cnpj ?? ''),
+        cpf:             normalizarTexto(form.cpf ?? ''),
+        ie:              normalizarTexto(form.ie ?? ''),
+        fone1:           normalizarTexto(form.fone1 ?? ''),
+        fone2:           normalizarTexto(form.fone2 ?? ''),
+        contato:         normalizarTexto(form.contato ?? ''),
+        fone_contato:    normalizarTexto(form.fone_contato ?? ''),
+        email:           normalizarEmail(form.email ?? ''),          // lowercase
+        email_contato:   normalizarEmail(form.email_contato ?? ''),  // lowercase
+        website:         normalizarTexto(form.website ?? ''),
+        dados_bancarios: normalizarTexto(form.dados_bancarios ?? ''),
+        observacoes:     normalizarTexto(form.observacoes ?? ''),
+        contato_whatsapp: form.contato_whatsapp ?? [],
+        // data_nascimento: '' → null (Postgres rejeita string vazia em coluna date)
+        data_nascimento: form.data_nascimento?.trim() !== '' ? form.data_nascimento : null,
+      }
+
       // Verifica duplicidade de CNPJ/CPF antes de salvar
       // excludeId: ignora o próprio registro em caso de edição
       const excludeId = modo === 'editar' && fornecedor ? fornecedor.id : undefined
       const duplicado = await verificarDuplicidadeFornecedor(
-        form.cnpj ?? '',
-        form.cpf ?? '',
+        payload.cnpj ?? '',
+        payload.cpf ?? '',
         excludeId
       )
       if (duplicado) {
@@ -358,9 +432,9 @@ export default function FornecedoresModal({
         return
       }
       if (modo === 'novo') {
-        await criarFornecedor(form)
+        await criarFornecedor(payload)
       } else if (modo === 'editar' && fornecedor) {
-        await editarFornecedor({ ...form, id: fornecedor.id })
+        await editarFornecedor({ ...payload, id: fornecedor.id })
       }
       onSalvo()
       onFechar()
