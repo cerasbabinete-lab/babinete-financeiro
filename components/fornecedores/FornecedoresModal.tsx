@@ -172,9 +172,15 @@ export default function FornecedoresModal({
   // Aplica os dados retornados da API no formulário
   // ============================================================
   function aplicarDadosAPI(dados: Partial<FornecedorInsert>) {
+    // Aplica UF primeiro e carrega lista de cidades antes de definir a cidade
+    // Sem isso, o select de cidade tenta selecionar um valor que ainda não
+    // está na lista, resultando em campo vazio mesmo com dados da API
+    if (dados.uf) {
+      const cidadesUF = getCidades(dados.uf)
+      setCidades(cidadesUF)
+    }
+    // Aplica todos os dados (incluindo cidade) após cidades estarem disponíveis
     setForm(prev => ({ ...prev, ...dados }))
-    // Atualiza cidades se UF foi preenchida
-    if (dados.uf) setCidades(getCidades(dados.uf))
   }
 
   // ============================================================
@@ -539,8 +545,8 @@ export default function FornecedoresModal({
               </select>
             </div>
 
-            {/* CNPJ + botão Consultar */}
-            <div style={colStyle()}>
+            {/* CNPJ + botão Consultar — minWidth maior para caber 00.000.000/0000-00 */}
+            <div style={{ ...colStyle(), minWidth: '200px' }}>
               <label style={labelStyle}>CNPJ</label>
               <div style={{ display: 'flex', gap: '4px' }}>
                 <input
