@@ -3,19 +3,20 @@
 // Projeto: Ceras Babinete — Gestão Financeira
 // Função: Página de login com Supabase Auth
 // Conecta com: lib/supabase.ts (signInWithPassword)
-//              app/clientes/page.tsx (redireciona após login)
+//              app/page.tsx (redireciona para / após login bem-sucedido)
 // ============================================================
 
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+// Roteamento client-side — removido: redirect pós-login usa window.location.href
+// import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 
 export default function LoginPage() {
 
-  const router = useRouter()
+  // router removido — redirect pós-login usa window.location.href (ver linha 38)
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
@@ -37,7 +38,10 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/clientes')
+    // Redireciona para a Home após login bem-sucedido
+    // window.location.href (hard navigation) evita race condition entre escrita do cookie
+    // e interceptação do middleware — padrão aprovado no projeto para pós-auth
+    window.location.href = '/'
   }
 
   return (
