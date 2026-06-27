@@ -45,7 +45,7 @@ export interface Cliente {
   observacoes?: string                // Observações livres
   contato_whatsapp?: ContatoWhatsApp[] // Contatos WhatsApp Business (JSONB)
   telefone_whatsapp?: string          // Campo legado do CSV (depreciado)
-  data_nascimento?: string            // Data de nascimento (CPF/pessoa física) — modal only, nunca na tabela
+  data_nascimento?: string | null     // Data de nascimento (CPF/pessoa física) — modal only; null quando vazio
   created_at?: string                 // Criado em (ISO string)
   updated_at?: string                 // Atualizado em (ISO string)
 }

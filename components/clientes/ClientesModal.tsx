@@ -60,6 +60,29 @@ const FORM_INICIAL: ClienteInsert = {
 }
 
 // ============================================================
+// Helpers de normalização de dados
+// Aplicados ao payload antes de enviar ao Supabase em handleSalvar
+// Garante consistência no banco independente de como o usuário digitou
+// Mesmo padrão usado em FornecedoresModal.tsx
+// ============================================================
+
+// normalizarTexto — remove espaços extras nas bordas
+function normalizarTexto(s: string): string {
+  return (s ?? '').trim()
+}
+
+// normalizarEmail — minúsculas + trim
+// "Vendas@Empresa.COM.BR" e "vendas@empresa.com.br" são o mesmo endereço
+function normalizarEmail(s: string): string {
+  return (s ?? '').trim().toLowerCase()
+}
+
+// normalizarUF — maiúsculas + trim (segurança contra entrada manual em minúsculas)
+function normalizarUF(s: string): string {
+  return (s ?? '').trim().toUpperCase()
+}
+
+// ============================================================
 // ClientesModal
 // ============================================================
 export default function ClientesModal({
@@ -188,18 +211,48 @@ export default function ClientesModal({
 
   // ============================================================
   // handleSalvar
-  // Valida e salva (INSERT ou UPDATE)
+  // Normaliza TODOS os campos antes de enviar ao Supabase
+  // Garante padrão consistente independente de como o usuário digitou
   // ============================================================
   async function handleSalvar() {
     if (!validar()) return
     setSalvando(true)
     try {
+      // Monta payload normalizado — trim em todos os campos de texto,
+      // lowercase em e-mails, '' → null em data_nascimento (Postgres rejeita
+      // string vazia em coluna date)
+      const payload: ClienteInsert = {
+        razao:             normalizarTexto(form.razao),
+        fantasia:          normalizarTexto(form.fantasia ?? ''),
+        end:               normalizarTexto(form.end ?? ''),
+        num:               normalizarTexto(form.num ?? ''),
+        bairro:            normalizarTexto(form.bairro ?? ''),
+        cep:               normalizarTexto(form.cep ?? ''),
+        uf:                normalizarUF(form.uf ?? ''),
+        cidade:            normalizarTexto(form.cidade ?? ''),
+        cnpj:              normalizarTexto(form.cnpj ?? ''),
+        cpf:               normalizarTexto(form.cpf ?? ''),
+        ie:                normalizarTexto(form.ie ?? ''),
+        fone1:             normalizarTexto(form.fone1 ?? ''),
+        fone2:             normalizarTexto(form.fone2 ?? ''),
+        contato:           normalizarTexto(form.contato ?? ''),
+        fone_contato:      normalizarTexto(form.fone_contato ?? ''),
+        email:             normalizarEmail(form.email ?? ''),          // lowercase
+        email_contato:     normalizarEmail(form.email_contato ?? ''),  // lowercase
+        nomelista:         form.nomelista ?? '1',                      // valor controlado — não normalizar
+        observacoes:       normalizarTexto(form.observacoes ?? ''),
+        contato_whatsapp:  form.contato_whatsapp ?? [],
+        telefone_whatsapp: normalizarTexto(form.telefone_whatsapp ?? ''),
+        // data_nascimento: '' → null (Postgres rejeita string vazia em coluna date)
+        data_nascimento: form.data_nascimento?.trim() !== '' ? form.data_nascimento : null,
+      }
+
       // Verifica duplicidade de CNPJ/CPF antes de salvar
       // excludeId: ignora o próprio registro em caso de edição
       const excludeId = modo === 'editar' && cliente ? cliente.id : undefined
       const duplicado = await verificarDuplicidadeCliente(
-        form.cnpj ?? '',
-        form.cpf ?? '',
+        payload.cnpj ?? '',
+        payload.cpf ?? '',
         excludeId
       )
       if (duplicado) {
@@ -208,9 +261,9 @@ export default function ClientesModal({
         return
       }
       if (modo === 'novo') {
-        await criarCliente(form)
+        await criarCliente(payload)
       } else if (modo === 'editar' && cliente) {
-        await editarCliente({ ...form, id: cliente.id })
+        await editarCliente({ ...payload, id: cliente.id })
       }
       onSalvo()
       onFechar()
