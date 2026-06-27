@@ -15,7 +15,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { criarCliente, editarCliente } from '@/lib/clientesService'
+import { criarCliente, editarCliente, verificarDuplicidadeCliente } from '@/lib/clientesService'
 import { getUFs, getCidades } from '@/lib/localidades'
 import WhatsAppSection from './WhatsAppSection'
 import type { Cliente, ClienteInsert, ContatoWhatsApp, ModoModal } from '@/types/clientes'
@@ -92,7 +92,7 @@ export default function ClientesModal({
   // ============================================================
   useEffect(() => {
     if (modo === 'novo') {
-      setForm(FORM_INICIAL)
+      setForm(FORM_INICIAL) // eslint-disable-line react-hooks/set-state-in-effect
       setCidades([])
       setErros({})
     } else if ((modo === 'editar' || modo === 'visualizar') && cliente) {
@@ -194,6 +194,19 @@ export default function ClientesModal({
     if (!validar()) return
     setSalvando(true)
     try {
+      // Verifica duplicidade de CNPJ/CPF antes de salvar
+      // excludeId: ignora o próprio registro em caso de edição
+      const excludeId = modo === 'editar' && cliente ? cliente.id : undefined
+      const duplicado = await verificarDuplicidadeCliente(
+        form.cnpj ?? '',
+        form.cpf ?? '',
+        excludeId
+      )
+      if (duplicado) {
+        setSalvando(false)
+        setErros({ cnpj: `CNPJ/CPF já cadastrado para: ${duplicado.razao} (Cód. ${duplicado.id})` })
+        return
+      }
       if (modo === 'novo') {
         await criarCliente(form)
       } else if (modo === 'editar' && cliente) {
@@ -201,8 +214,8 @@ export default function ClientesModal({
       }
       onSalvo()
       onFechar()
-    } catch (err: any) {
-      alert(`Erro ao salvar: ${err.message}`)
+    } catch (err: unknown) {
+      alert(`Erro ao salvar: ${err instanceof Error ? err.message : 'Erro desconhecido'}`)
       console.error(err)
     } finally {
       setSalvando(false)

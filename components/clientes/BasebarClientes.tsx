@@ -88,8 +88,8 @@ export default function BasebarClientes({
       await restaurarBackup(dados)
       alert(`Backup restaurado! ${dados.length} registros processados.`)
       onRestaurado()
-    } catch (err: any) {
-      alert(`Erro ao restaurar: ${err.message}`)
+    } catch (err: unknown) {
+      alert(`Erro ao restaurar: ${err instanceof Error ? err.message : 'Erro desconhecido'}`)
     } finally {
       setLoadingRestore(false)
       e.target.value = ''
@@ -140,7 +140,7 @@ export default function BasebarClientes({
 
       {/* Exportar — ti-database-import via ExportDropdown mobile */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <ExportDropdown clientes={clientes} mobile />
+        <ExportDropdown clientes={clientes} usuario={usuario ?? ''} mobile />
       </div>
 
       {/* Novo Cliente — ti-user-plus */}

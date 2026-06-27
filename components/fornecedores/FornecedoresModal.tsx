@@ -14,7 +14,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { criarFornecedor, editarFornecedor } from '@/lib/fornecedoresService'
+import { criarFornecedor, editarFornecedor, verificarDuplicidadeFornecedor } from '@/lib/fornecedoresService'
 import { getUFs, getCidades } from '@/lib/localidades'
 import WhatsAppSection from '@/components/clientes/WhatsAppSection'
 import type { Fornecedor, FornecedorInsert, ContatoWhatsApp, ModoModal } from '@/types/fornecedores'
@@ -104,7 +104,7 @@ export default function FornecedoresModal({
   // ============================================================
   useEffect(() => {
     if (modo === 'novo') {
-      setForm(FORM_INICIAL)
+      setForm(FORM_INICIAL) // eslint-disable-line react-hooks/set-state-in-effect
       setCidades([])
       setErros({})
       setErroCnpj('')
@@ -253,6 +253,7 @@ export default function FornecedoresModal({
   // ============================================================
   // mapBrasilAPI — mapeia resposta BrasilAPI → campos do form
   // ============================================================
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function mapBrasilAPI(json: any, cnpjLimpo: string): Partial<FornecedorInsert> {
     const cep = (json.cep ?? '').replace(/\D/g, '')
     const ddd = json.ddd_telefone_1 ?? ''
@@ -275,6 +276,7 @@ export default function FornecedoresModal({
   // ============================================================
   // mapCNPJa — mapeia resposta CNPJá → campos do form
   // ============================================================
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function mapCNPJa(json: any, cnpjLimpo: string): Partial<FornecedorInsert> {
     const addr = json.address ?? {}
     const cep = (addr.zip ?? '').replace(/\D/g, '')
@@ -285,6 +287,7 @@ export default function FornecedoresModal({
 
     // IE: busca em registrations pelo estado
     const uf = addr.state ?? ''
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const regIE = json.registrations?.find((r: any) => r.state === uf)
     const ie = regIE?.number ?? ''
 
@@ -335,6 +338,19 @@ export default function FornecedoresModal({
     if (!validar()) return
     setSalvando(true)
     try {
+      // Verifica duplicidade de CNPJ/CPF antes de salvar
+      // excludeId: ignora o próprio registro em caso de edição
+      const excludeId = modo === 'editar' && fornecedor ? fornecedor.id : undefined
+      const duplicado = await verificarDuplicidadeFornecedor(
+        form.cnpj ?? '',
+        form.cpf ?? '',
+        excludeId
+      )
+      if (duplicado) {
+        setSalvando(false)
+        setErros({ cnpj: `CNPJ/CPF já cadastrado para: ${duplicado.razao} (Cód. ${duplicado.id})` })
+        return
+      }
       if (modo === 'novo') {
         await criarFornecedor(form)
       } else if (modo === 'editar' && fornecedor) {
@@ -342,8 +358,9 @@ export default function FornecedoresModal({
       }
       onSalvo()
       onFechar()
-    } catch (err: any) {
-      alert(`Erro ao salvar: ${err.message}`)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+      alert(`Erro ao salvar: ${msg}`)
       console.error(err)
     } finally {
       setSalvando(false)

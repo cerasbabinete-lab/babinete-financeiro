@@ -65,7 +65,7 @@ export default function FornecedoresPage() {
   // ============================================================
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
-    setIsMobile(mq.matches)
+    setIsMobile(mq.matches) // eslint-disable-line react-hooks/set-state-in-effect
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
@@ -107,7 +107,7 @@ export default function FornecedoresPage() {
   }, [filtros])
 
   useEffect(() => {
-    if (!authCarregando) carregarFornecedores()
+    if (!authCarregando) carregarFornecedores() // eslint-disable-line react-hooks/set-state-in-effect
   }, [authCarregando, carregarFornecedores])
 
   // ============================================================

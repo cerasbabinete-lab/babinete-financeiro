@@ -88,8 +88,8 @@ export default function FornecedoresHeader({
       await restaurarBackup(dados)
       alert(`Backup restaurado com sucesso! ${dados.length} registros processados.`)
       onRestaurado()
-    } catch (err: any) {
-      alert(`Erro ao restaurar: ${err.message}`)
+    } catch (err: unknown) {
+      alert(`Erro ao restaurar: ${err instanceof Error ? err.message : 'Erro desconhecido'}`)
       console.error(err)
     } finally {
       setLoadingRestore(false)

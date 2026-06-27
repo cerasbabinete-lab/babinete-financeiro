@@ -26,12 +26,6 @@ import * as XLSX from 'xlsx'
 // Nome da tabela no Supabase
 const TABELA = 'clientes'
 
-// Colunas exibidas na tabela e exportadas
-const COLUNAS_EXPORT = [
-  'id', 'fantasia', 'razao', 'cnpj', 'cpf',
-  'cidade', 'uf', 'fone1', 'email', 'contato', 'nomelista',
-]
-
 // ============================================================
 // buscarClientes()
 // Retorna lista de clientes aplicando filtros de busca,
@@ -118,6 +112,53 @@ export async function buscarClientePorId(id: number): Promise<Cliente | null> {
 }
 
 // ============================================================
+// verificarDuplicidadeCliente()
+// Verifica se já existe um cliente com o mesmo CNPJ ou CPF
+// Retorna o cliente existente ou null se não houver duplicidade
+// Chamado por: ClientesModal.tsx antes de criar ou editar
+// Parâmetro excludeId: ID do registro atual (para ignorar em edições)
+// ============================================================
+export async function verificarDuplicidadeCliente(
+  cnpj: string,
+  cpf: string,
+  excludeId?: number
+): Promise<Cliente | null> {
+  // Limpa os valores para comparação
+  const cnpjLimpo = cnpj.replace(/[^0-9]/g, '')
+  const cpfLimpo  = cpf.replace(/[^0-9]/g, '')
+
+  // Só verifica se há pelo menos um documento preenchido
+  if (!cnpjLimpo && !cpfLimpo) return null
+
+  let query = supabase.from(TABELA).select('id, razao, fantasia, cnpj, cpf, nomelista, cidade, uf, fone1, email, contato, contato_whatsapp')
+
+  // Monta filtro OR para CNPJ e/ou CPF
+  const filtros: string[] = []
+  if (cnpjLimpo) filtros.push(`cnpj.ilike.%${cnpjLimpo}%`)
+  if (cpfLimpo)  filtros.push(`cpf.ilike.%${cpfLimpo}%`)
+  query = query.or(filtros.join(','))
+
+  const { data, error } = await query.limit(5)
+
+  if (error) {
+    console.error('[clientesService] verificarDuplicidadeCliente error:', error)
+    return null
+  }
+
+  if (!data || data.length === 0) return null
+
+  // Filtra o próprio registro em caso de edição
+  const duplicados = data.filter(c => {
+    if (excludeId !== undefined && c.id === excludeId) return false
+    const cCnpj = (c.cnpj ?? '').replace(/[^0-9]/g, '')
+    const cCpf  = (c.cpf  ?? '').replace(/[^0-9]/g, '')
+    return (cnpjLimpo && cCnpj === cnpjLimpo) || (cpfLimpo && cCpf === cpfLimpo)
+  })
+
+  return duplicados.length > 0 ? duplicados[0] : null
+}
+
+// ============================================================
 // criarCliente()
 // Insere um novo cliente na tabela e retorna o registro criado
 // id é gerado automaticamente pelo Supabase (SERIAL)
@@ -168,7 +209,8 @@ export async function editarCliente(cliente: ClienteUpdate): Promise<Cliente> {
 // Usa papaparse para geração client-side
 // Chamado por: ExportDropdown.tsx ao selecionar "CSV"
 // ============================================================
-export function exportarCSV(clientes: Cliente[]): void {
+export function exportarCSV(clientes: Cliente[], usuario: string): void {
+  const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
   // Seleciona apenas as colunas definidas em COLUNAS_EXPORT
   const dados = clientes.map(c => ({
     Código: c.id,
@@ -191,7 +233,7 @@ export function exportarCSV(clientes: Cliente[]): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `clientes_babinete_${dataHoje()}.csv`
+  link.download = `clientes_babinete_${dataHoje()}_${nomeSeguro}.csv`
   link.click()
   URL.revokeObjectURL(url)
 }
@@ -202,7 +244,8 @@ export function exportarCSV(clientes: Cliente[]): void {
 // Usa SheetJS (xlsx) para geração client-side
 // Chamado por: ExportDropdown.tsx ao selecionar "Excel"
 // ============================================================
-export function exportarExcel(clientes: Cliente[]): void {
+export function exportarExcel(clientes: Cliente[], usuario: string): void {
+  const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
   const dados = clientes.map(c => ({
     Código: c.id,
     'Nome Fantasia': c.fantasia ?? '',
@@ -220,7 +263,7 @@ export function exportarExcel(clientes: Cliente[]): void {
   const ws = XLSX.utils.json_to_sheet(dados)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Clientes')
-  XLSX.writeFile(wb, `clientes_babinete_${dataHoje()}.xlsx`)
+  XLSX.writeFile(wb, `clientes_babinete_${dataHoje()}_${nomeSeguro}.xlsx`)
 }
 
 // ============================================================
@@ -253,6 +296,38 @@ export async function fazerBackup(usuario?: string): Promise<void> {
 }
 
 // ============================================================
+// listarBackups()
+// Lista todos os arquivos de backup disponíveis no bucket 'backups'
+// ============================================================
+export async function listarBackups(): Promise<string[]> {
+  const { data, error } = await supabase.storage
+    .from('backups')
+    .list('', { sortBy: { column: 'created_at', order: 'desc' } })
+  if (error) throw new Error(error.message)
+  return (data ?? []).map(f => f.name)
+}
+
+// ============================================================
+// baixarBackup()
+// Baixa um arquivo de backup do Storage e retorna o array de clientes
+// ============================================================
+export async function baixarBackup(nomeArquivo: string): Promise<Cliente[]> {
+  const { data, error } = await supabase.storage
+    .from('backups')
+    .download(nomeArquivo)
+  if (error || !data) throw new Error(error?.message ?? 'Erro ao baixar backup')
+  const texto = await data.text()
+  const parsed = JSON.parse(texto)
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error('Formato de backup inválido: esperado array não-vazio.')
+  }
+  if (typeof parsed[0].id !== 'number' || typeof parsed[0].razao !== 'string') {
+    throw new Error('Formato de backup inválido: schema inválido.')
+  }
+  return parsed as Cliente[]
+}
+
+// ============================================================
 // restaurarBackup()
 // Recebe array de clientes (lido do arquivo JSON de backup)
 // e faz upsert completo na tabela — mantém id original
@@ -261,6 +336,7 @@ export async function fazerBackup(usuario?: string): Promise<void> {
 // ============================================================
 export async function restaurarBackup(clientes: Cliente[]): Promise<void> {
   // Remove campos gerados automaticamente para evitar conflitos
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const registros = clientes.map(({ created_at, updated_at, ...resto }) => resto)
 
   const { error } = await supabase

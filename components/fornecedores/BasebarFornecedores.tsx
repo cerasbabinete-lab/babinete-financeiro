@@ -88,8 +88,8 @@ export default function BasebarFornecedores({
       await restaurarBackup(dados)
       alert(`Backup restaurado! ${dados.length} registros processados.`)
       onRestaurado()
-    } catch (err: any) {
-      alert(`Erro ao restaurar: ${err.message}`)
+    } catch (err: unknown) {
+      alert(`Erro ao restaurar: ${err instanceof Error ? err.message : 'Erro desconhecido'}`)
     } finally {
       setLoadingRestore(false)
       e.target.value = ''

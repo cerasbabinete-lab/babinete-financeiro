@@ -83,7 +83,7 @@ export default function ClientesPage() {
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
-    setIsMobile(mq.matches)
+    setIsMobile(mq.matches) // eslint-disable-line react-hooks/set-state-in-effect
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
@@ -128,7 +128,7 @@ export default function ClientesPage() {
 
   // Recarrega sempre que os filtros mudarem (e auth estiver pronta)
   useEffect(() => {
-    if (!authCarregando) carregarClientes()
+    if (!authCarregando) carregarClientes() // eslint-disable-line react-hooks/set-state-in-effect
   }, [authCarregando, carregarClientes])
 
   // ============================================================

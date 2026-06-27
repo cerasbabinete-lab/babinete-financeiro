@@ -94,6 +94,49 @@ export async function buscarFornecedorPorId(id: number): Promise<Fornecedor | nu
 }
 
 // ============================================================
+// verificarDuplicidadeFornecedor()
+// Verifica se já existe um fornecedor com o mesmo CNPJ ou CPF
+// Retorna o fornecedor existente ou null se não houver duplicidade
+// Chamado por: FornecedoresModal.tsx antes de criar ou editar
+// Parâmetro excludeId: ID do registro atual (para ignorar em edições)
+// ============================================================
+export async function verificarDuplicidadeFornecedor(
+  cnpj: string,
+  cpf: string,
+  excludeId?: number
+): Promise<Fornecedor | null> {
+  const cnpjLimpo = cnpj.replace(/[^0-9]/g, '')
+  const cpfLimpo  = cpf.replace(/[^0-9]/g, '')
+
+  if (!cnpjLimpo && !cpfLimpo) return null
+
+  let query = supabase.from(TABELA).select('id, razao, cnpj, cpf')
+
+  const filtros: string[] = []
+  if (cnpjLimpo) filtros.push(`cnpj.ilike.%${cnpjLimpo}%`)
+  if (cpfLimpo)  filtros.push(`cpf.ilike.%${cpfLimpo}%`)
+  query = query.or(filtros.join(','))
+
+  const { data, error } = await query.limit(5)
+
+  if (error) {
+    console.error('[fornecedoresService] verificarDuplicidadeFornecedor error:', error)
+    return null
+  }
+
+  if (!data || data.length === 0) return null
+
+  const duplicados = data.filter(f => {
+    if (excludeId !== undefined && f.id === excludeId) return false
+    const fCnpj = (f.cnpj ?? '').replace(/[^0-9]/g, '')
+    const fCpf  = (f.cpf  ?? '').replace(/[^0-9]/g, '')
+    return (cnpjLimpo && fCnpj === cnpjLimpo) || (cpfLimpo && fCpf === cpfLimpo)
+  })
+
+  return duplicados.length > 0 ? duplicados[0] : null
+}
+
+// ============================================================
 // criarFornecedor()
 // Insere um novo fornecedor e retorna o registro criado
 // Chamado por: FornecedoresModal.tsx ao clicar em 💾 Gravar (modo novo)
@@ -230,6 +273,7 @@ export async function fazerBackup(usuario?: string): Promise<void> {
 // Chamado por: FornecedoresHeader.tsx e Basebar.tsx após leitura do arquivo
 // ============================================================
 export async function restaurarBackup(fornecedores: Fornecedor[]): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const registros = fornecedores.map(({ created_at, updated_at, ...resto }) => resto)
 
   const { error } = await supabase
