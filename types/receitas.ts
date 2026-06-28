@@ -130,9 +130,10 @@ export interface Receita {
   updated_at?: string
 
   // Campos calculados — preenchidos via join no select (não existem na tabela)
-  transportadora?: Transportadora | null   // Join com transportadoras
-  itens?: ReceitaItem[]                    // Join com receitas_itens
-  duplicatas?: Duplicata[]                 // Join com receitas_duplicatas
+  transportadora?: Transportadora | null                // Join com transportadoras
+  itens?: ReceitaItem[]                                 // Join com receitas_itens
+  duplicatas?: Duplicata[]                              // Join com receitas_duplicatas
+  cliente?: { fantasia?: string | null } | null         // Join com clientes — nome fantasia atual
 }
 
 // ============================================================

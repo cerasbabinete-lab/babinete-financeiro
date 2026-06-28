@@ -56,6 +56,7 @@ export default function ReceitasTabela({
           <tr style={{ background: '#1a6094', color: '#ffffff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
             <th style={thStyle('78px')}>Emissão</th>
             <th style={thStyle('60px')}>Nº Doc.</th>
+            <th style={thStyle('130px')}>Nome Fantasia</th>
             <th style={thStyle()}>Nome / Razão Social</th>
             <th style={thStyle('130px')}>CNPJ / CPF</th>
             <th style={thStyle('110px')}>Cidade / UF</th>
@@ -70,7 +71,7 @@ export default function ReceitasTabela({
         <tbody>
           {receitas.length === 0 ? (
             <tr>
-              <td colSpan={11} style={{ textAlign: 'center', padding: '32px', color: '#5a84a6', fontSize: '12px' }}>
+              <td colSpan={12} style={{ textAlign: 'center', padding: '32px', color: '#5a84a6', fontSize: '12px' }}>
                 Nenhuma receita encontrada.
               </td>
             </tr>
@@ -102,6 +103,11 @@ export default function ReceitasTabela({
                   {/* Nº Doc */}
                   <td style={{ ...tdStyle('60px'), fontWeight: 700, color: '#1a6094' }}>
                     {receita.numero_nf}
+                  </td>
+
+                  {/* Nome Fantasia — join com clientes via cliente_id */}
+                  <td style={{ ...tdStyle('130px'), maxWidth: '130px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#5a84a6' }}>
+                    {receita.cliente?.fantasia ?? '—'}
                   </td>
 
                   {/* Nome / Razão Social */}

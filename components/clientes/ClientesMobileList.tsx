@@ -38,15 +38,6 @@ export default function ClientesMobileList({
   const [confirmandoExcluirId, setConfirmandoExcluirId] = useState<number | null>(null)
 
   // ============================================================
-  // formatarLista
-  // ============================================================
-  function formatarLista(nomelista: string): string {
-    if (nomelista === '0') return 'Inativo'
-    if (nomelista === 'VAREJO') return 'VAREJO'
-    return `Lista ${nomelista}`
-  }
-
-  // ============================================================
   // Render
   // ============================================================
   if (clientes.length === 0) {
@@ -116,16 +107,7 @@ export default function ClientesMobileList({
                 : cliente.cidade || cliente.uf || '—'}
             </div>
 
-            {/* Lista */}
-            <div
-              style={{
-                fontSize: '8px',
-                color: '#3a6080',
-                marginTop: '2px',
-              }}
-            >
-              {formatarLista(cliente.nomelista)}
-            </div>
+
 
           </div>
 

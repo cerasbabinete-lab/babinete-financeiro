@@ -420,7 +420,7 @@ export default function ReceitasModal({ modo, receita, onFechar, onSalvo }: Rece
             <div style={secaoTituloStyle}>4. Transportador / Volumes</div>
             <div style={secaoCorpoStyle}>
               <div style={rowStyle}>
-                <div style={colStyle(2)}>
+                <div style={colStyle(3)}>
                   <label style={labelStyle}>Transportadora</label>
                   <select
                     value={transportadoraId}
@@ -434,7 +434,7 @@ export default function ReceitasModal({ modo, receita, onFechar, onSalvo }: Rece
                     ))}
                   </select>
                 </div>
-                <div style={colStyle(2)}>
+                <div style={colStyle(3)}>
                   <label style={labelStyle}>Frete por Conta</label>
                   <select
                     value={modalidadeFrete}
@@ -446,6 +446,15 @@ export default function ReceitasModal({ modo, receita, onFechar, onSalvo }: Rece
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
+                </div>
+                {/* Valor Frete — readonly, vindo do XML (vFrete do ICMSTot) */}
+                <div style={colStyle(3)}>
+                  <label style={labelStyle}>Valor do Frete</label>
+                  <input
+                    value={receita ? formatarMoeda(receita.valor_frete) : 'R$ 0,00'}
+                    disabled
+                    style={inputStyle(true)}
+                  />
                 </div>
               </div>
               {/* Volumes — readonly, vindos do XML */}

@@ -46,7 +46,8 @@ export async function buscarReceitas(filtros: FiltrosReceitas): Promise<Receita[
       *,
       transportadora:transportadoras(*),
       duplicatas:receitas_duplicatas(*),
-      itens:receitas_itens(*)
+      itens:receitas_itens(*),
+      cliente:clientes(fantasia)
     `)
 
   // Busca textual: nome, CNPJ/CPF (sem pontuação), número NF
