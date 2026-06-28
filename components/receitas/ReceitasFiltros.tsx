@@ -123,7 +123,7 @@ export default function ReceitasFiltros({
             <input
               type="date"
               value={filtros.dataEmissaoDe}
-              onChange={(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => onFiltrosChange({ ...filtros, dataEmissaoDe: e.target.value })}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => onFiltrosChange({ ...filtros, dataEmissaoDe: e.target.value })}
               style={inputStyle}
             />
           </div>
@@ -134,7 +134,7 @@ export default function ReceitasFiltros({
             <input
               type="date"
               value={filtros.dataEmissaoAte}
-              onChange={(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => onFiltrosChange({ ...filtros, dataEmissaoAte: e.target.value })}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => onFiltrosChange({ ...filtros, dataEmissaoAte: e.target.value })}
               style={inputStyle}
             />
           </div>
@@ -142,7 +142,7 @@ export default function ReceitasFiltros({
           {/* Prazo */}
           <select
             value={filtros.prazo}
-            onChange={(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => onFiltrosChange({ ...filtros, prazo: e.target.value })}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onFiltrosChange({ ...filtros, prazo: e.target.value })}
             style={selectStyle}
           >
             {PRAZOS.map(p => (
@@ -153,7 +153,7 @@ export default function ReceitasFiltros({
           {/* Forma de pagamento */}
           <select
             value={filtros.formaPagamento}
-            onChange={(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => onFiltrosChange({ ...filtros, formaPagamento: e.target.value })}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onFiltrosChange({ ...filtros, formaPagamento: e.target.value })}
             style={selectStyle}
           >
             <option value="">Todas as formas</option>
@@ -164,7 +164,7 @@ export default function ReceitasFiltros({
           {/* Transportadora */}
           <select
             value={filtros.transportadoraId}
-            onChange={(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => onFiltrosChange({ ...filtros, transportadoraId: e.target.value })}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onFiltrosChange({ ...filtros, transportadoraId: e.target.value })}
             style={{ ...selectStyle, maxWidth: '200px' }}
           >
             <option value="">Todas as transportadoras</option>

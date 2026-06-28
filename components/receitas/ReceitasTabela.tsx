@@ -14,7 +14,7 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Receita } from '@/types/receitas'
 import {
   calcularPrazos,
@@ -40,6 +40,10 @@ export default function ReceitasTabela({
 
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [confirmandoId, setConfirmandoId] = useState<string | null>(null)
+
+  // Reseta confirmação de exclusão quando a lista de receitas muda (ex: após filtro)
+  // Evita que uma linha filtrada retorne com o confirm já aberto
+  useEffect(() => { setConfirmandoId(null) }, [receitas])
 
   return (
     <div style={{

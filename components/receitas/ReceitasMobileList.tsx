@@ -13,7 +13,7 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Receita } from '@/types/receitas'
 import {
   calcularPrazos,
@@ -38,6 +38,10 @@ export default function ReceitasMobileList({
 
   const [sheetId, setSheetId] = useState<string | null>(null)
   const [confirmandoId, setConfirmandoId] = useState<string | null>(null)
+
+  // Reseta bottom-sheet e confirmação quando a lista muda (ex: após filtro ou exclusão)
+  // Evita estados obsoletos aparecendo ao limpar filtros
+  useEffect(() => { setSheetId(null); setConfirmandoId(null) }, [receitas])
 
   if (receitas.length === 0) {
     return (

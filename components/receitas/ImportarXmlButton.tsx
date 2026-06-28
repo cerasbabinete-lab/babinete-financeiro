@@ -15,7 +15,7 @@
 
 'use client'
 
-import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react'
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { parsearXml, ErroValidacao } from '@/lib/xmlParser'
 import {
   verificarChaveAcessoDuplicada,
@@ -48,6 +48,14 @@ const ImportarXmlButton = forwardRef(
     const inputRef = useRef<HTMLInputElement>(null)
     const [processando, setProcessando] = useState(false)
     const [resultado, setResultado]     = useState<ResultadoImportXml | null>(null)
+
+    // Auto-dismiss do painel de resultado após 8 segundos
+    // Evita que o painel fique montado com dados obsoletos entre importações
+    useEffect(() => {
+      if (!resultado) return
+      const t = setTimeout(() => setResultado(null), 8000)
+      return () => clearTimeout(t)
+    }, [resultado])
 
     // Expõe triggerImport() para o componente pai via ref
     useImperativeHandle(ref, () => ({

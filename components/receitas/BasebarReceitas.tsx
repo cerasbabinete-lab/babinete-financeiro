@@ -86,7 +86,7 @@ export default function BasebarReceitas({
 
       {/* Backup */}
       <button onClick={handleBackup} disabled={loadingBackup} style={btnStyle}>
-        <i className="ti ti-database" style={{ fontSize: '20px', color: '#1a6094' }} aria-hidden="true" />
+        <i className="ti ti-database-export" style={{ fontSize: '20px', color: '#1a6094' }} aria-hidden="true" />
         <span style={labelStyle}>{loadingBackup ? '...' : 'Backup'}</span>
       </button>
 

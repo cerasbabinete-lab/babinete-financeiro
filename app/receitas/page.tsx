@@ -95,8 +95,7 @@ export default function ReceitasPage() {
 
   // Auth — getUser() para validação server-side do JWT
   useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    supabase.auth.getUser().then((result: any) => {
+    supabase.auth.getUser().then((result) => {
       const user = result.data?.user
       if (!user) { router.push('/login'); return }
       setUsuario((user.email ?? '').split('@')[0])

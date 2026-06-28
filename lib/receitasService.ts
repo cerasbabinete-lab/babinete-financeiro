@@ -53,13 +53,16 @@ export async function buscarReceitas(filtros: FiltrosReceitas): Promise<Receita[
   if (filtros.busca && filtros.busca.trim() !== '') {
     const termo     = `%${filtros.busca.trim()}%`
     const termoDig  = `%${filtros.busca.trim().replace(/[^0-9]/g, '')}%`
-    // numero_nf é integer — cast para texto via ::text não disponível no ilike
-    // Busca em campos texto apenas
     const partes: string[] = [
       `cliente_nome.ilike.${termo}`,
       `cliente_cpf_cnpj.ilike.${termoDig}`,
       `natureza_operacao.ilike.${termo}`,
     ]
+    // numero_nf é integer — não suporta ilike, mas suporta .eq quando o termo é numérico válido
+    const termoInt = parseInt(filtros.busca.trim(), 10)
+    if (!isNaN(termoInt)) {
+      partes.push(`numero_nf.eq.${termoInt}`)
+    }
     query = query.or(partes.join(','))
   }
 
@@ -514,24 +517,28 @@ export async function restaurarBackup(receitas: Receita[]): Promise<void> {
 
     const receitaId = (data as { id: string }).id
 
-    // Substitui itens
+    // Substitui itens — deleta os existentes e reinsere do backup
     await supabase.from(TABELA_ITENS).delete().eq('receita_id', receitaId)
     if (itens && itens.length > 0) {
       const itensLimpos = itens.map(
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         ({ id: _id, receita_id: _rid, created_at: _ca, ...rest }) => ({ ...rest, receita_id: receitaId })
       )
-      await supabase.from(TABELA_ITENS).insert(itensLimpos)
+      // Verifica erro do insert — evita perda silenciosa de dados fiscais
+      const { error: erroInsItens } = await supabase.from(TABELA_ITENS).insert(itensLimpos)
+      if (erroInsItens) throw new Error(`Erro ao restaurar itens: ${erroInsItens.message}`)
     }
 
-    // Substitui duplicatas
+    // Substitui duplicatas — deleta as existentes e reinsere do backup
     await supabase.from(TABELA_DUPLIC).delete().eq('receita_id', receitaId)
     if (duplicatas && duplicatas.length > 0) {
       const duplicatasLimpos = duplicatas.map(
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         ({ id: _id, receita_id: _rid, created_at: _ca, ...rest }) => ({ ...rest, receita_id: receitaId })
       )
-      await supabase.from(TABELA_DUPLIC).insert(duplicatasLimpos)
+      // Verifica erro do insert — evita perda silenciosa de dados fiscais
+      const { error: erroInsDuplic } = await supabase.from(TABELA_DUPLIC).insert(duplicatasLimpos)
+      if (erroInsDuplic) throw new Error(`Erro ao restaurar duplicatas: ${erroInsDuplic.message}`)
     }
   }
 }
@@ -544,9 +551,13 @@ export async function restaurarBackup(receitas: Receita[]): Promise<void> {
 //              exportarCSV(), exportarExcel()
 // ============================================================
 export function calcularPrazos(dataEmissao: string, duplicatas: Duplicata[]): string {
+  // Retorna '0' se não há duplicatas (à vista)
   if (!duplicatas || duplicatas.length === 0) return '0'
-
+  // Retorna '—' se dataEmissao não foi preenchida (ex: modo novo antes de salvar)
+  if (!dataEmissao) return '—'
   const emissao = new Date(dataEmissao)
+  // Retorna '—' se dataEmissao produziu data inválida
+  if (isNaN(emissao.getTime())) return '—'
 
   const dias = duplicatas
     .slice()
@@ -658,10 +669,12 @@ export async function buscarClientePorCpfCnpj(cpfCnpj: string): Promise<{
 
   if (error || !data || data.length === 0) return null
 
-  // Confirmação exata por dígitos
+  // Confirmação exata por dígitos — verifica cnpj e cpf separadamente
+  // Concatenar produziria string de 25 dígitos que jamais igualaria CNPJ(14) ou CPF(11)
   const match = data.find((c: { cnpj?: string; cpf?: string }) => {
-    const cDig = ((c.cnpj ?? '') + (c.cpf ?? '')).replace(/[^0-9]/g, '')
-    return cDig === digits
+    const cnpjDig = (c.cnpj ?? '').replace(/[^0-9]/g, '')
+    const cpfDig  = (c.cpf  ?? '').replace(/[^0-9]/g, '')
+    return cnpjDig === digits || cpfDig === digits
   })
 
   return match ?? null

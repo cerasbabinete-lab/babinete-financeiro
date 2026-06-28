@@ -59,7 +59,7 @@ export function parsearXml(xmlString: string): ResultadoParse {
 
   // Verifica se o XML tem conteúdo mínimo esperado
   // (não há parsererror em modo HTML — verificamos pela presença de tags)
-  const temNfe = doc.querySelector('nfeproc') || doc.querySelector('nfeProc')
+  const temNfe = doc.querySelector('nfeproc')
   if (!temNfe) {
     throw new ErroValidacao('Arquivo corrompido')
   }

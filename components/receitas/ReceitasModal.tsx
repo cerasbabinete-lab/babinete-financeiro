@@ -81,7 +81,7 @@ export default function ReceitasModal({ modo, receita, onFechar, onSalvo }: Rece
   }, [])
 
   useEffect(() => {
-    if (!receita || isNovo) return
+    if (!receita || modo === 'novo') return
     setCpfCnpj(receita.cliente_cpf_cnpj ? formatarCnpjCpf(receita.cliente_cpf_cnpj) : '')
     setClienteNome(receita.cliente_nome ?? '')
     setClienteEnd([receita.cliente_logradouro, receita.cliente_numero, receita.cliente_bairro].filter(Boolean).join(', '))
@@ -98,13 +98,13 @@ export default function ReceitasModal({ modo, receita, onFechar, onSalvo }: Rece
     setObservacoes(receita.observacoes ?? '')
     setModalidadeFrete(receita.modalidade_frete ?? 1)
     setTransportadoraId(receita.transportadora_id ?? '')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setDuplicatas((receita.duplicatas ?? []).map((d: any) => ({
+    // Preenche duplicatas usando o tipo correto — Duplicata já importada no arquivo
+    setDuplicatas((receita.duplicatas ?? []).map((d: Duplicata) => ({
       numero_duplicata: d.numero_duplicata,
       data_vencimento: d.data_vencimento,
       valor: d.valor,
     })))
-  }, [receita, isNovo])
+  }, [receita, modo])
 
   // Autocomplete CNPJ/CPF
   async function handleCpfCnpjBlur() {
@@ -535,8 +535,8 @@ export default function ReceitasModal({ modo, receita, onFechar, onSalvo }: Rece
         {/* Footer */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderTop: '1px solid #dde8f0', background: '#f7fafc' }}>
 
-          {/* DANFE (visualizar com chave_acesso) */}
-          {isVisualizar && receita?.chave_acesso && (
+          {/* DANFE — exibe apenas para NF-e com XML no storage (não para manuais) */}
+          {isVisualizar && receita?.chave_acesso && receita?.xml_storage_path && (
             <button
               onClick={handleDanfe}
               style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '6px 14px', fontSize: '12px', fontWeight: 700, fontFamily: 'Tahoma, Geneva, sans-serif', background: '#ffffff', color: '#1a6094', border: '1px solid #1a6094', borderRadius: '5px', cursor: 'pointer' }}
