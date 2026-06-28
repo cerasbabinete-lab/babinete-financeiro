@@ -82,6 +82,25 @@ function normalizarUF(s: string): string {
   return (s ?? '').trim().toUpperCase()
 }
 
+// normalizarCidade — encontra o nome EXATO do localidades_br.json
+// O CSV importado pode ter "MARINGA" ou "Maringa"; o JSON tem "Maringá"
+// Comparação case-insensitive + sem acentos para máxima tolerância
+// Se não achar match exato na lista, retorna o valor trimado original
+// Mesmo padrão implementado em FornecedoresModal.tsx (commit d8337ef)
+function normalizarCidade(cidade: string, uf: string): string {
+  // Sem cidade ou UF: retorna texto básico normalizado
+  if (!cidade || !uf) return normalizarTexto(cidade)
+  // Carrega lista de cidades da UF para comparação
+  const lista = getCidades(uf)
+  // Remove acentos e converte para minúscula — comparação neutra
+  // ex: "MARINGÁ" → "maringa", "Maringá" → "maringa"
+  const sem = (s: string) =>
+    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const cidadeSem = sem(cidade.trim())
+  // Retorna a string exata do JSON se encontrar match, ou o valor original
+  return lista.find(c => sem(c) === cidadeSem) ?? normalizarTexto(cidade)
+}
+
 // ============================================================
 // ClientesModal
 // ============================================================
@@ -126,7 +145,11 @@ export default function ClientesModal({
         num: cliente.num ?? '',
         bairro: cliente.bairro ?? '',
         cep: cliente.cep ?? '',
-        cidade: cliente.cidade ?? '',
+        // normalizarCidade: converte o valor do banco para o nome exato
+        // do localidades_br.json antes de preencher o select.
+        // CSV importado pode ter "MARINGA" ou "Maringa" — sem normalização
+        // o select ficaria vazio e o usuário salvaria sem cidade.
+        cidade: normalizarCidade(cliente.cidade ?? '', cliente.uf ?? ''),
         uf: cliente.uf ?? '',
         cnpj: cliente.cnpj ?? '',
         cpf: cliente.cpf ?? '',
