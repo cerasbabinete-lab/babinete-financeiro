@@ -51,21 +51,21 @@ export default function ReceitasTabela({
       border: '1px solid #dde8f0', borderRadius: '8px',
       fontFamily: 'Tahoma, Geneva, sans-serif',
     }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', minWidth: '1100px' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', tableLayout: 'fixed' }}>
         <thead>
           <tr style={{ background: '#1a6094', color: '#ffffff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
-            <th style={thStyle('78px')}>Emissão</th>
-            <th style={thStyle('60px')}>Nº Doc.</th>
-            <th style={thStyle('130px')}>Nome Fantasia</th>
-            <th style={thStyle()}>Nome / Razão Social</th>
-            <th style={thStyle('130px')}>CNPJ / CPF</th>
-            <th style={thStyle('110px')}>Cidade / UF</th>
-            <th style={thStyle('120px')}>Transportadora</th>
-            <th style={thStyle('44px', true)}>Dupl.</th>
-            <th style={thStyle('90px')}>Prazos</th>
-            <th style={thStyle('80px')}>Forma Pgto</th>
-            <th style={thStyle('90px', true)}>Valor Total</th>
-            <th style={thStyle('80px', true)}>Ações</th>
+            <th style={thStyle('6%')}>Emissão</th>
+            <th style={thStyle('4.5%')}>Nº Doc.</th>
+            <th style={thStyle('11%')}>Nome Fantasia</th>
+            <th style={thStyle('18%')}>Nome / Razão Social</th>
+            <th style={thStyle('9%')}>CNPJ / CPF</th>
+            <th style={thStyle('8%')}>Cidade / UF</th>
+            <th style={thStyle('9%')}>Transportadora</th>
+            <th style={thStyle('3.5%', true)}>Dupl.</th>
+            <th style={thStyle('5.5%')}>Prazos</th>
+            <th style={thStyle('6%')}>Forma Pgto</th>
+            <th style={thStyle('7%', true)}>Valor Total</th>
+            <th style={thStyle('6%', true)}>Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -96,51 +96,51 @@ export default function ReceitasTabela({
                   }}
                 >
                   {/* Emissão */}
-                  <td style={tdStyle('78px')}>
+                  <td style={tdStyle('6%')}>
                     {formatarDataBR(receita.data_emissao)}
                   </td>
 
                   {/* Nº Doc */}
-                  <td style={{ ...tdStyle('60px'), fontWeight: 700, color: '#1a6094' }}>
+                  <td style={{ ...tdStyle('4.5%'), fontWeight: 700, color: '#1a6094' }}>
                     {receita.numero_nf}
                   </td>
 
                   {/* Nome Fantasia — join com clientes via cliente_id */}
-                  <td style={{ ...tdStyle('130px'), maxWidth: '130px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#5a84a6' }}>
+                  <td style={{ ...tdStyle('11%'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#5a84a6' }}>
                     {receita.cliente?.fantasia ?? '—'}
                   </td>
 
                   {/* Nome / Razão Social */}
-                  <td style={{ ...tdStyle(), maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td style={{ ...tdStyle('18%'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {receita.cliente_nome ?? '—'}
                   </td>
 
                   {/* CNPJ / CPF */}
-                  <td style={tdStyle('130px')}>
+                  <td style={tdStyle('9%')}>
                     {receita.cliente_cpf_cnpj ? formatarCnpjCpf(receita.cliente_cpf_cnpj) : '—'}
                   </td>
 
                   {/* Cidade / UF */}
-                  <td style={tdStyle('110px')}>
+                  <td style={tdStyle('8%')}>
                     {receita.cliente_municipio && receita.cliente_uf
                       ? `${receita.cliente_municipio} / ${receita.cliente_uf}`
                       : receita.cliente_municipio ?? '—'}
                   </td>
 
                   {/* Transportadora */}
-                  <td style={{ ...tdStyle('120px'), maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td style={{ ...tdStyle('9%'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {receita.modalidade_frete === 9
                       ? 'Sem frete'
                       : receita.transportadora?.nome ?? '—'}
                   </td>
 
                   {/* Duplicatas count */}
-                  <td style={{ ...tdStyle('44px'), textAlign: 'center' }}>
+                  <td style={{ ...tdStyle('3.5%'), textAlign: 'center' }}>
                     {duplicatas.length > 0 ? `${duplicatas.length}x` : '—'}
                   </td>
 
                   {/* Prazos */}
-                  <td style={tdStyle('90px')}>{prazos}</td>
+                  <td style={tdStyle('5.5%')}>{prazos}</td>
 
                   {/* Forma Pgto */}
                   <td style={tdStyle('80px')}>
