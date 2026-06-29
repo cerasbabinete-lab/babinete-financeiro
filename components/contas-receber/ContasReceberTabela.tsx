@@ -226,9 +226,14 @@ export default function ContasReceberTabela({
                     {formatarMoeda(titulo.valor)}
                   </td>
 
-                  {/* Status — badge colorido */}
+                  {/* Status — badge colorido; em_aberto assume cor da urgência */}
                   <td style={{ ...tdBase(textColor), textAlign: 'center' }}>
-                    <StatusBadge status={titulo.status} cancelado={isCancelado} />
+                    <StatusBadge
+                      status={titulo.status}
+                      cancelado={isCancelado}
+                      isVencido={isVencido}
+                      isNearDue={isNearDue}
+                    />
                   </td>
 
                   {/* Ações */}
@@ -311,10 +316,43 @@ export default function ContasReceberTabela({
 // ============================================================
 // StatusBadge
 // Badge pill colorido para cada status do título
+// Quando status = 'em_aberto': cor reflete urgência (vencido=vermelho, near-due=âmbar, normal=azul)
 // ============================================================
-function StatusBadge({ status, cancelado }: { status: string; cancelado: boolean }) {
-  const cores = STATUS_CORES[status as keyof typeof STATUS_CORES]
+function StatusBadge({
+  status,
+  cancelado,
+  isVencido = false,
+  isNearDue = false,
+}: {
+  status:     string
+  cancelado:  boolean
+  isVencido?: boolean
+  isNearDue?: boolean
+}) {
   const label = STATUS_LABELS[status as keyof typeof STATUS_LABELS] ?? status
+
+  // Para 'em_aberto': sobrescreve cor baseado na urgência do vencimento
+  // Outros status usam as cores fixas do STATUS_CORES
+  let bg:   string
+  let text: string
+
+  if (cancelado) {
+    bg   = '#f1f1f1'
+    text = '#bbb'
+  } else if (status === 'em_aberto' && isVencido) {
+    // Atrasado — vermelho (mesma paleta da linha)
+    bg   = '#fde8e8'
+    text = '#c0392b'
+  } else if (status === 'em_aberto' && isNearDue) {
+    // Próximo do vencimento — âmbar (mesma paleta da linha)
+    bg   = '#fff8e1'
+    text = '#b07d00'
+  } else {
+    // Status normal — usa cores fixas do tipo
+    const cores = STATUS_CORES[status as keyof typeof STATUS_CORES]
+    bg   = cores?.bg   ?? '#f0f4f7'
+    text = cores?.text ?? '#5a84a6'
+  }
 
   return (
     <span style={{
@@ -323,8 +361,8 @@ function StatusBadge({ status, cancelado }: { status: string; cancelado: boolean
       borderRadius: '10px',
       fontSize:     '10px',
       fontWeight:   700,
-      background:   cancelado ? '#f1f1f1' : (cores?.bg ?? '#f0f4f7'),
-      color:        cancelado ? '#bbb' : (cores?.text ?? '#5a84a6'),
+      background:   bg,
+      color:        text,
       whiteSpace:   'nowrap',
     }}>
       {label}
