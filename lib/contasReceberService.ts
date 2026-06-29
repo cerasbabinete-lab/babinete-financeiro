@@ -245,8 +245,111 @@ export async function buscarReceitasParaVinculo(): Promise<{
 // ============================================================
 
 // ============================================================
-// criarTitulo()
-// Insere um título novo + registra evento 'criado'
+// criarTitulosDeReceita()
+// Cria automaticamente um título em contas_receber para cada
+// duplicata de uma NF-e recém-importada em Receitas.
+// Ponto de entrada: ImportarXmlButton.tsx após criarReceita().
+//
+// Fluxo:
+//   1. Para cada duplicata: verificar deduplicação por duplicata_id
+//   2. Se já existe (ou cancelado): pular — não recria
+//   3. Se não existe: criar ContaReceber com status 'em_aberto'
+//
+// Erros são coletados e retornados — NÃO lança exceção global
+// para não desfazer a Receita já gravada com sucesso.
+//
+// Chamado por: ImportarXmlButton.tsx após criarReceita()
+// ============================================================
+export async function criarTitulosDeReceita(params: {
+  receita: {
+    id:               string
+    numero_nf:        number
+    cliente_nome?:    string
+    cliente_cpf_cnpj?: string
+    cliente_fantasia?: string | null
+    cliente_email?:    string | null
+    cliente_fone?:     string | null
+    cliente_municipio?: string | null
+    cliente_uf?:       string | null
+    cliente_id?:       number | null
+  }
+  duplicatas: {
+    id:               string   // UUID gerado — retornado pelo .select() do insert
+    numero_duplicata: string
+    data_vencimento:  string
+    valor:            number
+  }[]
+}): Promise<{ criados: number; erros: string[] }> {
+  const { receita, duplicatas } = params
+  let criados = 0
+  const erros: string[] = []
+
+  // Monta o número do documento no padrão MIGRATE: "NNNNNN/parcela"
+  // Ex: receita 5414, duplicata "001" → "005414/1" (sem zero no número da parcela)
+  // CRÍTICO: o TXT BB do MIGRATE usa "005414/1" — sem zero-padding na parcela
+  // Usar parseInt() para remover o zero: parseInt("001") → 1 → "1"
+  // Se usarmos "001" diretamente, a busca no import TXT BB falhará e criará avulso duplicado
+  const numNfPad = String(receita.numero_nf).padStart(6, '0')
+
+  for (const dup of duplicatas) {
+    try {
+      // ── Deduplicação por duplicata_id ──────────────────────
+      // Inclui registros cancelados — cancelado BLOQUEIA re-criação
+      const jaExiste = await verificarDuplicataXml(dup.id)
+      if (jaExiste) {
+        // Título já existe (ou existiu e foi cancelado) — pular silenciosamente
+        continue
+      }
+
+      // ── Monta o título ────────────────────────────────────
+      // Remove zero-padding da parcela para bater com o formato MIGRATE do TXT BB
+      // "001" → 1 → "1"; fallback: usa o valor original se não for numérico
+      const parcelaNum = parseInt(dup.numero_duplicata, 10)
+      const parcelaSufixo = isNaN(parcelaNum) ? dup.numero_duplicata : String(parcelaNum)
+
+      const titulo: ContaReceberInsert = {
+        duplicata_id:       dup.id,
+        receita_id:         receita.id,
+        cliente_id:         receita.cliente_id ?? null,
+        numero_documento:   `${numNfPad}/${parcelaSufixo}`,  // Ex: "005414/1" — formato MIGRATE
+        numero_duplicata:   dup.numero_duplicata,               // Ex: "001", "002"
+        data_vencimento:    dup.data_vencimento,                // ISO date da duplicata
+        data_processamento: new Date().toISOString().slice(0, 10), // Hoje
+        valor:              dup.valor,                          // Valor da parcela
+        status:             'em_aberto',                        // Estado inicial
+        // nosso_numero e linha_digitavel ficam null até import TXT BB / REM
+        nosso_numero:       null,
+        linha_digitavel:    null,
+        // Dados históricos do sacado — imutáveis após criação
+        cliente_nome:       receita.cliente_nome      ?? '',
+        cliente_cpf_cnpj:   receita.cliente_cpf_cnpj ?? '',
+        cliente_fantasia:   receita.cliente_fantasia  ?? null,
+        cliente_email:      receita.cliente_email     ?? null,
+        cliente_fone:       receita.cliente_fone      ?? null,
+        cliente_municipio:  receita.cliente_municipio ?? null,
+        cliente_uf:         receita.cliente_uf        ?? null,
+        observacoes:        null,
+        deleted_at:         null,
+      }
+
+      // ── Insere e registra evento de criação ──────────────
+      await criarTitulo(
+        titulo,
+        `Título criado automaticamente via import XML — NF-e ${receita.numero_nf}, duplicata ${dup.numero_duplicata}.`,
+      )
+
+      criados++
+
+    } catch (err: unknown) {
+      // Erro na duplicata individual — coleta e continua para as demais
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[contasReceberService] criarTitulosDeReceita duplicata error:', msg)
+      erros.push(`Duplicata ${dup.numero_duplicata}: ${msg}`)
+    }
+  }
+
+  return { criados, erros }
+}
 // Usado tanto pelo import bancário quanto pelo lançamento manual
 // Chamado por: ContasReceberModal.tsx (modo novo),
 //              processarImportTxtBb(), processarImportRem()

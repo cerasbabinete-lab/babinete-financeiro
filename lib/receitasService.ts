@@ -200,14 +200,14 @@ export async function verificarChaveAcessoDuplicada(chaveAcesso: string): Promis
 // ============================================================
 // criarReceita()
 // Insere receita + itens + duplicatas em sequência
-// Retorna a receita criada com id
+// Retorna a receita criada com id + duplicatas com ids
 // Chamado por: ReceitasModal.tsx (modo novo) e ImportarXmlButton.tsx
 // ============================================================
 export async function criarReceita(
   receita: ReceitaInsert,
   itens: Omit<ReceitaItem, 'id' | 'receita_id' | 'created_at'>[],
   duplicatas: Omit<Duplicata, 'id' | 'receita_id' | 'created_at'>[],
-): Promise<Receita> {
+): Promise<{ receita: Receita; duplicatas: Duplicata[] }> {
   // 1. Insere a receita principal
   const { data, error } = await supabase
     .from(TABELA)
@@ -232,17 +232,23 @@ export async function criarReceita(
     }
   }
 
-  // 3. Insere as duplicatas (se houver)
+  // 3. Insere as duplicatas e retorna com ids gerados pelo Postgres
+  // Os UUIDs das duplicatas são necessários para criar os títulos em Contas a Receber
+  let duplicatasInseridas: Duplicata[] = []
   if (duplicatas.length > 0) {
     const duplicatasComId = duplicatas.map(d => ({ ...d, receita_id: novaReceita.id }))
-    const { error: erroDuplic } = await supabase.from(TABELA_DUPLIC).insert(duplicatasComId)
+    const { data: dupData, error: erroDuplic } = await supabase
+      .from(TABELA_DUPLIC)
+      .insert(duplicatasComId)
+      .select()                    // Retorna as duplicatas com id gerado
     if (erroDuplic) {
       console.error('[receitasService] criarReceita duplicatas error:', erroDuplic)
       throw new Error(erroDuplic.message)
     }
+    duplicatasInseridas = (dupData as Duplicata[]) ?? []
   }
 
-  return novaReceita
+  return { receita: novaReceita, duplicatas: duplicatasInseridas }
 }
 
 // ============================================================

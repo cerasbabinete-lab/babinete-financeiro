@@ -10,6 +10,7 @@
 //              lib/xmlParser.ts (parsearXml, ErroValidacao)
 //              lib/receitasService.ts (verificarChaveAcessoDuplicada,
 //                criarReceita, uploadXml, buscarClientePorCpfCnpj)
+//              lib/contasReceberService.ts (criarTitulosDeReceita)
 //              lib/transportadorasService.ts (upsertTransportadora)
 // ============================================================
 
@@ -23,6 +24,7 @@ import {
   uploadXml,
   buscarClientePorCpfCnpj,
 } from '@/lib/receitasService'
+import { criarTitulosDeReceita } from '@/lib/contasReceberService'
 import { upsertTransportadora } from '@/lib/transportadorasService'
 import type { ResultadoImportXml } from '@/types/receitas'
 
@@ -111,9 +113,40 @@ const ImportarXmlButton = forwardRef(
           }
 
           // 6. Insere receita + itens + duplicatas
-          await criarReceita(receitaInsert, parsed.itens, parsed.duplicatas)
+          // criarReceita retorna { receita, duplicatas } — duplicatas têm ids do Postgres
+          const { receita: novaReceita, duplicatas: duplicatasInseridas } =
+            await criarReceita(receitaInsert, parsed.itens, parsed.duplicatas)
 
-          // 7. Upload do XML bruto para Storage
+          // 7. Cria títulos em Contas a Receber para cada duplicata
+          // Não bloqueante — erros aqui não desfazem a Receita já gravada
+          if (duplicatasInseridas.length > 0) {
+            const resultCR = await criarTitulosDeReceita({
+              receita: {
+                id:                novaReceita.id,
+                numero_nf:         novaReceita.numero_nf,
+                cliente_nome:      novaReceita.cliente_nome      ?? '',
+                cliente_cpf_cnpj:  novaReceita.cliente_cpf_cnpj ?? '',
+                cliente_fantasia:  null, // Não disponível no ReceitaInsert — join não feito aqui
+                cliente_email:     novaReceita.cliente_email     ?? null,
+                cliente_fone:      novaReceita.cliente_fone      ?? null,
+                cliente_municipio: novaReceita.cliente_municipio ?? null,
+                cliente_uf:        novaReceita.cliente_uf        ?? null,
+                cliente_id:        clienteId,
+              },
+              duplicatas: duplicatasInseridas.map(d => ({
+                id:               d.id,
+                numero_duplicata: d.numero_duplicata,
+                data_vencimento:  d.data_vencimento,
+                valor:            d.valor,
+              })),
+            })
+            if (resultCR.erros.length > 0) {
+              // Erros em Contas a Receber são registrados mas não bloqueiam o import
+              console.warn('[ImportarXmlButton] criarTitulosDeReceita erros:', resultCR.erros)
+            }
+          }
+
+          // 8. Upload do XML bruto para Storage
           await uploadXml(parsed.chaveAcesso, xmlString)
 
           res.success++
