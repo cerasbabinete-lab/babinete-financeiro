@@ -20,6 +20,10 @@ import {
   excluirReceita,
   buscarTransportadoras,
 } from '@/lib/receitasService'
+import {
+  buscarContadoresReceitasAberto,
+  type ContadoresReceitasAberto,
+} from '@/lib/contasReceberService'
 import type { Receita, FiltrosReceitas, ModoModal, Transportadora } from '@/types/receitas'
 
 // Layout
@@ -65,6 +69,11 @@ export default function ReceitasPage() {
   const [total,           setTotal]           = useState(0)
   const [carregando,      setCarregando]      = useState(true)
   const [transportadoras, setTransportadoras] = useState<Transportadora[]>([])
+
+  // ── Contadores de títulos em aberto (Feature 1) ──────────
+  const [contadoresReceitas, setContadoresReceitas] = useState<ContadoresReceitasAberto>({
+    nfsComAberto: 0, duplicatasEmAberto: 0,
+  })
 
   // ── Filtros ──
   const [filtros, setFiltros] = useState<FiltrosReceitas>(FILTROS_INICIAIS)
@@ -116,12 +125,14 @@ export default function ReceitasPage() {
   const carregarReceitas = useCallback(async () => {
     setCarregando(true)
     try {
-      const [lista, count] = await Promise.all([
+      const [lista, count, ctd] = await Promise.all([
         buscarReceitas(filtros),
         contarReceitas(),
+        buscarContadoresReceitasAberto(), // Feature 1: contador de NFs/duplicatas em aberto
       ])
       setReceitas(lista)
       setTotal(count)
+      setContadoresReceitas(ctd)
     } catch (err) {
       console.error('[ReceitasPage] carregarReceitas error:', err)
     } finally {
@@ -228,6 +239,32 @@ export default function ReceitasPage() {
             onImportado={handleImportado}
             onErro={setMsgErro}
           />
+
+          {/* Feature 1: Banner de NFs com títulos em aberto em Contas a Receber */}
+          {contadoresReceitas.nfsComAberto > 0 && (
+            <div style={{
+              margin:       '0 0 10px',
+              padding:      '7px 14px',
+              background:   '#e8f0f7',
+              border:       '1px solid #c4d8eb',
+              borderRadius: '5px',
+              display:      'flex',
+              alignItems:   'center',
+              gap:          '10px',
+              fontFamily:   'Tahoma, Geneva, sans-serif',
+              fontSize:     '12px',
+              color:        '#1a6094',
+            }}>
+              <i className="ti ti-receipt" style={{ fontSize: '15px', flexShrink: 0 }} aria-hidden="true" />
+              <span>
+                <strong>{contadoresReceitas.nfsComAberto}</strong>
+                {contadoresReceitas.nfsComAberto === 1 ? ' NF com ' : ' NFs com '}
+                <strong>{contadoresReceitas.duplicatasEmAberto}</strong>
+                {contadoresReceitas.duplicatasEmAberto === 1 ? ' título em aberto' : ' títulos em aberto'}
+                {' '}em Contas a Receber
+              </span>
+            </div>
+          )}
 
           <FeedbackBanner />
 
