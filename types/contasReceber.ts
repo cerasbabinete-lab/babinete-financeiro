@@ -327,7 +327,7 @@ export const STATUS_LABELS: Record<StatusTitulo, string> = {
 // e ContasReceberMobileList
 // ============================================================
 export const STATUS_CORES: Record<StatusTitulo, { bg: string; text: string }> = {
-  em_aberto:        { bg: '#dbeafe', text: '#1e40af' }, // azul
+  em_aberto:        { bg: '#dcfce7', text: '#166534' }, // verde
   pago:             { bg: '#dcfce7', text: '#166534' }, // verde
   recebido_pix_ted: { bg: '#d1fae5', text: '#065f46' }, // verde-teal
   protestado:       { bg: '#ffedd5', text: '#9a3412' }, // laranja
