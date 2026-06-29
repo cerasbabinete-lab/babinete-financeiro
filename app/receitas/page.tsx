@@ -322,6 +322,32 @@ export default function ReceitasPage() {
 
         <FeedbackBanner />
 
+        {/* Banner de NFs com títulos em aberto — mobile */}
+        {contadoresReceitas.nfsComAberto > 0 && (
+          <div style={{
+            margin:       '0 0 8px',
+            padding:      '6px 12px',
+            background:   '#e8f0f7',
+            border:       '1px solid #c4d8eb',
+            borderRadius: '5px',
+            display:      'flex',
+            alignItems:   'center',
+            gap:          '8px',
+            fontFamily:   'Tahoma, Geneva, sans-serif',
+            fontSize:     '11px',
+            color:        '#1a6094',
+          }}>
+            <i className="ti ti-receipt" style={{ fontSize: '14px', flexShrink: 0 }} aria-hidden="true" />
+            <span>
+              <strong>{contadoresReceitas.nfsComAberto}</strong>
+              {contadoresReceitas.nfsComAberto === 1 ? ' NF com ' : ' NFs com '}
+              <strong>{contadoresReceitas.duplicatasEmAberto}</strong>
+              {contadoresReceitas.duplicatasEmAberto === 1 ? ' título em aberto' : ' títulos em aberto'}
+              {' '}em Contas a Receber
+            </span>
+          </div>
+        )}
+
         <ReceitasFiltros
           filtros={filtros}
           transportadoras={transportadoras}
