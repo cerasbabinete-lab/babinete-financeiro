@@ -235,8 +235,8 @@ export interface RegistroTxtBb {
   carteira:        string   // Carteira (pos 8–9)
   nossoNumero:     string   // Nosso Número (pos 23–40) — trimmed
   numeroDocumento: string   // Número do documento (pos 43–56) — trimmed
-  dataEmissao:     string   // Data emissão DDMMYYYY (pos 55–62)
-  dataVencimento:  string   // Data vencimento DDMMYYYY (pos 63–70)
+  dataEmissao:     string   // Data emissão ISO YYYY-MM-DD (convertida de DDMMYYYY pelo parser)
+  dataVencimento:  string   // Data vencimento ISO YYYY-MM-DD (convertida de DDMMYYYY pelo parser)
   valor:           number   // Valor em reais (pos 71–82) — dividido por 100
   cnpjCpf:         string   // CNPJ/CPF do sacado (pos 133–148) — trimmed
   nomeSacado:      string   // Nome do sacado (pos 149–188) — trimmed
@@ -256,7 +256,7 @@ export interface RegistroTxtBb {
 export interface RegistroRemSegmentoP {
   nossoNumero:     string  // Posições 37–54 — trimmed
   numeroDocumento: string  // Posições 58–73 — trimmed
-  dataVencimento:  string  // Posições 73–80 — DDMMYYYY
+  dataVencimento:  string  // Data vencimento ISO YYYY-MM-DD (convertida de DDMMYYYY pelo parser)
   valor:           number  // Posições 81–95 — dividido por 100
 }
 

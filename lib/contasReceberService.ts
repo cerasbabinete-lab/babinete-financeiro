@@ -657,7 +657,9 @@ export async function processarRegistrosTxtBb(
   let avulsosCriados = 0
 
   for (const reg of registros) {
-    const dvenc = parseDateDDMMYYYY(reg.dataVencimento) // Converte DDMMYYYY → YYYY-MM-DD
+    // reg.dataVencimento já vem em YYYY-MM-DD do txtBbParser (formatarDDMMYYYY já converteu)
+    // NÃO aplicar parseDateDDMMYYYY novamente — causaria dupla conversão corrompendo a data
+    const dvenc = reg.dataVencimento
 
     // 1. Deduplicação bancária: nosso_numero + doc + vencimento
     const jaCadastrado = await verificarDuplicataBancaria(
@@ -784,7 +786,9 @@ export async function processarRegistrosRem(
   let jaExistentes   = 0
 
   for (const seg of segmentos) {
-    const dvenc = parseDateDDMMYYYY(seg.dataVencimento) // Converte para YYYY-MM-DD
+    // seg.dataVencimento já vem em YYYY-MM-DD do remParser (formatarDDMMYYYY já converteu)
+    // NÃO aplicar parseDateDDMMYYYY novamente — causaria dupla conversão corrompendo a data
+    const dvenc = seg.dataVencimento
 
     // 1. Deduplicação bancária — inclui cancelados
     const jaCadastrado = await verificarDuplicataBancaria(
