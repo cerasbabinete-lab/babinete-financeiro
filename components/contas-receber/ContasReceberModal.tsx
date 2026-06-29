@@ -102,6 +102,9 @@ function ModalContent({
   const [numDuplic,      setNumDuplic]      = useState(titulo?.numero_duplicata  ?? '001')
   // H-4: campo CPF/CNPJ editável no modo novo — não retornado por buscarReceitasParaVinculo
   const [cpfCnpjNovo,   setCpfCnpjNovo]   = useState('')
+  // Feature 3: Nosso Número e Linha Digitável editáveis em editar/novo
+  const [nossoNumeroEdit,    setNossoNumeroEdit]    = useState(titulo?.nosso_numero    ?? '')
+  const [linhaDigitavelEdit, setLinhaDigitavelEdit] = useState(titulo?.linha_digitavel ?? '')
 
   // ── Seleção de NF-e (modo novo) ───────────────────────────
   const [receitas,        setReceitas]        = useState<Awaited<ReturnType<typeof buscarReceitasParaVinculo>>>([])
@@ -162,16 +165,23 @@ function ModalContent({
           cliente_cpf_cnpj:  cpfCnpjNovo.replace(/[^0-9]/g, ''),
           cliente_email:     clienteEmail.trim() || null,
           observacoes:       observacoes.trim() || null,
+          // Feature 3: Nosso Número e Linha Digitável opcionais no modo novo
+          nosso_numero:      nossoNumeroEdit.trim()    || null,
+          linha_digitavel:   linhaDigitavelEdit.trim() || null,
         }
         await criarTitulo(novoTitulo, `Lançamento manual criado pelo usuário para NF-e ${rec?.numero_nf ?? numDoc}.`)
 
       } else if (isEditar && titulo) {
-        // Modo editar — apenas campos editáveis
+        // Modo editar — campos editáveis incluindo Nosso Número e Linha Digitável
         await editarTitulo({
-          id:            titulo.id,
-          cliente_email: clienteEmail.trim() || null,
-          observacoes:   observacoes.trim() || null,
+          id:              titulo.id,
+          cliente_email:   clienteEmail.trim() || null,
+          observacoes:     observacoes.trim() || null,
           data_vencimento: dataVencimento || titulo.data_vencimento,
+          // Feature 3: permite preenchimento manual do Nosso Número e Linha Digitável
+          // null preserva o valor existente; string vazia limpa o campo
+          nosso_numero:    nossoNumeroEdit.trim()    || null,
+          linha_digitavel: linhaDigitavelEdit.trim() || null,
         })
       }
       onSalvo()
@@ -558,16 +568,31 @@ function ModalContent({
           )}
 
           {/* ── SEÇÃO 4: Dados BB (Nosso Número) ── */}
-          {titulo?.nosso_numero && (
+          {/* Exibe sempre em editar/novo; em visualizar só se tiver dados */}
+          {(isEditar || isNovo || titulo?.nosso_numero || titulo?.linha_digitavel) && (
             <div style={sectionStyle}>
               <div style={sectionTitle}>Dados do Boleto (BB)</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+
+                {/* Nosso Número — editável em editar/novo, somente-leitura em visualizar */}
                 <div style={fieldGroupStyle}>
                   <label style={labelStyle}>Nosso Número</label>
-                  <div style={{ ...inputStyle, background: '#f0f6ff', display: 'flex', alignItems: 'center', fontFamily: '\'Courier New\', monospace', fontWeight: 700, color: '#1a5276', letterSpacing: '0.04em' }}>
-                    {formatarNossoNumero(titulo.nosso_numero)}
-                  </div>
+                  {(isEditar || isNovo) ? (
+                    <input
+                      type="text"
+                      value={nossoNumeroEdit}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNossoNumeroEdit(e.target.value.replace(/\D/g, ''))}
+                      style={{ ...inputStyle, fontFamily: '\'Courier New\', monospace', letterSpacing: '0.04em', color: '#1a5276' }}
+                      placeholder="17 dígitos"
+                      maxLength={17}
+                    />
+                  ) : (
+                    <div style={{ ...inputStyle, background: '#f0f6ff', display: 'flex', alignItems: 'center', fontFamily: '\'Courier New\', monospace', fontWeight: 700, color: '#1a5276', letterSpacing: '0.04em' }}>
+                      {titulo?.nosso_numero ? formatarNossoNumero(titulo.nosso_numero) : '—'}
+                    </div>
+                  )}
                 </div>
+
                 <div style={fieldGroupStyle}>
                   <label style={labelStyle}>Carteira</label>
                   <div style={{ ...inputStyle, background: '#f7fafc', display: 'flex', alignItems: 'center' }}>17</div>
@@ -579,14 +604,30 @@ function ModalContent({
                   </div>
                 </div>
               </div>
-              {titulo.linha_digitavel && (
-                <div style={fieldGroupStyle}>
-                  <label style={labelStyle}>Linha Digitável</label>
-                  <div style={{ padding: '6px 10px', background: '#f7fafc', border: '1px solid #dde8f0', borderRadius: '4px', fontFamily: '\'Courier New\', monospace', fontSize: '11px', color: '#2c4a60', letterSpacing: '0.02em', wordBreak: 'break-all' }}>
-                    {titulo.linha_digitavel}
-                  </div>
-                </div>
-              )}
+
+              {/* Linha Digitável — editável em editar/novo, somente-leitura em visualizar */}
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle}>Linha Digitável</label>
+                {(isEditar || isNovo) ? (
+                  <input
+                    type="text"
+                    value={linhaDigitavelEdit}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLinhaDigitavelEdit(e.target.value)}
+                    style={{ ...inputStyle, fontFamily: '\'Courier New\', monospace', fontSize: '11px', letterSpacing: '0.02em' }}
+                    placeholder="Código de barras / linha digitável do boleto"
+                  />
+                ) : (
+                  titulo?.linha_digitavel ? (
+                    <div style={{ padding: '6px 10px', background: '#f7fafc', border: '1px solid #dde8f0', borderRadius: '4px', fontFamily: '\'Courier New\', monospace', fontSize: '11px', color: '#2c4a60', letterSpacing: '0.02em', wordBreak: 'break-all' }}>
+                      {titulo.linha_digitavel}
+                    </div>
+                  ) : (
+                    <div style={{ ...inputStyle, background: '#f7fafc', display: 'flex', alignItems: 'center', color: '#c5d8e8', fontStyle: 'italic' }}>
+                      Não informada
+                    </div>
+                  )
+                )}
+              </div>
             </div>
           )}
 
