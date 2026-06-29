@@ -542,6 +542,17 @@ function ModalContent({
                   </div>
                 </div>
               </div>
+              {/* Nome Fantasia — exibido quando disponível */}
+              {titulo.cliente_fantasia && (
+                <div style={{ marginBottom: '10px' }}>
+                  <div style={fieldGroupStyle}>
+                    <label style={labelStyle}>Nome Fantasia</label>
+                    <div style={{ ...inputStyle, background: '#f7fafc', display: 'flex', alignItems: 'center', fontStyle: 'italic', color: '#5a84a6' }}>
+                      {titulo.cliente_fantasia}
+                    </div>
+                  </div>
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                 <div style={fieldGroupStyle}>
                   <label style={labelStyle}>Cidade / UF</label>
@@ -568,8 +579,8 @@ function ModalContent({
           )}
 
           {/* ── SEÇÃO 4: Dados BB (Nosso Número) ── */}
-          {/* Exibe sempre em editar/novo; em visualizar só se tiver dados */}
-          {(isEditar || isNovo || titulo?.nosso_numero || titulo?.linha_digitavel) && (
+          {/* Sempre visível em todos os modos — visualizar mostra '—' quando vazio */}
+          {(titulo || isNovo) && (
             <div style={sectionStyle}>
               <div style={sectionTitle}>Dados do Boleto (BB)</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
