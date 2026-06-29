@@ -8,7 +8,7 @@
 //                  Nosso Número | Valor | Status | Ações
 //         Row states: vencido (vermelho), near-due (âmbar),
 //                     cancelado (cinza), pago (normal)
-// Conecta com: app/contas-receber/page.tsx
+// Conecta com: app/receber/page.tsx
 //              contasReceberService.ts (formatadores, isTituloVencido, etc.)
 //              types/contasReceber.ts (ContaReceber, STATUS_LABELS, STATUS_CORES)
 // ============================================================
@@ -110,7 +110,9 @@ export default function ContasReceberTabela({
               const isCancelado = titulo.status === 'cancelado'
               const isVencido   = isTituloVencido(titulo)
               const isNearDue   = isTituloNearVencimento(titulo)
-              const isPago      = titulo.status === 'pago' || titulo.status === 'recebido_pix_ted'
+              // H-5 FIX: isPago bloqueia edição apenas para títulos liquidados via RET (status 'pago')
+              // Títulos com 'recebido_pix_ted' (baixa manual) permanecem editáveis para reabrir
+              const isPago      = titulo.status === 'pago'
 
               // Determina cor de fundo da linha baseado no estado
               let bgRow: string

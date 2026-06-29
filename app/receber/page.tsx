@@ -1,5 +1,5 @@
 // ============================================================
-// app/contas-receber/page.tsx
+// app/receber/page.tsx
 // Projeto: Ceras Babinete — Gestão Financeira
 // Módulo: Contas a Receber
 // Função: Página principal — orquestra todos os componentes

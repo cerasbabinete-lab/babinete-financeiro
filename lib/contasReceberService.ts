@@ -52,7 +52,7 @@ const TABELA_REMESSA = 'remessas_importadas'      // Registro de arquivos import
 // Retorna lista de títulos aplicando filtros ativos
 // Inclui join com eventos para exibir histórico no modal
 // Ordenado por data_vencimento ASC (vence mais cedo primeiro)
-// Chamado por: app/contas-receber/page.tsx no useEffect e filtros
+// Chamado por: app/receber/page.tsx no useEffect e filtros
 // ============================================================
 export async function buscarTitulos(filtros: FiltrosContasReceber): Promise<ContaReceber[]> {
   // Monta query base com join de eventos ordenados por created_at
@@ -95,8 +95,12 @@ export async function buscarTitulos(filtros: FiltrosContasReceber): Promise<Cont
     query = query.eq('status', filtros.status)
   }
 
-  // Ordenação: vence mais cedo primeiro; cancelados ficam ao final
-  query = query.order('data_vencimento', { ascending: true })
+  // Ordenação dupla: ativos (deleted_at IS NULL) primeiro, depois cancelados
+  // M-3 FIX: deleted_at nulls-first coloca ativos antes dos cancelados
+  // data_vencimento ordena dentro de cada grupo (mais cedo primeiro)
+  query = query
+    .order('deleted_at', { ascending: true, nullsFirst: true })
+    .order('data_vencimento', { ascending: true })
 
   const { data, error } = await query
 
@@ -112,7 +116,7 @@ export async function buscarTitulos(filtros: FiltrosContasReceber): Promise<Cont
 // contarTitulos()
 // Retorna o total de títulos ativos (deleted_at IS NULL)
 // Exibido no header como "X títulos"
-// Chamado por: app/contas-receber/page.tsx após cada operação
+// Chamado por: app/receber/page.tsx após cada operação
 // ============================================================
 export async function contarTitulos(): Promise<number> {
   const { count, error } = await supabase
@@ -164,7 +168,7 @@ export async function buscarTituloPorId(id: string): Promise<ContaReceber | null
 // buscarTitulosNearVencimento()
 // Retorna títulos em_aberto com vencimento entre hoje e hoje+5
 // Usados no banner de alerta e na modal ContasReceberModalAvisos
-// Chamado por: app/contas-receber/page.tsx no useEffect inicial
+// Chamado por: app/receber/page.tsx no useEffect inicial
 // ============================================================
 export async function buscarTitulosNearVencimento(): Promise<TituloAvisoVencimento[]> {
   const hoje   = new Date()
@@ -609,7 +613,7 @@ export async function processarRegistrosTxtBb(
       // 3b. Nenhum título encontrado: cria registro avulso
       try {
         const novoTitulo: ContaReceberInsert = {
-          numero_documento:   reg.nossoNumero,    // Usa nosso_numero como doc principal
+          numero_documento:   reg.numeroDocumento, // H-1 FIX: usar o nº do documento real, não o nosso_numero
           numero_duplicata:   '001',              // Padrão — único no avulso
           data_vencimento:    dvenc,
           data_processamento: new Date().toISOString().slice(0, 10),
@@ -628,8 +632,9 @@ export async function processarRegistrosTxtBb(
           `Título avulso criado via import TXT BB — sem NF-e correspondente. Nosso Número: ${reg.nossoNumero}.`,
         )
 
+        // H-2 FIX: avulso criado com sucesso → apenas avulsosCriados++
+        // naoEncontrados++ fica reservado para o catch (falha real na criação)
         avulsosCriados++
-        naoEncontrados++
         detalhes.push({
           nossoNumero:     reg.nossoNumero,
           numeroDocumento: reg.numeroDocumento,
@@ -637,6 +642,7 @@ export async function processarRegistrosTxtBb(
           descricao:       `Nenhum título encontrado para ${reg.numeroDocumento}/${dvenc} — título avulso criado.`,
         })
       } catch (err: unknown) {
+        // Falha real na criação do avulso — conta como não encontrado
         naoEncontrados++
         detalhes.push({
           nossoNumero:     reg.nossoNumero,
@@ -1038,6 +1044,12 @@ export function lerArquivoBackup(file: File): Promise<ContaReceber[]> {
 // Chamado por: ContasReceberHeader.tsx após leitura do arquivo
 // ============================================================
 export async function restaurarBackup(titulos: ContaReceber[]): Promise<void> {
+  // L-3 FIX: coleta todos os erros em vez de abortar no primeiro
+  // Sem transação real no Supabase client-side, abortar no meio deixa
+  // o banco em estado parcial sem visibilidade. Coletar todos os erros
+  // permite ao usuário saber exatamente quais títulos falharam e retentar.
+  const erros: string[] = []
+
   for (const titulo of titulos) {
     // Remove o campo virtual de join — não existe na tabela
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -1049,9 +1061,17 @@ export async function restaurarBackup(titulos: ContaReceber[]): Promise<void> {
       .upsert(dadosTitulo, { onConflict: 'id' })
 
     if (error) {
+      // Registra o erro mas continua processando os demais títulos
       console.error('[contasReceberService] restaurarBackup titulo error:', error)
-      throw new Error(`Erro ao restaurar título ${titulo.numero_documento}: ${error.message}`)
+      erros.push(`${titulo.numero_documento}: ${error.message}`)
     }
+  }
+
+  // Ao final, lança um único erro consolidado se houver falhas
+  if (erros.length > 0) {
+    throw new Error(
+      `${erros.length} título(s) com erro ao restaurar:\n${erros.join('\n')}`
+    )
   }
 }
 

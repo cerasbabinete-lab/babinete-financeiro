@@ -5,7 +5,7 @@
 // Função: Header desktop — título, contadores, botões Importar
 //         TXT BB / REM / RET + Backup / Restaurar / Exportar / Novo
 //         Processa arquivos bancários via parsers e service
-// Conecta com: app/contas-receber/page.tsx
+// Conecta com: app/receber/page.tsx
 //              contasReceberService.ts (backup, restaurar, processamento)
 //              txtBbParser.ts, remParser.ts, retParser.ts
 //              ExportDropdownContasReceber.tsx

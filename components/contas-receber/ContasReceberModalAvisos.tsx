@@ -5,7 +5,7 @@
 // Função: Modal de avisos de vencimento (títulos que vencem em ≤5 dias)
 //         Permite selecionar títulos e confirmar/editar e-mails
 //         antes de enviar os alertas (provider TBD — deferred)
-// Conecta com: app/contas-receber/page.tsx
+// Conecta com: app/receber/page.tsx
 //              contasReceberService.ts (atualizarEmailTitulo, registrarEmailEnviado)
 //              types/contasReceber.ts (TituloAvisoVencimento)
 // Sem alert() ou confirm() — tudo inline

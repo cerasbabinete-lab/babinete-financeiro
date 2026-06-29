@@ -5,7 +5,7 @@
 // Função: Basebar mobile fixa no rodapé — específica do módulo
 //         7 botões: TXT BB | REM | RET | Backup | Restaurar | Exportar | Novo
 //         Processos de import delegados a handlers via props (page.tsx)
-// Conecta com: app/contas-receber/page.tsx
+// Conecta com: app/receber/page.tsx
 //              contasReceberService.ts (fazerBackup, lerArquivoBackup, restaurarBackup)
 //              ExportDropdownContasReceber.tsx (dropdown mobile)
 // ============================================================

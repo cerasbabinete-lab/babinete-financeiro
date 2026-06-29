@@ -6,7 +6,7 @@
 //         Seções: Identificação | Sacado | Dados BB | Histórico
 //         Baixa manual e cancelamento via UI inline (sem alert/confirm)
 //         2ª via de boleto via API route /api/boleto
-// Conecta com: app/contas-receber/page.tsx
+// Conecta com: app/receber/page.tsx
 //              contasReceberService.ts (CRUD + baixa + cancelar + reabrir)
 //              types/contasReceber.ts (ContaReceber, ModoModal)
 // ============================================================
@@ -29,6 +29,7 @@ import {
   formatarDataBR,
   formatarNossoNumero,
 } from '@/lib/contasReceberService'
+import { supabase } from '@/lib/supabase'  // Para obter o access_token do boleto
 import type { ContaReceberInsert } from '@/types/contasReceber'
 
 interface ContasReceberModalProps {
@@ -99,6 +100,8 @@ function ModalContent({
   const [valor,          setValor]          = useState(titulo?.valor?.toString() ?? '')
   const [numDoc,         setNumDoc]         = useState(titulo?.numero_documento  ?? '')
   const [numDuplic,      setNumDuplic]      = useState(titulo?.numero_duplicata  ?? '001')
+  // H-4: campo CPF/CNPJ editável no modo novo — não retornado por buscarReceitasParaVinculo
+  const [cpfCnpjNovo,   setCpfCnpjNovo]   = useState('')
 
   // ── Seleção de NF-e (modo novo) ───────────────────────────
   const [receitas,        setReceitas]        = useState<Awaited<ReturnType<typeof buscarReceitasParaVinculo>>>([])
@@ -154,7 +157,9 @@ function ModalContent({
           valor:             parseFloat(valor),
           status:            'em_aberto',
           cliente_nome:      rec?.cliente_nome ?? '',
-          cliente_cpf_cnpj:  '',
+          // H-4 FIX: usa o CNPJ/CPF digitado pelo usuário no modo novo
+          // strip de pontuação — banco armazena só dígitos
+          cliente_cpf_cnpj:  cpfCnpjNovo.replace(/[^0-9]/g, ''),
           cliente_email:     clienteEmail.trim() || null,
           observacoes:       observacoes.trim() || null,
         }
@@ -219,9 +224,17 @@ function ModalContent({
     if (!titulo?.nosso_numero) return
     setGerandoBoleto(true)
     try {
+      // Obtém o token de acesso da sessão atual para autenticar na API
+      // getSession() é aceitável aqui pois é client-side — apenas para obter o token
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token ?? ''
+
       const res = await fetch('/api/boleto', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${token}`, // H-3: token para validação server-side
+        },
         body:    JSON.stringify({
           nossoNumero:      titulo.nosso_numero,
           valor:            titulo.valor,
@@ -231,6 +244,10 @@ function ModalContent({
           clienteMunicipio: titulo.cliente_municipio,
           clienteUf:        titulo.cliente_uf,
           numeroDocumento:  titulo.numero_documento,
+          // M-5: endereço e CEP do sacado — schema não possui campos separados;
+          // enviados como strings vazias para que a API não processe undefined
+          clienteEndereco:  '',
+          clienteCep:       '',
         }),
       })
       if (!res.ok) {
@@ -461,6 +478,22 @@ function ModalContent({
                   </div>
                 )}
               </div>
+
+              {/* H-4: Campo CNPJ/CPF editável apenas no modo novo */}
+              {/* No modo visualizar/editar, o campo vem do banco e é exibido na seção Sacado */}
+              {isNovo && (
+                <div style={fieldGroupStyle}>
+                  <label style={labelStyle}>CNPJ / CPF do Sacado</label>
+                  <input
+                    type="text"
+                    value={cpfCnpjNovo}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCpfCnpjNovo(e.target.value)}
+                    style={inputStyle}
+                    placeholder="00.000.000/0001-00 ou 000.000.000-00"
+                    maxLength={18} // Comprimento máximo de CNPJ formatado
+                  />
+                </div>
+              )}
 
               {titulo?.data_baixa && (
                 <div style={fieldGroupStyle}>

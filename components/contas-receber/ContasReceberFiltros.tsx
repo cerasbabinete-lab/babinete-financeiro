@@ -4,7 +4,7 @@
 // Módulo: Contas a Receber
 // Função: Barra de filtros colapsável — busca textual,
 //         período de vencimento e status
-// Conecta com: app/contas-receber/page.tsx (onFiltrosChange, filtros)
+// Conecta com: app/receber/page.tsx (onFiltrosChange, filtros)
 //              types/contasReceber.ts (FiltrosContasReceber, STATUS_LABELS)
 // ============================================================
 
@@ -47,7 +47,12 @@ export default function ContasReceberFiltros({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Sincroniza inputBusca quando filtros.busca muda externamente (ex: limpar)
-  useEffect(() => { setInputBusca(filtros.busca) }, [filtros.busca])
+  // L-2 FIX: cancela debounce pendente ANTES de setar o novo valor
+  // Sem isso, um timeout agendado poderia restaurar o texto após o limpar
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current) // Cancela timeout pendente
+    setInputBusca(filtros.busca)                               // Sincroniza com valor externo
+  }, [filtros.busca])
 
   // Limpa o debounce ao desmontar para evitar setState em componente desmontado
   useEffect(() => () => {

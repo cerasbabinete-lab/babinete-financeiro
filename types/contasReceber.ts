@@ -234,7 +234,7 @@ export interface ResultadoLinhaImport {
 export interface RegistroTxtBb {
   carteira:        string   // Carteira (pos 8–9)
   nossoNumero:     string   // Nosso Número (pos 23–40) — trimmed
-  numeroDocumento: string   // Número do documento (pos 41–54) — trimmed
+  numeroDocumento: string   // Número do documento (pos 43–56) — trimmed
   dataEmissao:     string   // Data emissão DDMMYYYY (pos 55–62)
   dataVencimento:  string   // Data vencimento DDMMYYYY (pos 63–70)
   valor:           number   // Valor em reais (pos 71–82) — dividido por 100
@@ -254,8 +254,8 @@ export interface RegistroTxtBb {
 // Parseados por remParser.ts
 // ============================================================
 export interface RegistroRemSegmentoP {
-  nossoNumero:     string  // Posições 43–57 — trimmed
-  numeroDocumento: string  // Posições 58–72 — trimmed
+  nossoNumero:     string  // Posições 37–54 — trimmed
+  numeroDocumento: string  // Posições 58–73 — trimmed
   dataVencimento:  string  // Posições 73–80 — DDMMYYYY
   valor:           number  // Posições 81–95 — dividido por 100
 }

@@ -153,13 +153,17 @@ function parseBlocoSacado(linha: string, numLinha: number): {
 
   // Busca a última ocorrência de 'N' seguida de 2 dígitos (tipo pessoa)
   // O bloco de sacado no MIGRATE TXT BB começa sempre com N + tipo(2 chars: '01', '02')
+  // C-1 FIX: aceita tanto CNPJ (14 dígitos) quanto CPF (11 dígitos)
+  // Verificar se os primeiros 11 chars do campo são dígitos cobre ambos os casos:
+  // CPF  → 11 dígitos exatos (ex: '78892295691   ')
+  // CNPJ → 14 dígitos — /^\d{11}/ bate nos 11 primeiros dos 14
   let nPos = -1
-  // Percorre a linha de trás para frente buscando o padrão N + 2 dígitos + 14 dígitos
+  // Percorre a linha de trás para frente buscando o padrão N + 2 dígitos + ≥11 dígitos
   for (let i = linha.length - 20; i >= 200; i--) {
     if (
       linha[i] === 'N' &&
-      /^\d{2}/.test(linha.slice(i + 1, i + 3)) && // tipo pessoa: 2 dígitos
-      /^\d{14}/.test(linha.slice(i + 3, i + 17))   // CNPJ/CPF: 14 dígitos
+      /^\d{2}/.test(linha.slice(i + 1, i + 3)) &&              // tipo pessoa: 2 dígitos
+      /^\d{11}/.test(linha.slice(i + 3, i + 14).trimEnd())     // CPF (11) ou CNPJ (14 — primeiros 11)
     ) {
       nPos = i
       break

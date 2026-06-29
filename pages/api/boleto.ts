@@ -9,16 +9,30 @@
 // Conecta com: ContasReceberModal.tsx (botão "2ª Via Boleto")
 //              gerar-boletos (lib npm)
 //              types/contasReceber.ts (CEDENTE_BB)
-// CRÍTICO: pdfStream() deve ser awaited antes de pipe
+// CRÍTICO: pipe() deve ser conectado ANTES de pdfStream() escrever
 // CRÍTICO: Nosso Número deve ter exatamente 17 dígitos para BB
+// CRÍTICO: Verificar auth Supabase antes de qualquer processamento
 // ============================================================
 
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { PassThrough } from 'stream'
+import { createClient } from '@supabase/supabase-js'
 
 // Importação CJS — gerar-boletos é CommonJS
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { Boletos, Bancos } = require('gerar-boletos')
+
+// ============================================================
+// getSupabaseAdmin()
+// Cliente admin server-side — usa service role key para
+// verificar auth via getUser() sem depender de cookies
+// Mesmo padrão de pages/api/danfe.ts (único outro Pages Router API)
+// ============================================================
+function getSupabaseAdmin() {
+  const url    = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  return createClient(url, svcKey)
+}
 
 // ============================================================
 // Dados fixos do cedente Ceras Babinete Ltda. ME
@@ -51,6 +65,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ erro: 'Método não permitido' })
   }
+
+  // ── Verificação de autenticação Supabase ─────────────────
+  // H-3 FIX: valida JWT antes de qualquer processamento
+  // Usa o Authorization header Bearer token enviado pelo cliente
+  // O cliente deve incluir o access_token da sessão atual
+  const authHeader = req.headers.authorization ?? ''
+  const token      = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+
+  if (!token) {
+    // Sem token na requisição — rejeita imediatamente
+    return res.status(401).json({ erro: 'Não autorizado' })
+  }
+
+  // Valida o token contra o Supabase usando getUser()
+  // getUser() faz network call ao Supabase — mais seguro que getSession()
+  const supabaseAdmin = getSupabaseAdmin()
+  const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token)
+
+  if (authError || !user) {
+    // Token inválido ou expirado — rejeita com 401
+    return res.status(401).json({ erro: 'Não autorizado' })
+  }
+  // ── Fim da verificação de autenticação ───────────────────
 
   // ── Extrai e valida os dados do corpo da requisição ──────
   const {
@@ -127,7 +164,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Pagador (sacado) — dados do cliente do título
       pagador: {
         nome:             clienteNome,
-        registroNacional: (clienteCpfCnpj ?? '').replace(/[^0-9]/g, '') || '00000000000',
+        // M-2 FIX: fallback '' em vez de '00000000000' — 11 zeros podem ser rejeitados
+        // pela lib gerar-boletos; string vazia é tratada como campo omitido
+        registroNacional: (clienteCpfCnpj ?? '').replace(/[^0-9]/g, '') || '',
         endereco: {
           logradouro: clienteEndereco ?? '',
           bairro:     '',
@@ -171,20 +210,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       `inline; filename="boleto_${nossoNumero}.pdf"`,
     )
 
-    // ── Stream: pdfStream aguarda a geração antes de fazer pipe ─
-    // pdfStream() escreve no stream fornecido e resolve quando termina
-    await novoBoleto.pdfStream(passThrough)
-
-    // Faz pipe do PassThrough para a resposta HTTP
+    // ── Stream: pipe conectado ANTES de pdfStream escrever ───
+    // M-1 FIX: conectar pipe() primeiro garante que nenhum dado
+    // é perdido caso pdfStream() encerre o PassThrough antes de
+    // pipe() ser chamado (evita pipe-after-end)
     passThrough.pipe(res)
 
-    // Trata erros no stream após pipe iniciado
+    // Trata erros no stream após pipe conectado
     passThrough.on('error', (err: Error) => {
       console.error('[boleto] stream error:', err)
       if (!res.headersSent) {
         res.status(500).json({ erro: 'Erro ao gerar PDF do boleto' })
       }
     })
+
+    // Inicia a geração e escrita do PDF no PassThrough
+    // pdfStream() escreve os bytes e encerra o stream quando termina
+    await novoBoleto.pdfStream(passThrough)
 
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Erro desconhecido'

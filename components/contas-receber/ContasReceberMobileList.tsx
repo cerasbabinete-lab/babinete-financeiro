@@ -5,7 +5,7 @@
 // Função: Lista mobile de títulos em cards
 //         Toque no card → bottom-sheet com ações
 //         Cards coloridos por estado (vencido, near-due, cancelado)
-// Conecta com: app/contas-receber/page.tsx
+// Conecta com: app/receber/page.tsx
 //              contasReceberService.ts (formatadores, isTitulo*)
 //              types/contasReceber.ts (ContaReceber, STATUS_LABELS, STATUS_CORES)
 // ============================================================
