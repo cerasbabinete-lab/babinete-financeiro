@@ -47,7 +47,7 @@ const MODULOS: { label: string; href: string; icon: string; ativo: boolean }[] =
   { label: 'Relatórios',      href: '/relatorios',  icon: '/img/relatorios.svg',    ativo: false },
   { label: 'Receitas',        href: '/receitas',    icon: '/img/receitas.svg',      ativo: true  },
   { label: 'Despesas',        href: '/despesas',    icon: '/img/despesas.svg',      ativo: false },
-  { label: 'Contas a Receber',href: '/receber',     icon: '/img/contas_receber.svg',ativo: false },
+  { label: 'Contas a Receber',href: '/receber',     icon: '/img/contas_receber.svg',ativo: true  },
   { label: 'Contas a Pagar',  href: '/pagar',       icon: '/img/contas_pagar.svg',  ativo: false },
   { label: 'Clientes',        href: '/clientes',    icon: '/img/clientes.svg',      ativo: true  },
   { label: 'Fornecedores',    href: '/fornecedores',icon: '/img/fornecedores.svg',  ativo: true  },
