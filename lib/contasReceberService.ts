@@ -284,12 +284,14 @@ export async function criarTitulosDeReceita(params: {
   let criados = 0
   const erros: string[] = []
 
-  // Monta o número do documento no padrão MIGRATE: "NNNNNN/parcela"
-  // Ex: receita 5414, duplicata "001" → "005414/1" (sem zero no número da parcela)
-  // CRÍTICO: o TXT BB do MIGRATE usa "005414/1" — sem zero-padding na parcela
-  // Usar parseInt() para remover o zero: parseInt("001") → 1 → "1"
-  // Se usarmos "001" diretamente, a busca no import TXT BB falhará e criará avulso duplicado
-  const numNfPad = String(receita.numero_nf).padStart(6, '0')
+  // Monta o número do documento no padrão MIGRATE
+  // CRÍTICO: o MIGRATE omite a barra e o número da parcela quando a NF tem só 1 duplicata
+  //   NF com 1 parcela:  TXT BB → "005413"    (sem barra)
+  //   NF com 2+ parcelas: TXT BB → "005414/1", "005414/2" (com barra e número da parcela)
+  // Se gerarmos "005413/1" para parcela única, a busca do import TXT BB não encontrará o título
+  // e criará um avulso duplicado, deixando o nosso_numero em branco no título original.
+  const numNfPad      = String(receita.numero_nf).padStart(6, '0')
+  const temMultiplas  = duplicatas.length > 1  // true → usa barra; false → sem barra
 
   for (const dup of duplicatas) {
     try {
@@ -304,14 +306,21 @@ export async function criarTitulosDeReceita(params: {
       // ── Monta o título ────────────────────────────────────
       // Remove zero-padding da parcela para bater com o formato MIGRATE do TXT BB
       // "001" → 1 → "1"; fallback: usa o valor original se não for numérico
-      const parcelaNum = parseInt(dup.numero_duplicata, 10)
+      const parcelaNum    = parseInt(dup.numero_duplicata, 10)
       const parcelaSufixo = isNaN(parcelaNum) ? dup.numero_duplicata : String(parcelaNum)
+
+      // numero_documento segue o padrão MIGRATE:
+      //   parcela única  → "005413"   (sem barra — MIGRATE não adiciona /1)
+      //   parcelas múlt. → "005414/1" (com barra e número sem zero-padding)
+      const numeroDocumento = temMultiplas
+        ? `${numNfPad}/${parcelaSufixo}`
+        : numNfPad
 
       const titulo: ContaReceberInsert = {
         duplicata_id:       dup.id,
         receita_id:         receita.id,
         cliente_id:         receita.cliente_id ?? null,
-        numero_documento:   `${numNfPad}/${parcelaSufixo}`,  // Ex: "005414/1" — formato MIGRATE
+        numero_documento:   numeroDocumento,  // Formato MIGRATE: "005413" ou "005414/1"
         numero_duplicata:   dup.numero_duplicata,               // Ex: "001", "002"
         data_vencimento:    dup.data_vencimento,                // ISO date da duplicata
         data_processamento: new Date().toISOString().slice(0, 10), // Hoje

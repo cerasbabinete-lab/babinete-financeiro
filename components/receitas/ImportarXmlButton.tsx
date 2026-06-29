@@ -98,10 +98,13 @@ const ImportarXmlButton = forwardRef(
           }
 
           // 4. Lookup cliente por CPF/CNPJ (sem criar — dados históricos vêm do XML)
-          let clienteId: number | null = null
+          // Captura o objeto completo para ter acesso ao nome fantasia
+          let clienteId:      number | null = null
+          let clienteFantasia: string | null = null
           if (parsed.receita.cliente_cpf_cnpj) {
             const cliente = await buscarClientePorCpfCnpj(parsed.receita.cliente_cpf_cnpj)
-            clienteId = cliente?.id ?? null
+            clienteId      = cliente?.id       ?? null
+            clienteFantasia = cliente?.fantasia ?? null
           }
 
           // 5. Monta ReceitaInsert com IDs resolvidos
@@ -126,7 +129,7 @@ const ImportarXmlButton = forwardRef(
                 numero_nf:         novaReceita.numero_nf,
                 cliente_nome:      novaReceita.cliente_nome      ?? '',
                 cliente_cpf_cnpj:  novaReceita.cliente_cpf_cnpj ?? '',
-                cliente_fantasia:  null, // Não disponível no ReceitaInsert — join não feito aqui
+                cliente_fantasia:  clienteFantasia,  // Nome fantasia do cadastro de Clientes
                 cliente_email:     novaReceita.cliente_email     ?? null,
                 cliente_fone:      novaReceita.cliente_fone      ?? null,
                 cliente_municipio: novaReceita.cliente_municipio ?? null,
