@@ -243,7 +243,7 @@ function ModalContent({
         method:  'POST',
         headers: {
           'Content-Type':  'application/json',
-          'Authorization': `Bearer ${token}`, // H-3: token para validação server-side
+          'Authorization': `Bearer ${token}`,
         },
         body:    JSON.stringify({
           nossoNumero:      titulo.nosso_numero,
@@ -251,13 +251,10 @@ function ModalContent({
           dataVencimento:   titulo.data_vencimento,
           clienteNome:      titulo.cliente_nome,
           clienteCpfCnpj:   titulo.cliente_cpf_cnpj,
+          clienteId:        titulo.cliente_id ?? null,     // Para buscar endereço no servidor
           clienteMunicipio: titulo.cliente_municipio,
           clienteUf:        titulo.cliente_uf,
           numeroDocumento:  titulo.numero_documento,
-          // M-5: endereço e CEP do sacado — schema não possui campos separados;
-          // enviados como strings vazias para que a API não processe undefined
-          clienteEndereco:  '',
-          clienteCep:       '',
         }),
       })
       if (!res.ok) {

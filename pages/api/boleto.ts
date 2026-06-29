@@ -3,34 +3,25 @@
 // Projeto: Ceras Babinete — Gestão Financeira
 // Módulo: Contas a Receber
 // Função: Endpoint para geração de boleto 2ª via em PDF
-//         Recebe dados do título via POST JSON,
-//         gera PDF usando gerar-boletos e faz stream para HTTP
-// Conecta com: ContasReceberModal.tsx (botão "2ª Via Boleto")
 // CRÍTICO: API exporta { Boleto, Banks } — não Boletos/Bancos
-// CRÍTICO: data no formato YYYY-MM-DD (ISO) — lib usa parseISO internamente
-// CRÍTICO: gerarPDF já faz pdf.pipe(stream) internamente via PDFKit —
-//          passar res diretamente, sem PassThrough intermediário
+// CRÍTICO: data no formato YYYY-MM-DD (ISO) — lib usa parseISO
+// CRÍTICO: passar res diretamente para pdfStream — sem PassThrough
 // ============================================================
 
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 
-// Importação CJS — gerar-boletos é CommonJS
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { Boleto, Banks } = require('gerar-boletos')
 
-// ============================================================
-// getSupabaseAdmin()
-// ============================================================
 function getSupabaseAdmin() {
-  const url    = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(url, svcKey)
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
 }
 
-// ============================================================
 // Dados fixos do cedente Ceras Babinete Ltda. ME
-// ============================================================
 const CEDENTE = {
   nome:          'CERAS BABINETE LTDA. ME',
   cnpj:          '10666614000160',
@@ -47,6 +38,69 @@ const CEDENTE = {
 }
 
 // ============================================================
+// buscarEnderecoCliente()
+// Busca endereço completo na tabela clientes pelo id ou CNPJ/CPF
+// Retorna logradouro formatado e CEP — usados no boleto do sacado
+// ============================================================
+async function buscarEnderecoCliente(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  clienteId: number | null,
+  clienteCpfCnpj: string,
+): Promise<{ logradouro: string; cep: string }> {
+  const vazio = { logradouro: '', cep: '' }
+
+  try {
+    let query = supabase
+      .from('clientes')
+      .select('end, num, bairro, cep, cnpj, cpf')
+      .limit(1)
+
+    if (clienteId) {
+      // Busca preferencial por id — mais preciso
+      query = query.eq('id', clienteId)
+    } else if (clienteCpfCnpj) {
+      // Fallback: busca por CNPJ/CPF sem pontuação
+      const digits = clienteCpfCnpj.replace(/[^0-9]/g, '')
+      const cnpjFmt = digits.length === 14
+        ? digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+        : null
+      const cpfFmt = digits.length === 11
+        ? digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+        : null
+
+      const filtros: string[] = []
+      if (cnpjFmt) filtros.push(`cnpj.ilike.%${cnpjFmt}%`, `cnpj.ilike.%${digits}%`)
+      if (cpfFmt)  filtros.push(`cpf.ilike.%${cpfFmt}%`,   `cpf.ilike.%${digits}%`)
+      if (filtros.length === 0) return vazio
+
+      query = query.or(filtros.join(','))
+    } else {
+      return vazio
+    }
+
+    const { data, error } = await query.single()
+    if (error || !data) return vazio
+
+    // Monta logradouro: "Rua X, 123 — Bairro Y"
+    const partes: string[] = []
+    if (data.end) partes.push(data.end)
+    if (data.num) partes.push(data.num)
+    if (data.bairro) partes.push(data.bairro)
+    const logradouro = partes.join(', ')
+
+    // CEP: garante formato 00000-000
+    const cepDigitos = (data.cep ?? '').replace(/\D/g, '')
+    const cep = cepDigitos.length === 8
+      ? `${cepDigitos.slice(0, 5)}-${cepDigitos.slice(5)}`
+      : data.cep ?? ''
+
+    return { logradouro, cep }
+  } catch {
+    return vazio
+  }
+}
+
+// ============================================================
 // handler
 // ============================================================
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -57,12 +111,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // ── Auth ──────────────────────────────────────────────────
-  const authHeader = req.headers.authorization ?? ''
-  const token      = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-
+  const token = (req.headers.authorization ?? '').replace('Bearer ', '').trim() || null
   if (!token) return res.status(401).json({ erro: 'Não autorizado' })
 
-  const { data: { user }, error: authError } = await getSupabaseAdmin().auth.getUser(token)
+  const supabase = getSupabaseAdmin()
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token)
   if (authError || !user) return res.status(401).json({ erro: 'Não autorizado' })
 
   // ── Body ──────────────────────────────────────────────────
@@ -72,21 +125,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     dataVencimento,
     clienteNome,
     clienteCpfCnpj,
-    clienteEndereco,
+    clienteId,
     clienteMunicipio,
     clienteUf,
-    clienteCep,
     numeroDocumento,
   } = req.body as {
     nossoNumero:       string
     valor:             number
-    dataVencimento:    string   // YYYY-MM-DD
+    dataVencimento:    string
     clienteNome:       string
     clienteCpfCnpj?:   string
-    clienteEndereco?:  string
+    clienteId?:        number | null
     clienteMunicipio?: string
     clienteUf?:        string
-    clienteCep?:       string
     numeroDocumento?:  string
   }
 
@@ -101,12 +152,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ erro: 'clienteNome obrigatório' })
 
   try {
-    const dataHojeIso = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+    const dataHojeIso = new Date().toISOString().slice(0, 10)
 
-    const cepDigitos = (clienteCep ?? '').replace(/\D/g, '').padStart(8, '0')
-    const cepFmt     = cepDigitos.length === 8
-      ? `${cepDigitos.slice(0, 5)}-${cepDigitos.slice(5)}`
-      : ''
+    // ── Busca endereço completo do cliente ────────────────
+    const { logradouro, cep } = await buscarEnderecoCliente(
+      supabase,
+      clienteId ?? null,
+      clienteCpfCnpj ?? '',
+    )
 
     // ── Monta e gera o boleto ─────────────────────────────
     const novoBoleto = new Boleto({
@@ -137,11 +190,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         nome:             clienteNome,
         registroNacional: (clienteCpfCnpj ?? '').replace(/[^0-9]/g, '') || '',
         endereco: {
-          logradouro: clienteEndereco ?? '',
+          logradouro: logradouro,              // Buscado do cadastro de clientes
           bairro:     '',
           cidade:     clienteMunicipio ?? '',
           estadoUF:   clienteUf ?? '',
-          cep:        cepFmt,
+          cep:        cep,                     // Buscado do cadastro de clientes
         },
       },
 
@@ -150,8 +203,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         especieDocumento: 'DM',
         valor:            valor,
         datas: {
-          // ISO YYYY-MM-DD — aceito pela lib via parseISO do date-fns
-          vencimento:    dataVencimento,
+          vencimento:    dataVencimento,        // ISO YYYY-MM-DD — parseISO interno
           processamento: dataHojeIso,
           documentos:    dataHojeIso,
         },
@@ -166,13 +218,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     novoBoleto.gerarBoleto()
 
     // ── Stream PDF direto para res ────────────────────────
-    // gerarPDF do PDFKit já faz pdf.pipe(stream) internamente.
-    // Passar res diretamente evita o PassThrough duplo que travava o stream.
+    // gerarPDF do PDFKit já faz pdf.pipe(res) internamente
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `inline; filename="boleto_${nossoNumero}.pdf"`)
 
-    // pdfStream passa res como stream — PDFKit escreve e emite 'finish'
-    // a lib aguarda 'finish' via streamUtils antes de resolver a Promise
     await novoBoleto.pdfStream(res)
 
   } catch (err: unknown) {
