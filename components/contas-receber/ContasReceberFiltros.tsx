@@ -218,9 +218,12 @@ export default function ContasReceberFiltros({
 
   const btnLimparStyle: React.CSSProperties = {
     ...btnToggleStyle,
-    background: 'transparent',
-    border:     '1px solid #dde8f0',
-    color:      '#7a9db8',
+    // AUDITORIA FIX (visual): cor anterior (#7a9db8 sobre fundo transparente)
+    // fazia o botão parecer desabilitado mesmo sendo 100% funcional.
+    // Agora usa o mesmo contraste do botão "Filtros" ao lado.
+    background: '#f0f4f7',
+    border:     '1px solid #c4d8eb',
+    color:      '#3a6080',
   }
 
   const btnSetaStyle: React.CSSProperties = {
