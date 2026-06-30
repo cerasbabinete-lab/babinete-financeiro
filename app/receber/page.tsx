@@ -24,6 +24,8 @@ import {
   processarRegistrosTxtBb,
   processarRegistrosRem,
   processarRegistrosRet,
+  buscarContadoresTitulos,
+  type ContadoresTitulos,
 } from '@/lib/contasReceberService'
 import { parseTxtBb, calcularHashSha256 } from '@/lib/txtBbParser'
 import { parseRem } from '@/lib/remParser'
@@ -80,6 +82,11 @@ export default function ContasReceberPage() {
   const [titulosNearDue,  setTitulosNearDue]  = useState<TituloAvisoVencimento[]>([])
   const [modalAvisosOpen, setModalAvisosOpen] = useState(false)
 
+  // ── Contadores por status ─────────────────────────────────
+  const [contadores, setContadores] = useState<ContadoresTitulos>({
+    emAberto: 0, atrasados: 0, baixados: 0, protestados: 0, cancelados: 0,
+  })
+
   // ── Filtros ───────────────────────────────────────────────
   const [filtros, setFiltros] = useState<FiltrosContasReceber>(FILTROS_INICIAIS)
 
@@ -131,13 +138,15 @@ export default function ContasReceberPage() {
   const carregarTitulos = useCallback(async () => {
     setCarregando(true)
     try {
-      const [lista, count] = await Promise.all([
+      const [lista, count, ctd] = await Promise.all([
         buscarTitulos(filtros),
         contarTitulos(),
+        buscarContadoresTitulos(),
       ])
       if (!mountedRef.current) return
       setTitulos(lista)
       setTotal(count)
+      setContadores(ctd)
     } catch (err: unknown) {
       console.error('[ContasReceberPage] carregarTitulos error:', err)
     } finally {
@@ -308,6 +317,60 @@ export default function ContasReceberPage() {
     )
   }
 
+  // ── Banner de pílulas de contadores ───────────────────────
+  const ContadoresBanner = () => {
+    const totalCtd = contadores.emAberto + contadores.atrasados + contadores.baixados + contadores.protestados + contadores.cancelados
+    if (totalCtd === 0) return null
+
+    const pilulas: { label: string; valor: number; bg: string; cor: string }[] = [
+      { label: 'Em Aberto',   valor: contadores.emAberto,    bg: '#dcfce7', cor: '#166534' },
+      { label: 'Atrasados',   valor: contadores.atrasados,   bg: '#fff5f5', cor: '#c0392b' },
+      { label: 'Baixados',    valor: contadores.baixados,    bg: '#eaf3de', cor: '#27ae60' },
+      { label: 'Protestados', valor: contadores.protestados, bg: '#fff4e6', cor: '#c06000' },
+      { label: 'Cancelados',  valor: contadores.cancelados,  bg: '#f1f1f1', cor: '#888888' },
+    ].filter(p => p.valor > 0)
+
+    return (
+      <div style={{
+        display:      'flex',
+        alignItems:   'center',
+        gap:          '6px',
+        margin:       '0 0 10px',
+        padding:      '6px 12px',
+        background:   '#f7fafc',
+        border:       '1px solid #dde8f0',
+        borderRadius: '5px',
+        flexWrap:     'wrap',
+        fontFamily:   'Tahoma, Geneva, sans-serif',
+      }}>
+        <span style={{ fontSize: '11px', color: '#5a84a6', marginRight: '2px', whiteSpace: 'nowrap' }}>
+          Situação:
+        </span>
+        {pilulas.map(p => (
+          <span
+            key={p.label}
+            style={{
+              display:      'inline-flex',
+              alignItems:   'center',
+              gap:          '5px',
+              padding:      '2px 10px',
+              borderRadius: '10px',
+              background:   p.bg,
+              color:        p.cor,
+              fontSize:     '11px',
+              fontWeight:   700,
+              whiteSpace:   'nowrap',
+              border:       `1px solid ${p.cor}22`,
+            }}
+          >
+            <span style={{ fontSize: '13px', fontWeight: 700 }}>{p.valor}</span>
+            {p.label}
+          </span>
+        ))}
+      </div>
+    )
+  }
+
   // ── Banner de feedback inline ─────────────────────────────
   const FeedbackBanner = () => (
     <>
@@ -399,6 +462,7 @@ export default function ContasReceberPage() {
           />
 
           <FeedbackBanner />
+          <ContadoresBanner />
           <AlertaBanner />
 
           {/* Filtros: busca + vencimento + status */}
@@ -463,6 +527,7 @@ export default function ContasReceberPage() {
         </div>
 
         <FeedbackBanner />
+        <ContadoresBanner />
         <AlertaBanner />
 
         {/* Filtros mobile */}

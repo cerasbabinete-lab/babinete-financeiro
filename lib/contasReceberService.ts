@@ -133,6 +133,104 @@ export async function contarTitulos(): Promise<number> {
 }
 
 // ============================================================
+// ContadoresTitulos
+// Estrutura com contagens por grupo de status para o painel
+// ============================================================
+export interface ContadoresTitulos {
+  emAberto:    number  // status = 'em_aberto', não vencido
+  atrasados:   number  // status = 'em_aberto', data_vencimento < hoje
+  baixados:    number  // status = 'pago' ou 'recebido_pix_ted'
+  protestados: number  // status = 'protestado' ou 'enviado_cartorio'
+  cancelados:  number  // deleted_at IS NOT NULL (status = 'cancelado')
+}
+
+// ============================================================
+// buscarContadoresTitulos()
+// Retorna contagens agrupadas por status para o banner de resumo
+// Chamado por: app/receber/page.tsx após cada operação
+// ============================================================
+export async function buscarContadoresTitulos(): Promise<ContadoresTitulos> {
+  const hoje = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+
+  const { data, error } = await supabase
+    .from(TABELA)
+    .select('status, deleted_at, data_vencimento')
+
+  if (error) {
+    console.error('[contasReceberService] buscarContadoresTitulos error:', error)
+    return { emAberto: 0, atrasados: 0, baixados: 0, protestados: 0, cancelados: 0 }
+  }
+
+  const registros = (data ?? []) as {
+    status:          string
+    deleted_at:      string | null
+    data_vencimento: string
+  }[]
+
+  let emAberto    = 0
+  let atrasados   = 0
+  let baixados    = 0
+  let protestados = 0
+  let cancelados  = 0
+
+  for (const r of registros) {
+    if (r.deleted_at !== null) {
+      cancelados++
+      continue
+    }
+    if (r.status === 'em_aberto') {
+      if (r.data_vencimento < hoje) {
+        atrasados++
+      } else {
+        emAberto++
+      }
+    } else if (r.status === 'pago' || r.status === 'recebido_pix_ted') {
+      baixados++
+    } else if (r.status === 'protestado' || r.status === 'enviado_cartorio') {
+      protestados++
+    }
+  }
+
+  return { emAberto, atrasados, baixados, protestados, cancelados }
+}
+
+// ============================================================
+// ContadoresReceitasAberto
+// Estrutura com NFs e duplicatas em aberto para banner Receitas
+// ============================================================
+export interface ContadoresReceitasAberto {
+  nfsComAberto:       number  // NFs distintas com ao menos 1 título em_aberto
+  duplicatasEmAberto: number  // Total de títulos em_aberto (inclui atrasados)
+}
+
+// ============================================================
+// buscarContadoresReceitasAberto()
+// Conta NFs distintas e duplicatas totais com status em_aberto
+// Chamado por: app/receitas/page.tsx para exibir o banner de resumo
+// ============================================================
+export async function buscarContadoresReceitasAberto(): Promise<ContadoresReceitasAberto> {
+  const { data, error } = await supabase
+    .from(TABELA)
+    .select('receita_id')
+    .eq('status', 'em_aberto')
+    .is('deleted_at', null)
+    .not('receita_id', 'is', null)
+
+  if (error) {
+    console.error('[contasReceberService] buscarContadoresReceitasAberto error:', error)
+    return { nfsComAberto: 0, duplicatasEmAberto: 0 }
+  }
+
+  const registros = (data ?? []) as { receita_id: string }[]
+  const nfsDistintas = new Set(registros.map(r => r.receita_id))
+
+  return {
+    nfsComAberto:       nfsDistintas.size,
+    duplicatasEmAberto: registros.length,
+  }
+}
+
+// ============================================================
 // buscarTituloPorId()
 // Retorna um título completo com eventos ordenados por data
 // Usado para pré-preencher o modal de edição/visualização
