@@ -1149,6 +1149,22 @@ export async function processarRegistrosRet(
 // igual já acontece com qualquer UPDATE sequencial no banco.
 // Chamado por: ContasReceberHeader.tsx após parse do arquivo XLS
 // ============================================================
+// ============================================================
+// padNumeroDocumento()
+// Normaliza o "Seu Número" do XLS para o mesmo formato gravado em
+// contas_receber.numero_documento — o sistema sempre grava a NF
+// com 6 dígitos zero-padded (ver criarTitulosDeReceita: numNfPad),
+// mas o relatório do BB pode vir sem o zero-padding (ex: "5403/1"
+// em vez de "005403/1"). Sem essa normalização, o fallback por
+// número de documento nunca bateria com títulos antigos.
+// Idempotente: se já vier no formato certo, retorna igual.
+// ============================================================
+function padNumeroDocumento(doc: string): string {
+  const partes  = doc.trim().split('/')
+  const numPad  = partes[0].replace(/\D/g, '').padStart(6, '0')
+  return partes.length > 1 ? `${numPad}/${partes[1]}` : numPad
+}
+
 export async function processarRegistrosXls(
   registros: RegistroXls[],
 ): Promise<ResultadoImportXls> {
@@ -1160,12 +1176,33 @@ export async function processarRegistrosXls(
   for (const reg of registros) {
     // 1. Busca título pelo nosso_numero — mesmo campo único do BB
     //    usado pelo RET, garantindo a mesma lógica de matching
-    const { data: titulo } = await supabase
+    let { data: titulo } = await supabase
       .from(TABELA)
-      .select('id, status')
+      .select('id, status, nosso_numero')
       .eq('nosso_numero', reg.nossoNumero)
       .is('deleted_at', null) // Cancelados não recebem atualização automática
       .maybeSingle()
+
+    // 1b. FALLBACK: títulos antigos (NFs de antes do sistema atual) nunca
+    // tiveram TXT BB/REM importado, então nunca ganharam nosso_numero —
+    // o match primário sempre falharia para eles. Como número de NF é
+    // único e não se repete entre anos (decisão confirmada com o usuário),
+    // é seguro casar por numero_documento normalizado quando o match
+    // primário não encontra nada.
+    let viaFallback = false
+    if (!titulo) {
+      const docNormalizado = padNumeroDocumento(reg.numeroDocumento)
+      const { data: tituloFallback } = await supabase
+        .from(TABELA)
+        .select('id, status, nosso_numero')
+        .eq('numero_documento', docNormalizado)
+        .is('deleted_at', null)
+        .maybeSingle()
+      if (tituloFallback) {
+        titulo = tituloFallback
+        viaFallback = true
+      }
+    }
 
     if (!titulo) {
       naoEncontrados++
@@ -1178,6 +1215,12 @@ export async function processarRegistrosXls(
       continue
     }
 
+    // 2b. Vínculo automático do Nosso Número — só relevante quando o match
+    // veio pelo fallback (numero_documento) e o título ainda não tinha
+    // nosso_numero (típico de NFs antigas, sem TXT BB/REM jamais importado).
+    // Vinculamos aqui pra próxima importação já casar pelo canal primário.
+    const precisaVincularNossoNumero = viaFallback && !titulo.nosso_numero
+
     // 2. Mapeia o texto da Situação para StatusTitulo — match exato
     //    case-insensitive primeiro; se não encontrar, tenta match
     //    parcial (ex: variações de "Protestado" não previstas
@@ -1186,28 +1229,33 @@ export async function processarRegistrosXls(
     const novoStatus = mapearSituacaoXls(reg.situacao)
 
     if (!novoStatus) {
-      // Situação desconhecida — não altera o status, mas registra
-      // o evento para rastreabilidade, igual ocorrência informativa do RET
+      // Situação desconhecida — não altera status, mas ainda assim vincula
+      // o Nosso Número se aplicável (dado novo e correto, sem risco)
+      if (precisaVincularNossoNumero) {
+        await supabase.from(TABELA).update({ nosso_numero: reg.nossoNumero }).eq('id', titulo.id)
+      }
+      // registra o evento para rastreabilidade, igual ocorrência informativa do RET
       await registrarEvento(
         titulo.id,
         'ocorrencia_informativa',
-        `Situação "${reg.situacao}" (XLS) não reconhecida — sem mudança de status.`,
+        `Situação "${reg.situacao}" (XLS) não reconhecida — sem mudança de status.${precisaVincularNossoNumero ? ` Nosso Número ${reg.nossoNumero} vinculado via Nº Documento.` : ''}`,
       )
       detalhes.push({
         nossoNumero:     reg.nossoNumero,
         numeroDocumento: reg.numeroDocumento,
         resultado:       'informativo',
-        descricao:       `Situação "${reg.situacao}" não mapeada — nenhuma alteração aplicada.`,
+        descricao:       `Situação "${reg.situacao}" não mapeada — nenhuma alteração de status aplicada.${precisaVincularNossoNumero ? ' Nosso Número vinculado.' : ''}`,
       })
       continue
     }
 
     // AUDITORIA FIX (item 4): espelha exatamente o que gerarPreviewImportacao()
     // mostrou ao usuário — se o status calculado já é o status atual do
-    // título, não há mudança real a aplicar. Sem essa checagem, o UPDATE
-    // sempre rodava e podia tocar data_baixa/forma_baixa silenciosamente
-    // em títulos que a prévia nunca listou como alterados.
-    if (novoStatus === titulo.status) {
+    // título, não há mudança de STATUS a aplicar. Mas se ainda falta vincular
+    // o Nosso Número (match via fallback), seguimos em frente só pra isso —
+    // sem essa ressalva, títulos já corretos quanto ao status nunca
+    // ganhariam o vínculo do Nosso Número.
+    if (novoStatus === titulo.status && !precisaVincularNossoNumero) {
       detalhes.push({
         nossoNumero:     reg.nossoNumero,
         numeroDocumento: reg.numeroDocumento,
@@ -1225,9 +1273,20 @@ export async function processarRegistrosXls(
     //    (valor de face do título) — processarRegistrosRet() já existente
     //    também nunca toca em `valor` ao liquidar, só em data_baixa/forma_baixa;
     //    sobrescrever o valor original corromperia a conciliação com a NF-e
-    const updateData: Partial<ContaReceber> = { status: novoStatus }
+    const updateData: Partial<ContaReceber> = novoStatus === titulo.status
+      ? {} // Só vincular Nosso Número — status já está correto
+      : { status: novoStatus }
 
-    if (novoStatus === 'pago') {
+    if (precisaVincularNossoNumero) {
+      updateData.nosso_numero = reg.nossoNumero // XLS já normalizado para 17 dígitos por xlsParser.ts
+    }
+
+    // AUDITORIA: só preenche data_baixa/forma_baixa quando o status está
+    // REALMENTE mudando para 'pago' nesta passada — evita retocar esses
+    // campos quando o motivo de não ter feito `continue` acima foi só o
+    // vínculo do Nosso Número (status já era 'pago' antes)
+    const statusMudou = novoStatus !== titulo.status
+    if (statusMudou && novoStatus === 'pago') {
       updateData.data_baixa  = reg.dataSituacao ?? new Date().toISOString().slice(0, 10)
       updateData.forma_baixa = 'xls' // Baixa automática via importação XLS
     }
@@ -1247,6 +1306,26 @@ export async function processarRegistrosXls(
       continue
     }
 
+    const sufixoVinculo = precisaVincularNossoNumero
+      ? ` Nosso Número ${reg.nossoNumero} vinculado via Nº Documento (título sem TXT BB/REM importado).`
+      : ''
+
+    if (!statusMudou) {
+      // Chegou até aqui só pelo vínculo de Nosso Número — status não mudou
+      await registrarEvento(
+        titulo.id,
+        'nosso_numero_vinculado',
+        `Nosso Número ${reg.nossoNumero} vinculado via relatório XLS BB (match por Nº Documento — status "${novoStatus}" já estava correto).`,
+      )
+      detalhes.push({
+        nossoNumero:     reg.nossoNumero,
+        numeroDocumento: reg.numeroDocumento,
+        resultado:       'vinculado',
+        descricao:       `Nosso Número vinculado via Nº Documento — status já estava correto ("${novoStatus}").`,
+      })
+      continue
+    }
+
     // 4. Registra evento de auditoria com a Situação original do BB
     const tipoEvento: TipoEvento = novoStatus === 'pago'
       ? 'baixa_ret' // Reaproveita o mesmo tipo de evento de liquidação automática
@@ -1259,7 +1338,7 @@ export async function processarRegistrosXls(
     await registrarEvento(
       titulo.id,
       tipoEvento,
-      `Situação "${reg.situacao}" (relatório XLS BB)${reg.dataSituacao ? ` em ${formatarDataBR(reg.dataSituacao)}` : ''} — status atualizado para "${novoStatus}".`,
+      `Situação "${reg.situacao}" (relatório XLS BB)${reg.dataSituacao ? ` em ${formatarDataBR(reg.dataSituacao)}` : ''} — status atualizado para "${novoStatus}".${sufixoVinculo}`,
     )
 
     if (novoStatus === 'pago') {
@@ -1272,7 +1351,7 @@ export async function processarRegistrosXls(
       nossoNumero:     reg.nossoNumero,
       numeroDocumento: reg.numeroDocumento,
       resultado:       novoStatus === 'pago' ? 'baixado' : 'atualizado',
-      descricao:       `"${reg.situacao}" — status atualizado para "${novoStatus}".`,
+      descricao:       `"${reg.situacao}" — status atualizado para "${novoStatus}".${sufixoVinculo}`,
     })
   }
 
@@ -1324,6 +1403,8 @@ export interface ItemPreviewImportacao {
   statusAtual:      StatusTitulo   // Status atual do título no banco
   statusNovo:        StatusTitulo  // Status que será aplicado
   encontrado:        boolean       // false = não encontrado, fica em lista separada
+  viaFallback?:      boolean       // true = match feito por Nº Documento, não por Nosso Número
+  vinculaNossoNumero?: boolean     // true = essa mudança também vai vincular o Nosso Número
 }
 
 export async function gerarPreviewImportacao(
@@ -1337,12 +1418,30 @@ export async function gerarPreviewImportacao(
   for (const reg of registros) {
     // 1. Busca o título atual pelo nosso_numero — mesma lógica de
     //    processarRegistrosRet()/processarRegistrosXls(), só sem UPDATE
-    const { data: titulo } = await supabase
+    let { data: titulo } = await supabase
       .from(TABELA)
-      .select('status, numero_documento')
+      .select('status, numero_documento, nosso_numero')
       .eq('nosso_numero', reg.nossoNumero)
       .is('deleted_at', null)
       .maybeSingle()
+
+    // 1b. FALLBACK por Nº Documento — só pra origem XLS (RET não tem essa
+    // coluna no Segmento T). Espelha exatamente processarRegistrosXls(),
+    // pra prévia nunca divergir do que será aplicado de fato.
+    let viaFallback = false
+    if (!titulo && origem === 'xls' && 'numeroDocumento' in reg) {
+      const docNormalizado = padNumeroDocumento(reg.numeroDocumento)
+      const { data: tituloFallback } = await supabase
+        .from(TABELA)
+        .select('status, numero_documento, nosso_numero')
+        .eq('numero_documento', docNormalizado)
+        .is('deleted_at', null)
+        .maybeSingle()
+      if (tituloFallback) {
+        titulo = tituloFallback
+        viaFallback = true
+      }
+    }
 
     // 2. Determina o status que SERIA aplicado, conforme a origem
     const statusNovo = origem === 'ret'
@@ -1364,15 +1463,20 @@ export async function gerarPreviewImportacao(
       continue
     }
 
-    // 3. Só entra na lista de mudanças se houver de fato uma alteração
-    //    de status a aplicar (situação reconhecida e diferente da atual)
-    if (statusNovo && statusNovo !== titulo.status) {
+    const vinculaNossoNumero = viaFallback && !titulo.nosso_numero
+
+    // 3. Entra na lista de mudanças quando há alteração de status real
+    //    OU quando o único efeito é vincular o Nosso Número (match via
+    //    fallback) — espelha a condição equivalente em processarRegistrosXls()
+    if ((statusNovo && statusNovo !== titulo.status) || vinculaNossoNumero) {
       mudancas.push({
         nossoNumero:     reg.nossoNumero,
         numeroDocumento,
         statusAtual:     titulo.status as StatusTitulo,
-        statusNovo,
+        statusNovo:      statusNovo ?? (titulo.status as StatusTitulo), // Sem mudança de status — mantém o atual na exibição
         encontrado:      true,
+        viaFallback,
+        vinculaNossoNumero,
       })
     }
   }

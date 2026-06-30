@@ -127,9 +127,23 @@ export default function ImportarRetornoPreviewModal({
                       borderRadius: '5px', fontSize: '12px',
                     }}
                   >
-                    <span style={{ fontWeight: 700, color: '#1a6094' }}>
-                      {item.numeroDocumento}
-                    </span>
+                    <div>
+                      <span style={{ fontWeight: 700, color: '#1a6094' }}>
+                        {item.numeroDocumento}
+                      </span>
+                      {/* Indica quando o match não veio pelo Nosso Número (canal primário) — */}
+                      {/* títulos antigos sem TXT BB/REM importado casam pelo Nº Documento */}
+                      {item.viaFallback && (
+                        <span style={{ fontSize: '10px', color: '#b07d00', marginLeft: '6px' }} title="Encontrado por Nº Documento, não por Nosso Número">
+                          (via Nº Doc.)
+                        </span>
+                      )}
+                      {item.vinculaNossoNumero && (
+                        <div style={{ fontSize: '10px', color: '#5a84a6', marginTop: '2px' }}>
+                          Nosso Número {item.nossoNumero} será vinculado a este título
+                        </div>
+                      )}
+                    </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <StatusBadge status={item.statusAtual} />
                       <span style={{ color: '#7a9db8' }}>→</span>
