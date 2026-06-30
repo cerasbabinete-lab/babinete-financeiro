@@ -3,12 +3,14 @@
 // Projeto: Ceras Babinete — Gestão Financeira
 // Módulo: Contas a Receber
 // Função: Header desktop — título, contadores, botões Importar
-//         TXT BB / REM / RET + Backup / Restaurar / Exportar / Novo
-//         Processa arquivos bancários via parsers e service
+//         TXT BB / REM / Retorno (RET + XLS) + Backup / Restaurar /
+//         Exportar / Novo. "Importar Retorno" processa o arquivo em
+//         memória e abre uma prévia (ImportarRetornoPreviewModal)
+//         antes de gravar qualquer mudança no banco
 // Conecta com: app/receber/page.tsx
-//              contasReceberService.ts (backup, restaurar, processamento)
-//              txtBbParser.ts, remParser.ts, retParser.ts
-//              ExportDropdownContasReceber.tsx
+//              contasReceberService.ts (backup, restaurar, processamento, preview)
+//              txtBbParser.ts, remParser.ts, retParser.ts, xlsParser.ts
+//              ExportDropdownContasReceber.tsx, ImportarRetornoPreviewModal.tsx
 //              types/contasReceber.ts
 // Sem alert() ou confirm() — mensagens via callbacks onErro/onSucesso
 // ============================================================
@@ -25,12 +27,17 @@ import {
   processarRegistrosTxtBb,
   processarRegistrosRem,
   processarRegistrosRet,
+  processarRegistrosXls,
+  gerarPreviewImportacao,
 } from '@/lib/contasReceberService'
+import type { ItemPreviewImportacao } from '@/lib/contasReceberService'
 import { parseTxtBb, calcularHashSha256 } from '@/lib/txtBbParser'
 import { parseRem } from '@/lib/remParser'
 import { parseRet } from '@/lib/retParser'
-import type { ContaReceber } from '@/types/contasReceber'
+import { parseXls, calcularHashXls } from '@/lib/xlsParser'
+import type { ContaReceber, RegistroRetSegmentoT, RegistroXls } from '@/types/contasReceber'
 import ExportDropdownContasReceber from './ExportDropdownContasReceber'
+import ImportarRetornoPreviewModal from './ImportarRetornoPreviewModal'
 
 interface ContasReceberHeaderProps {
   totalTitulos: number         // Contagem total de títulos (header)
@@ -63,9 +70,22 @@ export default function ContasReceberHeader({
   // ── Estados de loading por operação ──────────────────────
   const [loadingTxtBb,  setLoadingTxtBb]  = useState(false)
   const [loadingRem,    setLoadingRem]    = useState(false)
-  const [loadingRet,    setLoadingRet]    = useState(false)
+  const [loadingRet,    setLoadingRet]    = useState(false) // Loading do parse + geração da prévia (antes de gravar)
   const [loadingBackup, setLoadingBackup] = useState(false)
   const [loadingRestaur, setLoadingRestaur] = useState(false)
+
+  // ── Estado da prévia de importação de Retorno (RET ou XLS) ──
+  // Guarda os dados já parseados do arquivo (em memória, nada gravado
+  // ainda) até o usuário confirmar na ImportarRetornoPreviewModal —
+  // a forma do array varia conforme a origem, por isso a união abaixo
+  const [previewDados, setPreviewDados] = useState<
+    | { origem: 'ret'; nomeArquivo: string; hash: string; ocorrencias: RegistroRetSegmentoT[] }
+    | { origem: 'xls'; nomeArquivo: string; hash: string; registros: RegistroXls[] }
+    | null
+  >(null)
+  const [previewMudancas,       setPreviewMudancas]       = useState<ItemPreviewImportacao[]>([])
+  const [previewNaoEncontrados, setPreviewNaoEncontrados] = useState<ItemPreviewImportacao[]>([])
+  const [confirmandoPreview,    setConfirmandoPreview]    = useState(false) // Loading do botão "Confirmar e Aplicar"
 
   // ============================================================
   // handleImportarTxtBb
@@ -171,54 +191,138 @@ export default function ContasReceberHeader({
   }
 
   // ============================================================
-  // handleImportarRet
-  // Lê o arquivo RET CNAB 240, verifica hash, processa Segmentos T
+  // handleImportarRetorno
+  // Lê o arquivo de Retorno selecionado — aceita .RET (CNAB 240) e
+  // .XLS (relatório de consulta do BB) — detecta o tipo pela extensão,
+  // parseia em memória e gera a prévia das mudanças via
+  // gerarPreviewImportacao(). NADA é gravado no banco aqui — a
+  // gravação só acontece em handleConfirmarPreview(), após o usuário
+  // revisar e confirmar na ImportarRetornoPreviewModal (Pergunta 20a)
   // ============================================================
-  async function handleImportarRet(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImportarRetorno(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setLoadingRet(true)
     try {
-      const conteudo = await lerArquivoTexto(file)
-      const hash     = await calcularHashSha256(conteudo)
+      // Detecta o tipo de arquivo pela extensão — .xls usa o fluxo XLS,
+      // qualquer outra extensão (.ret, .txt) usa o fluxo RET CNAB 240
+      const ehXls = /\.xlsx?$/i.test(file.name)
 
-      const jaImportadoEm = await verificarHashRemessa(hash)
-      if (jaImportadoEm) {
-        onErro(`Este arquivo RET já foi importado em ${formatarDataBR(jaImportadoEm)}.`)
-        return
+      if (ehXls) {
+        // ── Fluxo XLS ────────────────────────────────────────
+        const hash = await calcularHashXls(file) // Hash binário — XLS não pode ser lido como texto
+
+        const jaImportadoEm = await verificarHashRemessa(hash)
+        if (jaImportadoEm) {
+          onErro(`Este arquivo XLS já foi importado em ${formatarDataBR(jaImportadoEm)}.`)
+          return
+        }
+
+        const registros = await parseXls(file)
+        if (registros.length === 0) {
+          onErro('Nenhum registro válido encontrado no arquivo XLS (verifique se a coluna "Nosso Número" está presente).')
+          return
+        }
+
+        // Gera a prévia — mesma lógica de matching usada na gravação real
+        const { mudancas, naoEncontrados } = await gerarPreviewImportacao('xls', registros)
+
+        setPreviewDados({ origem: 'xls', nomeArquivo: file.name, hash, registros })
+        setPreviewMudancas(mudancas)
+        setPreviewNaoEncontrados(naoEncontrados)
+
+      } else {
+        // ── Fluxo RET (CNAB 240) ─────────────────────────────
+        const conteudo = await lerArquivoTexto(file)
+        const hash     = await calcularHashSha256(conteudo)
+
+        const jaImportadoEm = await verificarHashRemessa(hash)
+        if (jaImportadoEm) {
+          onErro(`Este arquivo RET já foi importado em ${formatarDataBR(jaImportadoEm)}.`)
+          return
+        }
+
+        const ocorrencias = parseRet(conteudo)
+        if (ocorrencias.length === 0) {
+          onErro('Nenhum Segmento T (ocorrência) encontrado no arquivo RET CNAB 240.')
+          return
+        }
+
+        const { mudancas, naoEncontrados } = await gerarPreviewImportacao('ret', ocorrencias)
+
+        setPreviewDados({ origem: 'ret', nomeArquivo: file.name, hash, ocorrencias })
+        setPreviewMudancas(mudancas)
+        setPreviewNaoEncontrados(naoEncontrados)
       }
-
-      // Parseia Segmentos T do CNAB 240
-      const ocorrencias = parseRet(conteudo)
-      if (ocorrencias.length === 0) {
-        onErro('Nenhum Segmento T (ocorrência) encontrado no arquivo RET CNAB 240.')
-        return
-      }
-
-      const resultado = await processarRegistrosRet(ocorrencias)
-
-      await registrarRemessaImportada(
-        'ret',
-        file.name,
-        hash,
-        ocorrencias.length,
-        resultado.baixados + resultado.atualizados,
-        resultado.naoEncontrados,
-      )
-
-      onSucesso(
-        `RET processado: ${resultado.baixados} baixados, ` +
-        `${resultado.atualizados} atualizados, ` +
-        `${resultado.naoEncontrados} não encontrados, ` +
-        `${resultado.ocorrenciasInformativas} informativas.`,
-      )
-      onImportado()
     } catch (err: unknown) {
-      onErro(err instanceof Error ? err.message : 'Erro ao processar RET')
+      onErro(err instanceof Error ? err.message : 'Erro ao processar arquivo de Retorno')
     } finally {
       setLoadingRet(false)
-      e.target.value = ''
+      e.target.value = '' // Permite reimportar mesmo arquivo após correção
     }
+  }
+
+  // ============================================================
+  // handleConfirmarPreview
+  // Aplica de fato a importação já parseada em previewDados — chamado
+  // ao clicar "Confirmar e Aplicar" na ImportarRetornoPreviewModal.
+  // Só agora os dados são gravados no banco (processarRegistrosRet/Xls)
+  // ============================================================
+  async function handleConfirmarPreview() {
+    if (!previewDados) return
+    setConfirmandoPreview(true)
+    try {
+      if (previewDados.origem === 'xls') {
+        const resultado = await processarRegistrosXls(previewDados.registros)
+        await registrarRemessaImportada(
+          'xls',
+          previewDados.nomeArquivo,
+          previewDados.hash,
+          previewDados.registros.length,
+          resultado.baixados + resultado.atualizados,
+          resultado.naoEncontrados,
+        )
+        onSucesso(
+          `XLS processado: ${resultado.baixados} baixados, ` +
+          `${resultado.atualizados} atualizados, ` +
+          `${resultado.naoEncontrados} não encontrados.`,
+        )
+      } else {
+        const resultado = await processarRegistrosRet(previewDados.ocorrencias)
+        await registrarRemessaImportada(
+          'ret',
+          previewDados.nomeArquivo,
+          previewDados.hash,
+          previewDados.ocorrencias.length,
+          resultado.baixados + resultado.atualizados,
+          resultado.naoEncontrados,
+        )
+        onSucesso(
+          `RET processado: ${resultado.baixados} baixados, ` +
+          `${resultado.atualizados} atualizados, ` +
+          `${resultado.naoEncontrados} não encontrados, ` +
+          `${resultado.ocorrenciasInformativas} informativas.`,
+        )
+      }
+      onImportado()
+      setPreviewDados(null) // Fecha a modal de prévia
+    } catch (err: unknown) {
+      onErro(err instanceof Error ? err.message : 'Erro ao aplicar importação de Retorno')
+    } finally {
+      setConfirmandoPreview(false)
+    }
+  }
+
+  // ============================================================
+  // handleCancelarPreview
+  // Fecha a modal de prévia sem gravar nada — descarta os dados
+  // parseados em memória (o arquivo precisa ser selecionado de novo
+  // se o usuário quiser tentar a importação outra vez)
+  // ============================================================
+  function handleCancelarPreview() {
+    setPreviewDados(null)
+    setPreviewMudancas([])
+    setPreviewNaoEncontrados([])
   }
 
   // ============================================================
@@ -324,15 +428,15 @@ export default function ContasReceberHeader({
           {loadingRem ? 'Importando...' : 'Importar REM'}
         </button>
 
-        {/* Importar RET */}
+        {/* Importar Retorno — aceita .RET (CNAB 240) e .XLS (relatório BB), abre prévia antes de aplicar */}
         <button
           onClick={() => refRet.current?.click()}
           disabled={loadingRet}
-          title="Importar arquivo de retorno RET CNAB 240"
+          title="Importar Retorno bancário — aceita .RET (CNAB 240) ou .XLS (relatório BB)"
           style={{ ...btnPrimary, opacity: loadingRet ? 0.7 : 1, cursor: loadingRet ? 'wait' : 'pointer' }}
         >
           <i className="ti ti-file-download" style={{ fontSize: '14px' }} aria-hidden="true" />
-          {loadingRet ? 'Importando...' : 'Importar RET'}
+          {loadingRet ? 'Processando...' : 'Importar Retorno'}
         </button>
 
       </div>
@@ -378,10 +482,23 @@ export default function ContasReceberHeader({
       </div>
 
       {/* ── File pickers ocultos ─────────────────────────────── */}
-      <input ref={refTxtBb}   type="file" accept=".txt"        style={{ display: 'none' }} onChange={handleImportarTxtBb} />
-      <input ref={refRem}     type="file" accept=".rem,.txt"   style={{ display: 'none' }} onChange={handleImportarRem} />
-      <input ref={refRet}     type="file" accept=".ret,.txt"   style={{ display: 'none' }} onChange={handleImportarRet} />
-      <input ref={refRestaur} type="file" accept=".json"       style={{ display: 'none' }} onChange={handleRestaurar} />
+      <input ref={refTxtBb}   type="file" accept=".txt"            style={{ display: 'none' }} onChange={handleImportarTxtBb} />
+      <input ref={refRem}     type="file" accept=".rem,.txt"       style={{ display: 'none' }} onChange={handleImportarRem} />
+      <input ref={refRet}     type="file" accept=".ret,.txt,.xls,.xlsx" style={{ display: 'none' }} onChange={handleImportarRetorno} />
+      <input ref={refRestaur} type="file" accept=".json"           style={{ display: 'none' }} onChange={handleRestaurar} />
+
+      {/* ── Modal de prévia da importação de Retorno — só aparece após parse bem-sucedido ── */}
+      {previewDados && (
+        <ImportarRetornoPreviewModal
+          origem={previewDados.origem}
+          nomeArquivo={previewDados.nomeArquivo}
+          mudancas={previewMudancas}
+          naoEncontrados={previewNaoEncontrados}
+          confirmando={confirmandoPreview}
+          onConfirmar={handleConfirmarPreview}
+          onCancelar={handleCancelarPreview}
+        />
+      )}
 
     </div>
   )

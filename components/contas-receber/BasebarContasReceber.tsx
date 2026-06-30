@@ -3,9 +3,10 @@
 // Projeto: Ceras Babinete — Gestão Financeira
 // Módulo: Contas a Receber
 // Função: Basebar mobile fixa no rodapé — específica do módulo
-//         7 botões: TXT BB | REM | RET | Backup | Restaurar | Exportar | Novo
-//         Processos de import delegados a handlers via props (page.tsx)
-// Conecta com: app/receber/page.tsx
+//         7 botões: TXT BB | REM | Retorno (RET/XLS) | Backup | Restaurar | Exportar | Novo
+//         Processos de import delegados a handlers via props (page.tsx) —
+//         este componente só repassa o File selecionado, sem parsear nada
+// Conecta com: app/receber/page.tsx (processarImportTxtBb/Rem/Retorno)
 //              contasReceberService.ts (fazerBackup, lerArquivoBackup, restaurarBackup)
 //              ExportDropdownContasReceber.tsx (dropdown mobile)
 // ============================================================
@@ -155,10 +156,10 @@ export default function BasebarContasReceber({
         <span style={labelStyle}>{loadingRem ? '...' : 'REM'}</span>
       </button>
 
-      {/* RET */}
-      <button onClick={() => refRet.current?.click()} disabled={loadingRet} style={btnStyle}>
+      {/* Retorno — aceita .RET (CNAB 240) e .XLS (relatório BB); o page.tsx decide o fluxo conforme a extensão */}
+      <button onClick={() => refRet.current?.click()} disabled={loadingRet} style={btnStyle} title="Importar Retorno — RET ou XLS">
         <i className="ti ti-file-download" style={{ fontSize: '20px', color: '#1a6094' }} aria-hidden="true" />
-        <span style={labelStyle}>{loadingRet ? '...' : 'RET'}</span>
+        <span style={labelStyle}>{loadingRet ? '...' : 'Retorno'}</span>
       </button>
 
       {/* Backup */}
@@ -187,7 +188,7 @@ export default function BasebarContasReceber({
       {/* File pickers ocultos */}
       <input ref={refTxtBb}   type="file" accept=".txt"       style={{ display: 'none' }} onChange={handleTxtBb} />
       <input ref={refRem}     type="file" accept=".rem,.txt"  style={{ display: 'none' }} onChange={handleRem} />
-      <input ref={refRet}     type="file" accept=".ret,.txt"  style={{ display: 'none' }} onChange={handleRet} />
+      <input ref={refRet}     type="file" accept=".ret,.txt,.xls,.xlsx" style={{ display: 'none' }} onChange={handleRet} />
       <input ref={refRestaur} type="file" accept=".json"      style={{ display: 'none' }} onChange={handleRestaurar} />
 
     </footer>

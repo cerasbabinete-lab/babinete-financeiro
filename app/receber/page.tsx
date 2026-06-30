@@ -18,23 +18,30 @@ import {
   buscarTitulos,
   contarTitulos,
   cancelarTitulo,
+  registrarBaixaInline,
   buscarTitulosNearVencimento,
   verificarHashRemessa,
   registrarRemessaImportada,
   processarRegistrosTxtBb,
   processarRegistrosRem,
   processarRegistrosRet,
+  processarRegistrosXls,
+  gerarPreviewImportacao,
   buscarContadoresTitulos,
   type ContadoresTitulos,
+  type ItemPreviewImportacao,
 } from '@/lib/contasReceberService'
 import { parseTxtBb, calcularHashSha256 } from '@/lib/txtBbParser'
 import { parseRem } from '@/lib/remParser'
 import { parseRet } from '@/lib/retParser'
+import { parseXls, calcularHashXls } from '@/lib/xlsParser'
 import type {
   ContaReceber,
   FiltrosContasReceber,
   ModoModal,
   TituloAvisoVencimento,
+  RegistroRetSegmentoT,
+  RegistroXls,
 } from '@/types/contasReceber'
 
 // Layout
@@ -51,15 +58,26 @@ import ContasReceberMobileList  from '@/components/contas-receber/ContasReceberM
 import ContasReceberModal       from '@/components/contas-receber/ContasReceberModal'
 import ContasReceberModalAvisos from '@/components/contas-receber/ContasReceberModalAvisos'
 import BasebarContasReceber     from '@/components/contas-receber/BasebarContasReceber'
+import ImportarRetornoPreviewModal from '@/components/contas-receber/ImportarRetornoPreviewModal'
 
 // ============================================================
-// Filtros iniciais — todos vazios (sem restrição)
+// filtrosMesAtual()
+// Gera o estado inicial de filtros já restrito ao mês corrente —
+// consistente com o modo "Por Mês" (padrão) de ContasReceberFiltros,
+// evitando que a primeira busca traga todos os títulos sem filtro
+// antes do componente de filtros aplicar o mês atual em seguida.
+// Calculado como função (não constante de módulo) para que cada
+// montagem da página use a data corrente, não a data do build.
 // ============================================================
-const FILTROS_INICIAIS: FiltrosContasReceber = {
-  busca:        '',
-  vencimentoDe: '',
-  vencimentoAte: '',
-  status:       '',
+function filtrosMesAtual(): FiltrosContasReceber {
+  const hoje    = new Date()
+  const ultimo  = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0)
+  return {
+    busca:         '',
+    vencimentoDe:  `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-01`,
+    vencimentoAte: `${ultimo.getFullYear()}-${String(ultimo.getMonth() + 1).padStart(2, '0')}-${String(ultimo.getDate()).padStart(2, '0')}`,
+    status:        '',
+  }
 }
 
 // ============================================================
@@ -84,11 +102,11 @@ export default function ContasReceberPage() {
 
   // ── Contadores por status ─────────────────────────────────
   const [contadores, setContadores] = useState<ContadoresTitulos>({
-    emAberto: 0, atrasados: 0, baixados: 0, protestados: 0, cancelados: 0,
+    emAberto: 0, atrasados: 0, baixados: 0, emCartorio: 0, protestados: 0, cancelados: 0,
   })
 
   // ── Filtros ───────────────────────────────────────────────
-  const [filtros, setFiltros] = useState<FiltrosContasReceber>(FILTROS_INICIAIS)
+  const [filtros, setFiltros] = useState<FiltrosContasReceber>(filtrosMesAtual)
 
   // ── Modal principal ───────────────────────────────────────
   const [modoModal,         setModoModal]         = useState<ModoModal>(null)
@@ -102,6 +120,20 @@ export default function ContasReceberPage() {
   // ── Feedback inline ───────────────────────────────────────
   const [msgSucesso, setMsgSucesso] = useState<string | null>(null)
   const [msgErro,    setMsgErro]    = useState<string | null>(null)
+
+  // ── Prévia de importação de Retorno (mobile/Basebar) ───────
+  // Equivalente ao estado interno de ContasReceberHeader.tsx (desktop) —
+  // mantido em paralelo aqui porque a Basebar mobile só repassa o File
+  // selecionado para o page.tsx, que é quem efetivamente parseia e
+  // decide o fluxo (RET ou XLS), igual ao desktop
+  const [previewDados, setPreviewDados] = useState<
+    | { origem: 'ret'; nomeArquivo: string; hash: string; ocorrencias: RegistroRetSegmentoT[] }
+    | { origem: 'xls'; nomeArquivo: string; hash: string; registros: RegistroXls[] }
+    | null
+  >(null)
+  const [previewMudancas,       setPreviewMudancas]       = useState<ItemPreviewImportacao[]>([])
+  const [previewNaoEncontrados, setPreviewNaoEncontrados] = useState<ItemPreviewImportacao[]>([])
+  const [confirmandoPreview,    setConfirmandoPreview]    = useState(false)
 
   // Ref para controle de montagem (evita setState após unmount)
   const mountedRef = useRef(true)
@@ -187,7 +219,7 @@ export default function ContasReceberPage() {
   function handleVisualizar(t: ContaReceber) { setTituloSelecionado(t); setModoModal('visualizar') }
   function handleFecharModal()             { setModoModal(null); setTituloSelecionado(null) }
   function handleSalvo()                   { carregarTitulos(); carregarNearDue(); setModoModal(null); setTituloSelecionado(null) }
-  function handleLimparFiltros()           { setFiltros(FILTROS_INICIAIS) }
+  function handleLimparFiltros()           { setFiltros(filtrosMesAtual()) }
 
   // ── Cancelar título (direto da tabela/lista) ──────────────
   async function handleCancelar(t: ContaReceber) {
@@ -197,6 +229,18 @@ export default function ContasReceberPage() {
       carregarNearDue()
     } catch (err: unknown) {
       setMsgErro(err instanceof Error ? err.message : 'Erro ao cancelar título')
+    }
+  }
+
+  // ── Baixar título inline (botão "Baixar" na tabela/lista, com confirmação Sim/Não já feita no componente) ──
+  async function handleBaixar(t: ContaReceber) {
+    try {
+      await registrarBaixaInline(t.id)
+      setMsgSucesso(`Título ${t.numero_documento} baixado com sucesso.`)
+      carregarTitulos()
+      carregarNearDue()
+    } catch (err: unknown) {
+      setMsgErro(err instanceof Error ? err.message : 'Erro ao baixar título')
     }
   }
 
@@ -262,34 +306,78 @@ export default function ContasReceberPage() {
     }
   }
 
-  async function processarImportRet(file: File) {
+  async function processarImportRetorno(file: File) {
     try {
-      const conteudo  = await lerArquivoTexto(file)
-      const hash      = await calcularHashSha256(conteudo)
+      // Detecta o tipo pela extensão — mesmo critério usado em ContasReceberHeader.tsx (desktop)
+      const ehXls = /\.xlsx?$/i.test(file.name)
 
-      const jaImportadoEm = await verificarHashRemessa(hash)
-      if (jaImportadoEm) {
-        setMsgErro(`RET já importado em ${formatarDataBRSimples(jaImportadoEm)}.`)
-        return
+      if (ehXls) {
+        const hash = await calcularHashXls(file)
+        const jaImportadoEm = await verificarHashRemessa(hash)
+        if (jaImportadoEm) {
+          setMsgErro(`Este arquivo XLS já foi importado em ${formatarDataBRSimples(jaImportadoEm)}.`)
+          return
+        }
+        const registros = await parseXls(file)
+        if (registros.length === 0) {
+          setMsgErro('Nenhum registro válido encontrado no arquivo XLS (verifique a coluna "Nosso Número").')
+          return
+        }
+        const { mudancas, naoEncontrados } = await gerarPreviewImportacao('xls', registros)
+        setPreviewDados({ origem: 'xls', nomeArquivo: file.name, hash, registros })
+        setPreviewMudancas(mudancas)
+        setPreviewNaoEncontrados(naoEncontrados)
+      } else {
+        const conteudo = await lerArquivoTexto(file)
+        const hash     = await calcularHashSha256(conteudo)
+        const jaImportadoEm = await verificarHashRemessa(hash)
+        if (jaImportadoEm) {
+          setMsgErro(`RET já importado em ${formatarDataBRSimples(jaImportadoEm)}.`)
+          return
+        }
+        const ocorrencias = parseRet(conteudo)
+        if (ocorrencias.length === 0) {
+          setMsgErro('Nenhum Segmento T encontrado no arquivo RET CNAB 240.')
+          return
+        }
+        const { mudancas, naoEncontrados } = await gerarPreviewImportacao('ret', ocorrencias)
+        setPreviewDados({ origem: 'ret', nomeArquivo: file.name, hash, ocorrencias })
+        setPreviewMudancas(mudancas)
+        setPreviewNaoEncontrados(naoEncontrados)
       }
+    } catch (err: unknown) {
+      setMsgErro(err instanceof Error ? err.message : 'Erro ao processar arquivo de Retorno')
+    }
+  }
 
-      const ocorrencias = parseRet(conteudo)
-      if (ocorrencias.length === 0) {
-        setMsgErro('Nenhum Segmento T encontrado no arquivo RET CNAB 240.')
-        return
+  // ── Confirma e aplica a prévia de importação (RET ou XLS) — mobile ──
+  async function handleConfirmarPreviewMobile() {
+    if (!previewDados) return
+    setConfirmandoPreview(true)
+    try {
+      if (previewDados.origem === 'xls') {
+        const resultado = await processarRegistrosXls(previewDados.registros)
+        await registrarRemessaImportada('xls', previewDados.nomeArquivo, previewDados.hash, previewDados.registros.length, resultado.baixados + resultado.atualizados, resultado.naoEncontrados)
+        setMsgSucesso(`XLS: ${resultado.baixados} baixados, ${resultado.atualizados} atualizados, ${resultado.naoEncontrados} não encontrados.`)
+      } else {
+        const resultado = await processarRegistrosRet(previewDados.ocorrencias)
+        await registrarRemessaImportada('ret', previewDados.nomeArquivo, previewDados.hash, previewDados.ocorrencias.length, resultado.baixados + resultado.atualizados, resultado.naoEncontrados)
+        setMsgSucesso(`RET: ${resultado.baixados} baixados, ${resultado.atualizados} atualizados, ${resultado.naoEncontrados} não encontrados.`)
       }
-
-      const resultado = await processarRegistrosRet(ocorrencias)
-      await registrarRemessaImportada('ret', file.name, hash, ocorrencias.length, resultado.baixados + resultado.atualizados, resultado.naoEncontrados)
-
-      setMsgSucesso(
-        `RET: ${resultado.baixados} baixados, ${resultado.atualizados} atualizados, ${resultado.naoEncontrados} não encontrados.`,
-      )
       carregarTitulos()
       carregarNearDue()
+      setPreviewDados(null)
     } catch (err: unknown) {
-      setMsgErro(err instanceof Error ? err.message : 'Erro ao processar RET')
+      setMsgErro(err instanceof Error ? err.message : 'Erro ao aplicar importação de Retorno')
+    } finally {
+      setConfirmandoPreview(false)
     }
+  }
+
+  function handleCancelarPreviewMobile() {
+    setPreviewDados(null)
+    setPreviewMudancas([])
+    setPreviewNaoEncontrados([])
   }
 
   // ── Avisos enviados ───────────────────────────────────────
@@ -319,13 +407,14 @@ export default function ContasReceberPage() {
 
   // ── Banner de pílulas de contadores ───────────────────────
   const ContadoresBanner = () => {
-    const totalCtd = contadores.emAberto + contadores.atrasados + contadores.baixados + contadores.protestados + contadores.cancelados
+    const totalCtd = contadores.emAberto + contadores.atrasados + contadores.baixados + contadores.emCartorio + contadores.protestados + contadores.cancelados
     if (totalCtd === 0) return null
 
     const pilulas: { label: string; valor: number; bg: string; cor: string }[] = [
       { label: 'Em Aberto',   valor: contadores.emAberto,    bg: '#dcfce7', cor: '#166534' },
       { label: 'Atrasados',   valor: contadores.atrasados,   bg: '#fff5f5', cor: '#c0392b' },
       { label: 'Baixados',    valor: contadores.baixados,    bg: '#eaf3de', cor: '#27ae60' },
+      { label: 'Em Cartório', valor: contadores.emCartorio,  bg: '#fce7f3', cor: '#9d174d' },
       { label: 'Protestados', valor: contadores.protestados, bg: '#fff4e6', cor: '#c06000' },
       { label: 'Cancelados',  valor: contadores.cancelados,  bg: '#f1f1f1', cor: '#888888' },
     ].filter(p => p.valor > 0)
@@ -483,6 +572,7 @@ export default function ContasReceberPage() {
               onVisualizar={handleVisualizar}
               onEditar={handleEditar}
               onCancelar={handleCancelar}
+              onBaixar={handleBaixar}
             />
           )}
         </main>
@@ -548,6 +638,7 @@ export default function ContasReceberPage() {
             onVisualizar={handleVisualizar}
             onEditar={handleEditar}
             onCancelar={handleCancelar}
+            onBaixar={handleBaixar}
           />
         )}
       </main>
@@ -558,7 +649,7 @@ export default function ContasReceberPage() {
         usuario={usuario}
         onImportarTxtBb={processarImportTxtBb}
         onImportarRem={processarImportRem}
-        onImportarRet={processarImportRet}
+        onImportarRet={processarImportRetorno}
         onNovoLancamento={handleNovoLancamento}
         onRestaurado={carregarTitulos}
         onErro={setMsgErro}
@@ -582,6 +673,19 @@ export default function ContasReceberPage() {
           titulos={titulosNearDue}
           onFechar={() => setModalAvisosOpen(false)}
           onEnviado={handleAvisosEnviados}
+        />
+      )}
+
+      {/* Modal de prévia da importação de Retorno (RET ou XLS) — fluxo mobile via Basebar */}
+      {previewDados && (
+        <ImportarRetornoPreviewModal
+          origem={previewDados.origem}
+          nomeArquivo={previewDados.nomeArquivo}
+          mudancas={previewMudancas}
+          naoEncontrados={previewNaoEncontrados}
+          confirmando={confirmandoPreview}
+          onConfirmar={handleConfirmarPreviewMobile}
+          onCancelar={handleCancelarPreviewMobile}
         />
       )}
     </div>

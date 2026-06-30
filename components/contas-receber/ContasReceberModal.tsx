@@ -14,7 +14,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { ContaReceber, ModoModal } from '@/types/contasReceber'
+import type { ContaReceber, ModoModal, StatusTitulo } from '@/types/contasReceber'
 import { STATUS_LABELS, STATUS_CORES } from '@/types/contasReceber'
 import {
   criarTitulo,
@@ -105,6 +105,10 @@ function ModalContent({
   // Feature 3: Nosso Número e Linha Digitável editáveis em editar/novo
   const [nossoNumeroEdit,    setNossoNumeroEdit]    = useState(titulo?.nosso_numero    ?? '')
   const [linhaDigitavelEdit, setLinhaDigitavelEdit] = useState(titulo?.linha_digitavel ?? '')
+  // Status editável no modo editar — dropdown com as 6 opções reais do banco
+  // (brainstorm: "Status fica editável apenas dentro do modal", reversão de
+  // baixa = trocar manualmente de volta para 'em_aberto')
+  const [statusEdit, setStatusEdit] = useState<StatusTitulo>(titulo?.status ?? 'em_aberto')
 
   // ── Seleção de NF-e (modo novo) ───────────────────────────
   const [receitas,        setReceitas]        = useState<Awaited<ReturnType<typeof buscarReceitasParaVinculo>>>([])
@@ -172,7 +176,19 @@ function ModalContent({
         await criarTitulo(novoTitulo, `Lançamento manual criado pelo usuário para NF-e ${rec?.numero_nf ?? numDoc}.`)
 
       } else if (isEditar && titulo) {
+        // Detecta se o usuário trocou o Status no dropdown
+        const statusMudou = statusEdit !== titulo.status
+
+        // Reversão para 'em_aberto' reaproveita reabrirTitulo() — já trata
+        // corretamente deleted_at/data_baixa/forma_baixa (mesma rotina do
+        // botão "Reabrir" no footer), evitando duplicar essa lógica aqui
+        if (statusMudou && statusEdit === 'em_aberto') {
+          await reabrirTitulo(titulo.id)
+        }
+
         // Modo editar — campos editáveis incluindo Nosso Número e Linha Digitável
+        // Status só entra no payload se mudou para algo diferente de 'em_aberto'
+        // (a reabertura acima já cobriu esse caso de forma mais completa)
         await editarTitulo({
           id:              titulo.id,
           cliente_email:   clienteEmail.trim() || null,
@@ -182,6 +198,7 @@ function ModalContent({
           // null preserva o valor existente; string vazia limpa o campo
           nosso_numero:    nossoNumeroEdit.trim()    || null,
           linha_digitavel: linhaDigitavelEdit.trim() || null,
+          ...(statusMudou && statusEdit !== 'em_aberto' ? { status: statusEdit } : {}),
         })
       }
       onSalvo()
@@ -285,7 +302,6 @@ function ModalContent({
   const cores        = STATUS_CORES[statusAtual as keyof typeof STATUS_CORES]
   const labelStatus  = STATUS_LABELS[statusAtual as keyof typeof STATUS_LABELS] ?? statusAtual
   const isCancelado  = statusAtual === 'cancelado'
-  const isPago       = statusAtual === 'pago'
   const isEmAberto   = statusAtual === 'em_aberto'
   const temNossoNum  = !!titulo?.nosso_numero
 
@@ -445,16 +461,39 @@ function ModalContent({
 
               <div style={fieldGroupStyle}>
                 <label style={labelStyle}>Status</label>
-                <div style={{ display: 'flex', alignItems: 'center', height: '28px' }}>
-                  <span style={{
-                    display: 'inline-block', padding: '2px 10px', borderRadius: '10px',
-                    fontSize: '11px', fontWeight: 700,
-                    background: cores?.bg ?? '#f0f4f7',
-                    color: cores?.text ?? '#5a84a6',
-                  }}>
-                    {labelStatus}
-                  </span>
-                </div>
+                {isEditar ? (
+                  // Dropdown editável — único modo em que o Status pode ser alterado
+                  // manualmente (brainstorm: "status só fica editável no modal")
+                  <select
+                    value={statusEdit}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setStatusEdit(e.target.value as StatusTitulo)}
+                    style={{ ...inputStyle, height: '28px', cursor: 'pointer', fontWeight: 700, color: '#1a6094' }}
+                  >
+                    {/* AUDITORIA FIX (item 5): 'cancelado' excluído do dropdown —
+                        selecioná-lo aqui setaria status='cancelado' sem o
+                        soft-delete (deleted_at), quebrando contadores/listagem
+                        em todo o app. Cancelamento continua exclusivo do botão
+                        dedicado "Cancelar Título" (cancelarTitulo, que seta
+                        deleted_at corretamente). */}
+                    {(Object.keys(STATUS_LABELS) as StatusTitulo[])
+                      .filter(s => s !== 'cancelado')
+                      .map(s => (
+                        <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                      ))}
+                  </select>
+                ) : (
+                  // Modo visualizar/novo — badge somente-leitura (novo sempre nasce 'em_aberto')
+                  <div style={{ display: 'flex', alignItems: 'center', height: '28px' }}>
+                    <span style={{
+                      display: 'inline-block', padding: '2px 10px', borderRadius: '10px',
+                      fontSize: '11px', fontWeight: 700,
+                      background: cores?.bg ?? '#f0f4f7',
+                      color: cores?.text ?? '#5a84a6',
+                    }}>
+                      {labelStatus}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div style={fieldGroupStyle}>
@@ -804,8 +843,8 @@ function ModalContent({
               </button>
             )}
 
-            {/* Editar — apenas no visualizar, não para pago */}
-            {isVisualizar && !isPago && !isCancelado && (
+            {/* Editar — apenas no visualizar; liberado mesmo para pago (status agora é editável no modal) */}
+            {isVisualizar && !isCancelado && (
               <button
                 onClick={() => {
                   if (titulo && onEditar) onEditar(titulo)

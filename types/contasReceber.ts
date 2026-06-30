@@ -6,10 +6,10 @@
 //         contas_receber, contas_receber_eventos,
 //         remessas_importadas e tipos auxiliares de UI
 // Conecta com: contasReceberService.ts, txtBbParser.ts,
-//              remParser.ts, retParser.ts, boletoGenerator.ts,
+//              remParser.ts, retParser.ts, xlsParser.ts, boletoGenerator.ts,
 //              ContasReceberTabela.tsx, ContasReceberModal.tsx,
 //              ContasReceberMobileList.tsx, ContasReceberHeader.tsx,
-//              ContasReceberModalAvisos.tsx
+//              ContasReceberModalAvisos.tsx, ImportarRetornoPreviewModal.tsx
 // ============================================================
 
 
@@ -34,8 +34,10 @@ export type StatusTitulo =
 // ============================================================
 export type FormaBaixa =
   | 'ret'           // Baixa automática via arquivo RET CNAB 240
+  | 'xls'           // Baixa automática via importação de relatório XLS (consulta BB)
   | 'pix'           // Baixa manual — PIX
   | 'transferencia' // Baixa manual — Transferência bancária
+  | 'manual'        // Baixa manual rápida (botão "Baixar" inline na listagem) — sem forma específica
 
 
 // ============================================================
@@ -59,7 +61,7 @@ export type TipoEvento =
 // TIPO_REMESSA
 // Valores válidos para o campo tipo de remessas_importadas
 // ============================================================
-export type TipoRemessa = 'txt_bb' | 'rem' | 'ret'
+export type TipoRemessa = 'txt_bb' | 'rem' | 'ret' | 'xls'
 
 
 // ============================================================
@@ -145,7 +147,7 @@ export interface ContaReceberEvento {
 // ============================================================
 export interface RemessaImportada {
   id:               string       // UUID — PK
-  tipo:             TipoRemessa  // 'txt_bb' | 'rem' | 'ret'
+  tipo:             TipoRemessa  // 'txt_bb' | 'rem' | 'ret' | 'xls'
   nome_arquivo:     string       // Nome original do arquivo
   hash_arquivo:     string       // SHA-256 do conteúdo — UNIQUE
   total_registros:  number       // Total de linhas de dados parseadas
@@ -209,6 +211,19 @@ export interface ResultadoImportRet {
   naoEncontrados:        number                   // Nosso Número sem correspondência
   ocorrenciasInformativas: number                 // Códigos sem mudança de status
   detalhes:              ResultadoLinhaImport[]   // Detalhe por registro
+}
+
+
+// ============================================================
+// ResultadoImportXls
+// Retorno da função de importação do relatório XLS de consulta
+// (autoatendimento.bb.com.br) — mesmo formato de resumo do RET
+// ============================================================
+export interface ResultadoImportXls {
+  baixados:        number                   // Títulos marcados como pagos (Situação = Liquidado/variações)
+  atualizados:     number                   // Status alterado (protestado, cartório)
+  naoEncontrados:  number                   // Nosso Número sem correspondência no sistema
+  detalhes:        ResultadoLinhaImport[]   // Detalhe por linha processada
 }
 
 
@@ -292,6 +307,22 @@ export interface RegistroRetSegmentoT {
 
 
 // ============================================================
+// RegistroXls
+// Dados extraídos de uma linha do relatório XLS de consulta
+// (autoatendimento.bb.com.br — "consultaCBR.xls" e variações)
+// Parseado por xlsParser.ts a partir das colunas nomeadas
+// ============================================================
+export interface RegistroXls {
+  nossoNumero:      string         // Coluna "Nosso Número" — trimmed, só dígitos
+  numeroDocumento:  string         // Coluna "Seu Número" — ex: "005414/1"
+  situacao:         string         // Coluna "Situação" — texto bruto do BB (ex: "Liquidado")
+  dataSituacao:     string | null  // Coluna "Data Situação" — ISO YYYY-MM-DD (convertida pelo parser), null se ausente
+  valor:            number         // Coluna "Valor" — valor original do título
+  valorLiquidacao:  number | null  // Coluna "Valor Liquidação" — valor efetivamente pago, null se ausente (planilhas simples sem essa coluna)
+}
+
+
+// ============================================================
 // TituloAvisoVencimento
 // Título near-due usado na tela ContasReceberModalAvisos
 // Enriquecido com email editável e flag de seleção
@@ -348,6 +379,24 @@ export const MAPEAMENTO_OCORRENCIAS_RET: Record<string, StatusTitulo | null> = {
   '17': 'pago',             // Liquidação após baixa
   '23': 'enviado_cartorio', // Remessa a cartório
   '25': 'protestado',       // Protestado
+}
+
+
+// ============================================================
+// MAPEAMENTO_SITUACAO_XLS
+// Mapeamento de textos da coluna "Situação" do relatório XLS
+// (autoatendimento.bb.com.br) → StatusTitulo
+// Comparação feita via match parcial case-insensitive em
+// xlsParser.ts / contasReceberService.ts — ver normalizarSituacaoXls()
+// Situações não mapeadas aqui não alteram o status do título
+// ============================================================
+export const MAPEAMENTO_SITUACAO_XLS: Record<string, StatusTitulo> = {
+  'normal':           'em_aberto',        // Título em aberto, sem ocorrência
+  'liquidado':        'pago',             // Liquidação simples
+  'baixado/prottdo':  'protestado',       // Baixado por conta de protesto — trata como protestado, não pago
+  'liqdad./pg.crto':  'pago',             // Liquidado/pago em cartório — título PAGO, ainda que via cartório (não confundir com "Em Cartório", que é título ainda em aberto)
+  'em cartório':      'enviado_cartorio', // Enviado a cartório, ainda não liquidado
+  'protestado':       'protestado',       // Protestado — texto pode variar, tratado por match parcial
 }
 
 

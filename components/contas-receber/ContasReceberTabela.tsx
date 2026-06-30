@@ -32,6 +32,7 @@ interface ContasReceberTabelaProps {
   onVisualizar: (t: ContaReceber) => void
   onEditar:     (t: ContaReceber) => void
   onCancelar:   (t: ContaReceber) => void  // Trigger confirmação de cancelamento
+  onBaixar:     (t: ContaReceber) => void  // Trigger confirmação de baixa inline (botão "Baixar" na linha)
 }
 
 export default function ContasReceberTabela({
@@ -39,16 +40,19 @@ export default function ContasReceberTabela({
   onVisualizar,
   onEditar,
   onCancelar,
+  onBaixar,
 }: ContasReceberTabelaProps) {
 
   // ID do título com hover ativo — para highlight de linha
   const [hoverId, setHoverId] = useState<string | null>(null)
 
-  // ID do título em confirmação de cancelamento inline na linha
-  const [confirmandoId, setConfirmandoId] = useState<string | null>(null)
+  // Ação em confirmação inline na linha — guarda o id do título E qual
+  // ação está sendo confirmada ('cancelar' ou 'baixar'), já que as duas
+  // usam o mesmo padrão visual de "trocar os botões por Sim/Não"
+  const [acaoConfirmando, setAcaoConfirmando] = useState<{ id: string; tipo: 'cancelar' | 'baixar' } | null>(null)
 
   // Reseta confirmação quando a lista muda (ex: após filtro ou operação)
-  useEffect(() => { setConfirmandoId(null) }, [titulos])
+  useEffect(() => { setAcaoConfirmando(null) }, [titulos])
 
   return (
     <div style={{
@@ -110,9 +114,7 @@ export default function ContasReceberTabela({
               const isCancelado = titulo.status === 'cancelado'
               const isVencido   = isTituloVencido(titulo)
               const isNearDue   = isTituloNearVencimento(titulo)
-              // H-5 FIX: isPago bloqueia edição apenas para títulos liquidados via RET (status 'pago')
-              // Títulos com 'recebido_pix_ted' (baixa manual) permanecem editáveis para reabrir
-              const isPago      = titulo.status === 'pago'
+              const isEmAberto  = titulo.status === 'em_aberto' // Único status que mostra o botão "Baixar" inline
 
               // Determina cor de fundo da linha baseado no estado
               let bgRow: string
@@ -238,19 +240,30 @@ export default function ContasReceberTabela({
 
                   {/* Ações */}
                   <td style={{ ...tdBase(textColor), textAlign: 'center' }}>
-                    {confirmandoId === titulo.id ? (
-                      // Confirmação inline de cancelamento
-                      <div style={{ display: 'flex', gap: '3px', justifyContent: 'center' }}>
+                    {acaoConfirmando?.id === titulo.id ? (
+                      // Confirmação inline — texto e ação variam conforme acaoConfirmando.tipo
+                      <div style={{ display: 'flex', gap: '3px', justifyContent: 'center', alignItems: 'center' }}>
+                        <span style={{ fontSize: '10px', color: '#5a84a6', marginRight: '2px', whiteSpace: 'nowrap' }}>
+                          {acaoConfirmando.tipo === 'baixar' ? 'Confirma baixa?' : 'Confirma cancelar?'}
+                        </span>
                         <button
-                          onClick={() => { onCancelar(titulo); setConfirmandoId(null) }}
-                          style={{ ...btnAcao, color: '#dc2626', fontSize: '10px', width: 'auto', padding: '2px 5px' }}
-                          onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = '#fef2f2')}
+                          onClick={() => {
+                            if (acaoConfirmando.tipo === 'baixar') onBaixar(titulo)
+                            else onCancelar(titulo)
+                            setAcaoConfirmando(null)
+                          }}
+                          style={{
+                            ...btnAcao,
+                            color: acaoConfirmando.tipo === 'baixar' ? '#28a745' : '#dc2626',
+                            fontSize: '10px', width: 'auto', padding: '2px 5px',
+                          }}
+                          onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = acaoConfirmando.tipo === 'baixar' ? '#eaf7ee' : '#fef2f2')}
                           onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'none')}
                         >
-                          Cancelar
+                          Sim
                         </button>
                         <button
-                          onClick={() => setConfirmandoId(null)}
+                          onClick={() => setAcaoConfirmando(null)}
                           style={{ ...btnAcao, fontSize: '10px', width: 'auto', padding: '2px 5px' }}
                           onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = '#e0ecf7')}
                           onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'none')}
@@ -273,25 +286,38 @@ export default function ContasReceberTabela({
                           <i className="ti ti-eye" aria-hidden="true" />
                         </button>
 
-                        {/* Editar — desabilitado para pago (RET) e cancelado */}
+                        {/* Editar — liberado para todos os status, inclusive pago (C: editável mesmo após baixa) — exceto cancelado */}
                         <button
-                          onClick={() => { if (!isPago && !isCancelado) onEditar(titulo) }}
-                          title={isPago ? 'Título pago não pode ser editado' : isCancelado ? 'Título cancelado' : 'Editar título'}
+                          onClick={() => { if (!isCancelado) onEditar(titulo) }}
+                          title={isCancelado ? 'Título cancelado' : 'Editar título'}
                           style={{
                             ...btnAcao,
-                            opacity:  isPago || isCancelado ? 0.35 : 1,
-                            cursor:   isPago || isCancelado ? 'not-allowed' : 'pointer',
+                            opacity:  isCancelado ? 0.35 : 1,
+                            cursor:   isCancelado ? 'not-allowed' : 'pointer',
                           }}
-                          onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => { if (!isPago && !isCancelado) e.currentTarget.style.background = '#e0ecf7' }}
+                          onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => { if (!isCancelado) e.currentTarget.style.background = '#e0ecf7' }}
                           onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'none')}
                         >
                           <i className="ti ti-pencil" aria-hidden="true" />
                         </button>
 
+                        {/* Baixar — botão inline, só visível para títulos em_aberto (Pergunta 1-2 do brainstorm) */}
+                        {isEmAberto && (
+                          <button
+                            onClick={() => setAcaoConfirmando({ id: titulo.id, tipo: 'baixar' })}
+                            title="Baixar título"
+                            style={{ ...btnAcao, color: '#28a745' }}
+                            onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = '#eaf7ee')}
+                            onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'none')}
+                          >
+                            <i className="ti ti-check" aria-hidden="true" />
+                          </button>
+                        )}
+
                         {/* Cancelar — oculto para já cancelados */}
                         {!isCancelado && (
                           <button
-                            onClick={() => setConfirmandoId(titulo.id)}
+                            onClick={() => setAcaoConfirmando({ id: titulo.id, tipo: 'cancelar' })}
                             title="Cancelar título"
                             style={{ ...btnAcao, color: '#dc2626' }}
                             onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = '#fef2f2')}

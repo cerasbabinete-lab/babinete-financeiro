@@ -27,6 +27,7 @@ interface ContasReceberMobileListProps {
   onVisualizar: (t: ContaReceber) => void
   onEditar:     (t: ContaReceber) => void
   onCancelar:   (t: ContaReceber) => void
+  onBaixar:     (t: ContaReceber) => void  // Baixa inline a partir do bottom-sheet (mesmo padrão do desktop)
 }
 
 export default function ContasReceberMobileList({
@@ -34,16 +35,18 @@ export default function ContasReceberMobileList({
   onVisualizar,
   onEditar,
   onCancelar,
+  onBaixar,
 }: ContasReceberMobileListProps) {
 
   // ID do título com bottom-sheet aberto
   const [sheetId, setSheetId] = useState<string | null>(null)
 
-  // ID do título em confirmação de cancelamento no sheet
-  const [confirmandoId, setConfirmandoId] = useState<string | null>(null)
+  // Ação em confirmação dentro do sheet — guarda tipo ('cancelar' ou 'baixar')
+  // já que ambas reaproveitam o mesmo bloco de confirmação Sim/Não
+  const [acaoConfirmando, setAcaoConfirmando] = useState<'cancelar' | 'baixar' | null>(null)
 
   // Reseta ao mudar a lista (filtro, operação, etc.)
-  useEffect(() => { setSheetId(null); setConfirmandoId(null) }, [titulos])
+  useEffect(() => { setSheetId(null); setAcaoConfirmando(null) }, [titulos])
 
   if (titulos.length === 0) {
     return (
@@ -88,7 +91,7 @@ export default function ContasReceberMobileList({
           return (
             <div
               key={titulo.id}
-              onClick={() => { setSheetId(titulo.id); setConfirmandoId(null) }}
+              onClick={() => { setSheetId(titulo.id); setAcaoConfirmando(null) }}
               style={{
                 background:   '#ffffff',
                 borderBottom: '1px solid #e8f0f7',
@@ -181,21 +184,38 @@ export default function ContasReceberMobileList({
               {tituloSheet.numero_documento} · {formatarDataBR(tituloSheet.data_vencimento)} · {formatarMoeda(tituloSheet.valor)}
             </div>
 
-            {/* Confirmação de cancelamento inline */}
-            {confirmandoId === sheetId ? (
-              <div style={{ marginBottom: '12px', padding: '10px', background: '#fef2f2', borderRadius: '8px' }}>
-                <div style={{ fontSize: '12px', color: '#a32d2d', fontWeight: 700, marginBottom: '8px' }}>
-                  Confirmar cancelamento deste título?
+            {/* Confirmação inline — reaproveitada para Cancelar e Baixar */}
+            {acaoConfirmando ? (
+              <div style={{
+                marginBottom: '12px', padding: '10px', borderRadius: '8px',
+                background: acaoConfirmando === 'baixar' ? '#f0fff4' : '#fef2f2',
+              }}>
+                <div style={{
+                  fontSize: '12px', fontWeight: 700, marginBottom: '8px',
+                  color: acaoConfirmando === 'baixar' ? '#3b6d11' : '#a32d2d',
+                }}>
+                  {acaoConfirmando === 'baixar'
+                    ? 'Deseja confirmar a baixa deste título?'
+                    : 'Confirmar cancelamento deste título?'}
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
-                    onClick={() => { onCancelar(tituloSheet); setSheetId(null); setConfirmandoId(null) }}
-                    style={{ flex: 1, padding: '8px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                    onClick={() => {
+                      if (acaoConfirmando === 'baixar') onBaixar(tituloSheet)
+                      else onCancelar(tituloSheet)
+                      setSheetId(null)
+                      setAcaoConfirmando(null)
+                    }}
+                    style={{
+                      flex: 1, padding: '8px', color: '#fff', border: 'none', borderRadius: '6px',
+                      fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+                      background: acaoConfirmando === 'baixar' ? '#28a745' : '#dc2626',
+                    }}
                   >
-                    Cancelar Título
+                    {acaoConfirmando === 'baixar' ? 'Sim, Baixar' : 'Cancelar Título'}
                   </button>
                   <button
-                    onClick={() => setConfirmandoId(null)}
+                    onClick={() => setAcaoConfirmando(null)}
                     style={{ flex: 1, padding: '8px', background: '#f0f4f7', color: '#3a6080', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
                   >
                     Voltar
@@ -214,8 +234,19 @@ export default function ContasReceberMobileList({
                   Visualizar
                 </button>
 
-                {/* Editar — desabilitado para pago e cancelado */}
-                {tituloSheet.status !== 'pago' && tituloSheet.status !== 'cancelado' && (
+                {/* Baixar — só para títulos em_aberto (mesma regra do botão inline desktop) */}
+                {tituloSheet.status === 'em_aberto' && (
+                  <button
+                    onClick={() => setAcaoConfirmando('baixar')}
+                    style={sheetBtn('#eaf7ee', '#28a745')}
+                  >
+                    <i className="ti ti-check" style={{ fontSize: '16px' }} aria-hidden="true" />
+                    Baixar
+                  </button>
+                )}
+
+                {/* Editar — liberado para todos os status (inclusive pago), exceto cancelado */}
+                {tituloSheet.status !== 'cancelado' && (
                   <button
                     onClick={() => { onEditar(tituloSheet); setSheetId(null) }}
                     style={sheetBtn('#f0f4f7', '#3a6080')}
@@ -228,7 +259,7 @@ export default function ContasReceberMobileList({
                 {/* Cancelar — apenas para não cancelados */}
                 {tituloSheet.status !== 'cancelado' && (
                   <button
-                    onClick={() => setConfirmandoId(sheetId)}
+                    onClick={() => setAcaoConfirmando('cancelar')}
                     style={sheetBtn('#fef2f2', '#dc2626')}
                   >
                     <i className="ti ti-ban" style={{ fontSize: '16px' }} aria-hidden="true" />
