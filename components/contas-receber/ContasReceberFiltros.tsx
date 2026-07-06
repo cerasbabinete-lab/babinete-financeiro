@@ -285,7 +285,7 @@ export default function ContasReceberFiltros({
       </div>
 
       {/* ── Linha principal: busca + toggle ── */}
-      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: aberto ? '8px' : 0 }}>
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: aberto ? '8px' : 0, overflow: 'hidden' }}>
 
         {/* Campo de busca textual */}
         <input
@@ -293,21 +293,21 @@ export default function ContasReceberFiltros({
           value={inputBusca}
           onChange={handleBusca}
           placeholder="Buscar por nome, CNPJ/CPF, Nº doc ou Nosso Número..."
-          style={{ ...inputStyle, flex: 1, minWidth: '220px' }}
+          style={{ ...inputStyle, flex: 1, minWidth: 0 }}
         />
 
         {/* Botão toggle do painel de filtros */}
-        <button onClick={() => setAberto((v: boolean) => !v)} style={btnToggleStyle}>
+        <button onClick={() => setAberto((v: boolean) => !v)} style={{ ...btnToggleStyle, flexShrink: 0 }}>
           <i className={`ti ${aberto ? 'ti-filter-off' : 'ti-filter'}`} style={{ fontSize: '13px' }} aria-hidden="true" />
           Filtros
           <i className={`ti ${aberto ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ fontSize: '11px' }} aria-hidden="true" />
         </button>
 
-        {/* Botão Limpar — visível sempre; também reseta o modo Por Mês pro mês atual */}
+        {/* Botão Limpar — ícone + texto; flexShrink:0 para não comprimir */}
         <button
           onClick={() => { setMesAtual(new Date()); setModoPeriodoLivre(false); onLimpar() }}
           title="Limpar todos os filtros"
-          style={btnLimparStyle}
+          style={{ ...btnLimparStyle, flexShrink: 0 }}
         >
           <i className="ti ti-x" style={{ fontSize: '12px' }} aria-hidden="true" />
           Limpar
