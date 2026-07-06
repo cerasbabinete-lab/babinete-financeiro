@@ -7,8 +7,8 @@
 // Conecta com: supabase.ts, types/contasReceber.ts,
 //              ContasReceberTabela.tsx, ContasReceberModal.tsx,
 //              ContasReceberMobileList.tsx, ContasReceberHeader.tsx,
-//              ContasReceberModalAvisos.tsx,
-//              txtBbParser.ts, remParser.ts, retParser.ts
+//              ContasReceberModalAvisos.tsx, ImportarRetornoPreviewModal.tsx,
+//              txtBbParser.ts, remParser.ts, retParser.ts, xlsParser.ts
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
@@ -28,11 +28,14 @@ import { MAPEAMENTO_OCORRENCIAS_RET } from '@/types/contasReceber'
 import type {
   RegistroTxtBb,
   RegistroRemSegmentoP,
+  RegistroXls,
   ResultadoImportTxtBb,
   ResultadoImportRem,
   ResultadoImportRet,
+  ResultadoImportXls,
   ResultadoLinhaImport,
 } from '@/types/contasReceber'
+import { MAPEAMENTO_SITUACAO_XLS } from '@/types/contasReceber'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 
@@ -140,7 +143,8 @@ export interface ContadoresTitulos {
   emAberto:    number  // status = 'em_aberto', não vencido
   atrasados:   number  // status = 'em_aberto', data_vencimento < hoje
   baixados:    number  // status = 'pago' ou 'recebido_pix_ted'
-  protestados: number  // status = 'protestado' ou 'enviado_cartorio'
+  emCartorio:  number  // status = 'enviado_cartorio'
+  protestados: number  // status = 'protestado'
   cancelados:  number  // deleted_at IS NOT NULL (status = 'cancelado')
 }
 
@@ -158,7 +162,7 @@ export async function buscarContadoresTitulos(): Promise<ContadoresTitulos> {
 
   if (error) {
     console.error('[contasReceberService] buscarContadoresTitulos error:', error)
-    return { emAberto: 0, atrasados: 0, baixados: 0, protestados: 0, cancelados: 0 }
+    return { emAberto: 0, atrasados: 0, baixados: 0, emCartorio: 0, protestados: 0, cancelados: 0 }
   }
 
   const registros = (data ?? []) as {
@@ -170,6 +174,7 @@ export async function buscarContadoresTitulos(): Promise<ContadoresTitulos> {
   let emAberto    = 0
   let atrasados   = 0
   let baixados    = 0
+  let emCartorio  = 0
   let protestados = 0
   let cancelados  = 0
 
@@ -186,12 +191,14 @@ export async function buscarContadoresTitulos(): Promise<ContadoresTitulos> {
       }
     } else if (r.status === 'pago' || r.status === 'recebido_pix_ted') {
       baixados++
-    } else if (r.status === 'protestado' || r.status === 'enviado_cartorio') {
+    } else if (r.status === 'enviado_cartorio') {
+      emCartorio++
+    } else if (r.status === 'protestado') {
       protestados++
     }
   }
 
-  return { emAberto, atrasados, baixados, protestados, cancelados }
+  return { emAberto, atrasados, baixados, emCartorio, protestados, cancelados }
 }
 
 // ============================================================
@@ -422,8 +429,7 @@ export async function criarTitulosDeReceita(params: {
         numero_documento:   numeroDocumento,  // Formato MIGRATE: "005413" ou "005414/1"
         numero_duplicata:   dup.numero_duplicata,               // Ex: "001", "002"
         data_vencimento:    dup.data_vencimento,
-        // data_processamento = data de emissão da NF-e (não a data de inserção no sistema)
-        data_processamento: receita.data_emissao.slice(0, 10), // Garante formato YYYY-MM-DD
+        data_processamento: receita.data_emissao.slice(0, 10), // Data real da NF-e (YYYY-MM-DD)
         valor:              dup.valor,                          // Valor da parcela
         status:             'em_aberto',                        // Estado inicial
         // nosso_numero e linha_digitavel ficam null até import TXT BB / REM
@@ -489,26 +495,18 @@ export async function criarTitulo(
 
 // ============================================================
 // editarTitulo()
-// Atualiza campos editáveis de um título (email, obs, etc.)
-// Não permite editar títulos com status 'pago' (via RET)
+// Atualiza campos editáveis de um título (email, obs, status, etc.)
+// H-5/C FIX: títulos com qualquer status — inclusive 'pago' — agora
+// podem ser editados livremente. A trava anterior bloqueava edição
+// de títulos pagos via RET; removida a pedido do usuário, já que o
+// campo Status passou a ser editável manualmente no modal e a
+// reversão de baixa depende de poder alterá-lo a qualquer momento.
 // Chamado por: ContasReceberModal.tsx (modo editar)
 // ============================================================
 export async function editarTitulo(titulo: ContaReceberUpdate): Promise<ContaReceber> {
   const { id, ...campos } = titulo // Separa o id dos campos a atualizar
 
-  // Verifica se o título está pago via RET — bloqueado para edição
-  const { data: atual } = await supabase
-    .from(TABELA)
-    .select('status')
-    .eq('id', id)
-    .single()
-
-  if (atual?.status === 'pago') {
-    // Títulos pagos via RET são imutáveis — apenas cancelamento permitido
-    throw new Error('Títulos com status "pago" (RET) não podem ser editados.')
-  }
-
-  // Executa o UPDATE com os campos permitidos
+  // Executa o UPDATE com os campos permitidos — sem checagem prévia de status
   const { data, error } = await supabase
     .from(TABELA)
     .update(campos)
@@ -559,6 +557,45 @@ export async function registrarBaixaManual(
     `Baixa manual registrada em ${formatarDataBR(dataBaixa)} via ${formaLabel}.`,
   )
 }
+
+// ============================================================
+// registrarBaixaInline()
+// Baixa manual simplificada — usada pelo botão "Baixar" inline
+// na coluna de ações da listagem (tabela e mobile), sem perguntar
+// a forma de recebimento. Aplica data = hoje e valor = valor total
+// do título automaticamente. forma_baixa = 'manual' diferencia esse
+// fluxo de registrarBaixaManual() (PIX/Transferência, usado no modal)
+// Chamado por: ContasReceberTabela.tsx e ContasReceberMobileList.tsx
+// após confirmação inline "Deseja confirmar a baixa deste título?"
+// ============================================================
+export async function registrarBaixaInline(id: string): Promise<void> {
+  const dataBaixa = new Date().toISOString().slice(0, 10) // YYYY-MM-DD de hoje
+
+  // Atualiza o título — status 'pago' (mesmo status usado pela baixa via RET,
+  // mantendo consistência com isTituloVencido/buscarContadoresTitulos, que
+  // tratam baixa como concluída independente da forma)
+  const { error } = await supabase
+    .from(TABELA)
+    .update({
+      status:      'pago',     // Status final — título liquidado
+      data_baixa:  dataBaixa,  // Data de hoje, conforme definido no brainstorm
+      forma_baixa: 'manual',   // Baixa inline rápida — sem forma específica
+    })
+    .eq('id', id)
+
+  if (error) {
+    console.error('[contasReceberService] registrarBaixaInline error:', error)
+    throw new Error(error.message)
+  }
+
+  // Log de auditoria — mesmo tipo de evento da baixa manual via modal
+  await registrarEvento(
+    id,
+    'baixa_manual',
+    `Baixa rápida registrada em ${formatarDataBR(dataBaixa)} (confirmação inline).`,
+  )
+}
+
 
 // ============================================================
 // reabrirTitulo()
@@ -830,7 +867,6 @@ export async function processarRegistrosTxtBb(
           numero_documento:   reg.numeroDocumento, // H-1 FIX: usar o nº do documento real, não o nosso_numero
           numero_duplicata:   '001',              // Padrão — único no avulso
           data_vencimento:    dvenc,
-          // data_processamento = data de emissão do título no MIGRATE (não a data de inserção)
           data_processamento: reg.dataEmissao || new Date().toISOString().slice(0, 10),
           valor:              reg.valor,
           nosso_numero:       reg.nossoNumero,
@@ -1029,6 +1065,19 @@ export async function processarRegistrosRet(
       continue
     }
 
+    // AUDITORIA FIX (item 4): mesma lógica aplicada em processarRegistrosXls —
+    // se o status mapeado já é o status atual do título, não há mudança real
+    // a aplicar. Evita que o RET sobrescreva data_baixa/forma_baixa em títulos
+    // que a prévia (gerarPreviewImportacao) não listou como alterados.
+    if (novoStatus === titulo.status) {
+      detalhes.push({
+        nossoNumero: oc.nossoNumero,
+        resultado:   'informativo',
+        descricao:   `Ocorrência ${oc.codigoOcorrencia} já corresponde ao status atual — nenhuma alteração aplicada.`,
+      })
+      continue
+    }
+
     // 3. Atualiza status + data_baixa para ocorrências que liquidam o título
     const dataOcorrBR = parseDateDDMMYYYY(oc.dataOcorrencia) // YYYY-MM-DD
 
@@ -1085,6 +1134,251 @@ export async function processarRegistrosRet(
   }
 
   return { baixados, atualizados, naoEncontrados, ocorrenciasInformativas, detalhes }
+}
+
+// ============================================================
+// processarRegistrosXls()
+// Processa array de registros parsed do relatório XLS de consulta
+// (autoatendimento.bb.com.br). Mesma lógica de matching por
+// nosso_numero usada em processarRegistrosRet() — reaproveitada
+// para não criar conflito nem resultado vazio entre os dois imports.
+// Mapeamento de Situação: ver MAPEAMENTO_SITUACAO_XLS em types/contasReceber.ts
+// Regra de conflito (combinada com o usuário): quando RET e XLS
+// trazem status diferentes para o mesmo título, prevalece sempre a
+// importação mais recente — aqui não há lógica especial de prioridade,
+// o último import processado simplesmente sobrescreve o status,
+// igual já acontece com qualquer UPDATE sequencial no banco.
+// Chamado por: ContasReceberHeader.tsx após parse do arquivo XLS
+// ============================================================
+export async function processarRegistrosXls(
+  registros: RegistroXls[],
+): Promise<ResultadoImportXls> {
+  const detalhes: ResultadoLinhaImport[] = []
+  let baixados       = 0
+  let atualizados    = 0
+  let naoEncontrados  = 0
+
+  for (const reg of registros) {
+    // 1. Busca título pelo nosso_numero — mesmo campo único do BB
+    //    usado pelo RET, garantindo a mesma lógica de matching
+    const { data: titulo } = await supabase
+      .from(TABELA)
+      .select('id, status')
+      .eq('nosso_numero', reg.nossoNumero)
+      .is('deleted_at', null) // Cancelados não recebem atualização automática
+      .maybeSingle()
+
+    if (!titulo) {
+      naoEncontrados++
+      detalhes.push({
+        nossoNumero:     reg.nossoNumero,
+        numeroDocumento: reg.numeroDocumento,
+        resultado:       'nao_encontrado',
+        descricao:       `Nosso Número ${reg.nossoNumero} não encontrado (Situação: "${reg.situacao}").`,
+      })
+      continue
+    }
+
+    // 2. Mapeia o texto da Situação para StatusTitulo — match exato
+    //    case-insensitive primeiro; se não encontrar, tenta match
+    //    parcial (ex: variações de "Protestado" não previstas
+    //    literalmente na tabela), evitando ficar restrito a um
+    //    texto fixo enviado pelo BB
+    const novoStatus = mapearSituacaoXls(reg.situacao)
+
+    if (!novoStatus) {
+      // Situação desconhecida — não altera o status, mas registra
+      // o evento para rastreabilidade, igual ocorrência informativa do RET
+      await registrarEvento(
+        titulo.id,
+        'ocorrencia_informativa',
+        `Situação "${reg.situacao}" (XLS) não reconhecida — sem mudança de status.`,
+      )
+      detalhes.push({
+        nossoNumero:     reg.nossoNumero,
+        numeroDocumento: reg.numeroDocumento,
+        resultado:       'informativo',
+        descricao:       `Situação "${reg.situacao}" não mapeada — nenhuma alteração aplicada.`,
+      })
+      continue
+    }
+
+    // AUDITORIA FIX (item 4): espelha exatamente o que gerarPreviewImportacao()
+    // mostrou ao usuário — se o status calculado já é o status atual do
+    // título, não há mudança real a aplicar. Sem essa checagem, o UPDATE
+    // sempre rodava e podia tocar data_baixa/forma_baixa silenciosamente
+    // em títulos que a prévia nunca listou como alterados.
+    if (novoStatus === titulo.status) {
+      detalhes.push({
+        nossoNumero:     reg.nossoNumero,
+        numeroDocumento: reg.numeroDocumento,
+        resultado:       'informativo',
+        descricao:       `Situação "${reg.situacao}" já corresponde ao status atual — nenhuma alteração aplicada.`,
+      })
+      continue
+    }
+
+    // 3. Monta o UPDATE — Pergunta 21a: preenche automaticamente
+    //    data_baixa quando o status final é 'pago', usando Data Situação
+    //    do arquivo; se a planilha não trouxer essa coluna (formato
+    //    simples), usa a data de hoje como fallback.
+    //    AUDITORIA FIX (item 3): NÃO sobrescreve mais o campo `valor`
+    //    (valor de face do título) — processarRegistrosRet() já existente
+    //    também nunca toca em `valor` ao liquidar, só em data_baixa/forma_baixa;
+    //    sobrescrever o valor original corromperia a conciliação com a NF-e
+    const updateData: Partial<ContaReceber> = { status: novoStatus }
+
+    if (novoStatus === 'pago') {
+      updateData.data_baixa  = reg.dataSituacao ?? new Date().toISOString().slice(0, 10)
+      updateData.forma_baixa = 'xls' // Baixa automática via importação XLS
+    }
+
+    const { error: errUpd } = await supabase
+      .from(TABELA)
+      .update(updateData)
+      .eq('id', titulo.id)
+
+    if (errUpd) {
+      detalhes.push({
+        nossoNumero:     reg.nossoNumero,
+        numeroDocumento: reg.numeroDocumento,
+        resultado:       'erro',
+        descricao:       `Erro ao atualizar status: ${errUpd.message}`,
+      })
+      continue
+    }
+
+    // 4. Registra evento de auditoria com a Situação original do BB
+    const tipoEvento: TipoEvento = novoStatus === 'pago'
+      ? 'baixa_ret' // Reaproveita o mesmo tipo de evento de liquidação automática
+      : novoStatus === 'protestado'
+      ? 'protestado'
+      : novoStatus === 'enviado_cartorio'
+      ? 'enviado_cartorio'
+      : 'ocorrencia_informativa'
+
+    await registrarEvento(
+      titulo.id,
+      tipoEvento,
+      `Situação "${reg.situacao}" (relatório XLS BB)${reg.dataSituacao ? ` em ${formatarDataBR(reg.dataSituacao)}` : ''} — status atualizado para "${novoStatus}".`,
+    )
+
+    if (novoStatus === 'pago') {
+      baixados++
+    } else {
+      atualizados++
+    }
+
+    detalhes.push({
+      nossoNumero:     reg.nossoNumero,
+      numeroDocumento: reg.numeroDocumento,
+      resultado:       novoStatus === 'pago' ? 'baixado' : 'atualizado',
+      descricao:       `"${reg.situacao}" — status atualizado para "${novoStatus}".`,
+    })
+  }
+
+  return { baixados, atualizados, naoEncontrados, detalhes }
+}
+
+// ============================================================
+// mapearSituacaoXls()
+// Traduz o texto da coluna "Situação" do XLS para StatusTitulo
+// usando MAPEAMENTO_SITUACAO_XLS — primeiro tenta match exato
+// (case-insensitive), depois match parcial por palavra-chave para
+// cobrir variações de texto que o BB pode emitir (ex: "Protestado
+// em cartório" não é uma chave literal do mapa, mas contém "protest")
+// Retorna null se não reconhecer a situação — não altera o título
+// ============================================================
+function mapearSituacaoXls(situacao: string): StatusTitulo | null {
+  const normalizado = situacao.trim().toLowerCase()
+
+  // 1. Match exato contra as chaves do mapeamento
+  if (normalizado in MAPEAMENTO_SITUACAO_XLS) {
+    return MAPEAMENTO_SITUACAO_XLS[normalizado]
+  }
+
+  // 2. Match parcial por palavra-chave — ordem importa: verifica
+  //    protesto antes de cartório, pois um título "protestado em
+  //    cartório" deve virar 'protestado' (estado mais grave), não
+  //    'enviado_cartorio'
+  if (normalizado.includes('protest'))           return 'protestado'
+  if (normalizado.includes('liquid') || normalizado.includes('baixa')) return 'pago'
+  if (normalizado.includes('cart'))               return 'enviado_cartorio'
+  if (normalizado.includes('normal'))             return 'em_aberto'
+
+  return null // Situação não reconhecida
+}
+
+// ============================================================
+// gerarPreviewImportacao()
+// Roda o matching de um lote de ocorrências RET ou registros XLS
+// SEM gravar nada no banco — usado para montar a tela de prévia
+// (ImportarRetornoPreviewModal.tsx) antes do usuário confirmar a
+// importação. Reaproveita a mesma lógica de busca por nosso_numero
+// e mapeamento de status das funções de processamento reais, para
+// a prévia nunca divergir do que será efetivamente aplicado.
+// Chamado por: ContasReceberHeader.tsx antes de abrir o modal de prévia
+// ============================================================
+export interface ItemPreviewImportacao {
+  nossoNumero:      string         // Nosso Número do título
+  numeroDocumento:  string         // Nº documento — para exibição
+  statusAtual:      StatusTitulo   // Status atual do título no banco
+  statusNovo:        StatusTitulo  // Status que será aplicado
+  encontrado:        boolean       // false = não encontrado, fica em lista separada
+}
+
+export async function gerarPreviewImportacao(
+  origem: 'ret' | 'xls',
+  // União dos dois formatos de entrada — RET traz codigoOcorrencia, XLS traz situacao
+  registros: ({ nossoNumero: string; codigoOcorrencia: string } | RegistroXls)[],
+): Promise<{ mudancas: ItemPreviewImportacao[]; naoEncontrados: ItemPreviewImportacao[] }> {
+  const mudancas:       ItemPreviewImportacao[] = []
+  const naoEncontrados: ItemPreviewImportacao[] = []
+
+  for (const reg of registros) {
+    // 1. Busca o título atual pelo nosso_numero — mesma lógica de
+    //    processarRegistrosRet()/processarRegistrosXls(), só sem UPDATE
+    const { data: titulo } = await supabase
+      .from(TABELA)
+      .select('status, numero_documento')
+      .eq('nosso_numero', reg.nossoNumero)
+      .is('deleted_at', null)
+      .maybeSingle()
+
+    // 2. Determina o status que SERIA aplicado, conforme a origem
+    const statusNovo = origem === 'ret'
+      ? (MAPEAMENTO_OCORRENCIAS_RET[(reg as { codigoOcorrencia: string }).codigoOcorrencia] as StatusTitulo | undefined) ?? null
+      : mapearSituacaoXls((reg as RegistroXls).situacao)
+
+    const numeroDocumento = !titulo
+      ? ('numeroDocumento' in reg ? reg.numeroDocumento : '—')
+      : titulo.numero_documento
+
+    if (!titulo) {
+      naoEncontrados.push({
+        nossoNumero:     reg.nossoNumero,
+        numeroDocumento,
+        statusAtual:     'em_aberto', // Irrelevante — título não existe no sistema
+        statusNovo:      statusNovo ?? 'em_aberto',
+        encontrado:      false,
+      })
+      continue
+    }
+
+    // 3. Só entra na lista de mudanças se houver de fato uma alteração
+    //    de status a aplicar (situação reconhecida e diferente da atual)
+    if (statusNovo && statusNovo !== titulo.status) {
+      mudancas.push({
+        nossoNumero:     reg.nossoNumero,
+        numeroDocumento,
+        statusAtual:     titulo.status as StatusTitulo,
+        statusNovo,
+        encontrado:      true,
+      })
+    }
+  }
+
+  return { mudancas, naoEncontrados }
 }
 
 // ============================================================
