@@ -127,6 +127,7 @@ const ImportarXmlButton = forwardRef(
               receita: {
                 id:                novaReceita.id,
                 numero_nf:         novaReceita.numero_nf,
+                data_emissao:      novaReceita.data_emissao,  // Data real da NF-e
                 cliente_nome:      novaReceita.cliente_nome      ?? '',
                 cliente_cpf_cnpj:  novaReceita.cliente_cpf_cnpj ?? '',
                 cliente_fantasia:  clienteFantasia,  // Nome fantasia do cadastro de Clientes
