@@ -41,6 +41,48 @@ import type {
 const CNPJ_CERAS_BABINETE = '10.666.614/0001-60'
 
 // ------------------------------------------------------------
+// QA fix (achado Alto #1 — Relatorio_Auditoria_Modulo_Despesas.md):
+// Função: normalizarEndereco
+// Normaliza um endereço para comparação: remove acentos (NFD, mesmo
+// princípio já usado em normalizarCidade() no restante do projeto para
+// tolerância a acentuação), converte para minúsculas, remove pontuação
+// e espaços redundantes. Usada para comparar de fato o endereço do
+// documento contra o endereço cadastrado de cada beneficiário, em vez de
+// apenas checar se ambos os lados têm "algum" texto de endereço.
+// ------------------------------------------------------------
+export function normalizarEndereco(endereco: string): string {
+  return endereco
+    .normalize('NFD') // separa acentos dos caracteres base (ex: "á" → "a" + acento)
+    .replace(/[\u0300-\u036f]/g, '') // remove os acentos já separados
+    .toLowerCase() // comparação case-insensitive
+    .replace(/[.,\-/º°]/g, ' ') // remove pontuação comum em endereços brasileiros
+    .replace(/\s+/g, ' ') // colapsa espaços múltiplos em um só
+    .trim()
+}
+
+// ------------------------------------------------------------
+// QA fix (achado Alto #1): Função: enderecosBatem
+// Compara dois endereços já normalizados por sobreposição de tokens
+// (palavras com 3+ caracteres, para ignorar preposições como "de"/"da"),
+// exigindo que pelo menos 2 tokens significativos coincidam — evita que
+// prefixos genéricos como "rua"/"avenida" sozinhos gerem falso positivo,
+// e permite reconhecer o mesmo endereço mesmo com pequenas variações de
+// grafia/abreviação entre o documento e o cadastro do beneficiário.
+// ------------------------------------------------------------
+export function enderecosBatem(enderecoDocumento: string, enderecoBeneficiario: string): boolean {
+  const tokensDocumento = new Set(
+    normalizarEndereco(enderecoDocumento).split(' ').filter((t) => t.length >= 3),
+  )
+  const tokensBeneficiario = normalizarEndereco(enderecoBeneficiario).split(' ').filter((t) => t.length >= 3)
+
+  // Conta quantos tokens do endereço do beneficiário aparecem também no
+  // endereço do documento
+  const tokensCoincidentes = tokensBeneficiario.filter((t) => tokensDocumento.has(t)).length
+
+  return tokensCoincidentes >= 2
+}
+
+// ------------------------------------------------------------
 // TIPO: entrada auxiliar — sinais de fallback além do "favorecido" já
 // presente no documento extraído. Nem todo documento terá todos esses
 // campos (dependem da categoria), então todos são opcionais/nuláveis.
@@ -142,6 +184,36 @@ export async function classificarOrigemDespesa(
   // usando o client Supabase já instanciado pela rota chamadora
   const roster = await buscarRosterBeneficiarios(supabaseAdmin)
 
+  // QA fix (achado Médio #4 — Relatorio_Auditoria_Modulo_Despesas.md):
+  // este bloco de "residencia_familia" foi movido para ANTES da exceção
+  // MEI/servicos_profissionais, casando com a ordem documentada no
+  // Handoff §3.4 (todos os aliases documentados resolvidos primeiro,
+  // depois a exceção MEI). Colisão real entre os dois é improvável
+  // (nomes envolvidos são diferentes — "Maycon Luiz Malaquias" vs.
+  // família Aquotti), mas a ordem agora reflete exatamente o que foi
+  // validado e descrito como comportamento correto.
+  if (aliasEspecial.tipo === 'residencia_familia') {
+    // "Eldo Aquotte" (sem "Me") → residência da família — vincula ao
+    // primeiro sócio do roster com esse alias cadastrado (Darci ou
+    // Sheli). Após o fix do achado Crítico #2, este ramo só é alcançado
+    // para o caso documentado específico ("Eldo Aquotte"), nunca mais
+    // para o sobrenome genérico da família (que agora cai no loop normal
+    // de 3-de-4 sinais, discriminando corretamente entre os três sócios).
+    const beneficiarioFamilia = roster.find((b) =>
+      b.aliases.some((a) => a.toLowerCase().includes('aquott')),
+    )
+
+    return {
+      origemDespesa: {
+        tipo: 'pessoal_socio',
+        beneficiarioPessoal: beneficiarioFamilia
+          ? { nome: beneficiarioFamilia.nome, cpf: beneficiarioFamilia.cpf, vinculo: beneficiarioFamilia.vinculo }
+          : null,
+      },
+      resultado: { status: 'auto_classificado', criteriosBatidos: ['alias_especial_residencia_familia'] },
+    }
+  }
+
   // ── Regra de exceção direta: documento de serviços profissionais do
   // prestador MEI (Maycon) é SEMPRE despesa empresarial, com confiança
   // total — não passa pela checagem de 3-de-4 sinais, já que é a
@@ -157,25 +229,6 @@ export async function classificarOrigemDespesa(
         origemDespesa: { tipo: 'empresarial', beneficiarioPessoal: null },
         resultado: { status: 'auto_classificado', criteriosBatidos: ['excecao_prestador_mei_servico_profissional'] },
       }
-    }
-  }
-
-  if (aliasEspecial.tipo === 'residencia_familia') {
-    // "Eldo Aquotte" (sem "Me") ou variações "Aquotte"/"Aquotti" →
-    // residência da família — vincula ao primeiro sócio do roster com
-    // esse alias cadastrado (Darci ou Sheli)
-    const beneficiarioFamilia = roster.find((b) =>
-      b.aliases.some((a) => a.toLowerCase().includes('aquott')),
-    )
-
-    return {
-      origemDespesa: {
-        tipo: 'pessoal_socio',
-        beneficiarioPessoal: beneficiarioFamilia
-          ? { nome: beneficiarioFamilia.nome, cpf: beneficiarioFamilia.cpf, vinculo: beneficiarioFamilia.vinculo }
-          : null,
-      },
-      resultado: { status: 'auto_classificado', criteriosBatidos: ['alias_especial_residencia_familia'] },
     }
   }
 
@@ -238,9 +291,13 @@ export async function classificarOrigemDespesa(
       criteriosBatidos.push('nome_alias')
     }
 
-    // Sinal 2: endereço — presente e não-vazio (comparação simples de
-    // substring; a spec não detalha um algoritmo de similaridade específico)
-    if (sinaisFallback.enderecoDocumento && favorecido.endereco) {
+    // Sinal 2: endereço — QA fix (achado Alto #1): agora compara de fato
+    // o endereço do documento contra o endereço CADASTRADO do beneficiário
+    // específico sendo testado (roster.endereco), em vez de só checar se
+    // existe algum endereço nos dois lados. Se o beneficiário não tiver
+    // endereço cadastrado, este sinal simplesmente não pode bater para ele
+    // (comportamento correto: sinal ausente, não sinal "sempre verdadeiro").
+    if (sinaisFallback.enderecoDocumento && beneficiario.endereco && enderecosBatem(sinaisFallback.enderecoDocumento, beneficiario.endereco)) {
       criteriosBatidos.push('endereco')
     }
 

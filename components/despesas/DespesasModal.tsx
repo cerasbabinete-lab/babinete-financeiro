@@ -79,8 +79,28 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
   const [valorTotal, setValorTotal] = useState('0')
   const [origemTipo, setOrigemTipo] = useState<OrigemDespesaTipo>('empresarial')
   const [origemBeneficiarioNome, setOrigemBeneficiarioNome] = useState<string | null>(null)
+  // QA fix (achado Crítico #11 — Relatorio_Auditoria_Modulo_Despesas.md):
+  // CPF e vínculo do beneficiário pessoal precisam de estado local próprio.
+  // Antes, esses dois campos não tinham setState e handleSalvar gravava
+  // null incondicionalmente — apagando o dado calculado pelo classificador
+  // em toda gravação (novo lançamento) e corrompendo o dado já correto
+  // em toda edição futura de uma despesa já lançada.
+  const [origemBeneficiarioCpf, setOrigemBeneficiarioCpf] = useState<string | null>(null)
+  const [origemBeneficiarioVinculo, setOrigemBeneficiarioVinculo] = useState<string | null>(null)
   const [origemClassificacaoStatus, setOrigemClassificacaoStatus] = useState<'auto_classificado' | 'revisao_manual'>('auto_classificado')
   const [origemCriteriosBatidos, setOrigemCriteriosBatidos] = useState<string[]>([])
+  // QA fix (achados Médio #12/#13 — Relatorio_Auditoria_Modulo_Despesas.md):
+  // sinaliza quando o usuário edita manualmente favorecido/CNPJ/categoria
+  // (achado #12) ou o dropdown de origem (achado #13) DEPOIS que a
+  // classificação automática já rodou — nestes casos, os critérios
+  // batidos exibidos/gravados não refletem mais os dados reais, e a
+  // trilha de auditoria ficaria silenciosamente inconsistente. Em vez de
+  // recalcular a classificação no client (exigiria acesso ao roster e ao
+  // client admin, disponíveis só na API route), marcamos explicitamente
+  // que houve sobrescrita manual — status vira 'revisao_manual' e um
+  // critério informativo é anotado, nunca ficando com um "auto_classificado"
+  // que na verdade reflete dado já corrigido pelo usuário.
+  const [classificacaoDesatualizadaPorEdicao, setClassificacaoDesatualizadaPorEdicao] = useState(false)
 
   const [parcelas, setParcelas] = useState<ParcelaForm[]>([parcelaVazia(1)])
   const [extensaoCategoria, setExtensaoCategoria] = useState<Despesa['extensao_categoria']>({})
@@ -119,6 +139,12 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
       setValorTotal(String(d.valor_total))
       setOrigemTipo(d.origem_tipo)
       setOrigemBeneficiarioNome(d.origem_beneficiario_nome ?? null)
+      // QA fix (achado Crítico #11): lê CPF/vínculo já calculados pelo
+      // classificador determinístico e devolvidos pela rota de importação
+      // (importar-xml.ts / importar-documento.ts) dentro de `d` — antes
+      // esses dois campos eram ignorados aqui e perdidos no handleSalvar.
+      setOrigemBeneficiarioCpf(d.origem_beneficiario_cpf ?? null)
+      setOrigemBeneficiarioVinculo(d.origem_beneficiario_vinculo ?? null)
       setOrigemClassificacaoStatus(origemDespesaClassificacao.status)
       setOrigemCriteriosBatidos(origemDespesaClassificacao.criteriosBatidos)
       setParcelas(p.map((parcela) => ({ ...parcela })))
@@ -126,6 +152,9 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
       setOrigemEntrada(d.origem_entrada)
       setDuplicadoBloqueado(duplicateCheck.duplicado)
       setCriterioDuplicidade(duplicateCheck.criterioDuplicidade)
+      // QA fix (achados #12/#13): dados recém-chegados do backend — a
+      // classificação está em dia, nenhuma edição manual ainda ocorreu
+      setClassificacaoDesatualizadaPorEdicao(false)
     } else if (isEditar && despesa) {
       setCategoriaFinanceira(despesa.categoria_financeira)
       setFavorecidoNome(despesa.favorecido_nome)
@@ -138,11 +167,20 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
       setValorTotal(String(despesa.valor_total))
       setOrigemTipo(despesa.origem_tipo)
       setOrigemBeneficiarioNome(despesa.origem_beneficiario_nome ?? null)
+      // QA fix (achado Crítico #11): lê o CPF/vínculo já persistidos na
+      // despesa existente — antes esses dois campos eram descartados ao
+      // abrir o modal de edição e regravados como null ao salvar,
+      // corrompendo retroativamente a trilha de auditoria fiscal/societária.
+      setOrigemBeneficiarioCpf(despesa.origem_beneficiario_cpf ?? null)
+      setOrigemBeneficiarioVinculo(despesa.origem_beneficiario_vinculo ?? null)
       setOrigemClassificacaoStatus(despesa.origem_classificacao_status)
       setOrigemCriteriosBatidos(despesa.origem_criterios_batidos)
       setParcelas((despesa.parcelas ?? []).filter((p) => !p.deleted_at).map((p) => ({ ...p })))
       setExtensaoCategoria(despesa.extensao_categoria)
       setOrigemEntrada(despesa.origem_entrada)
+      // QA fix (achados #12/#13): despesa recém-carregada — classificação
+      // já gravada está em dia, nenhuma edição manual ainda ocorreu nesta sessão
+      setClassificacaoDesatualizadaPorEdicao(false)
     } else if (isNovo) {
       // Formulário em branco — valores padrão já definidos no useState
       setParcelas([parcelaVazia(1)])
@@ -203,7 +241,25 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
     try {
       const token = await obterToken()
 
-      const valorTotalNum = parseFloat(valorTotal) || parcelas.reduce((soma, p) => soma + p.valor, 0)
+      // QA fix (achado Baixo #14 — Relatorio_Auditoria_Modulo_Despesas.md):
+      // "|| fallback" tratava 0 (valor digitado legitimamente como zero,
+      // ex: despesa com desconto integral) como se fosse ausência/valor
+      // inválido, caindo no fallback indevidamente. Number.isNaN() checa
+      // apenas se o parse falhou de fato.
+      const valorTotalParseado = parseFloat(valorTotal)
+      const valorTotalNum = Number.isNaN(valorTotalParseado) ? parcelas.reduce((soma, p) => soma + p.valor, 0) : valorTotalParseado
+
+      // QA fix (achados Médio #12/#13): se o usuário editou manualmente
+      // favorecido/CNPJ/categoria/origem depois que a classificação
+      // automática já havia rodado, nunca grava "auto_classificado" com
+      // critérios que não refletem mais o dado real — força
+      // 'revisao_manual' e anota o motivo, preservando a trilha de auditoria
+      const statusClassificacaoFinal = classificacaoDesatualizadaPorEdicao
+        ? 'revisao_manual'
+        : origemClassificacaoStatus
+      const criteriosBatidosFinal = classificacaoDesatualizadaPorEdicao
+        ? [...origemCriteriosBatidos, 'sobrescrito_manualmente_apos_classificacao']
+        : origemCriteriosBatidos
 
       const despesaPayload: DespesaInsert = {
         tipo_documento: isNovo ? 'recibo' : (isEditar ? despesa!.tipo_documento : resultadoImportacao!.despesa.tipo_documento),
@@ -215,10 +271,13 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
         fornecedor_auto_criado: fornecedorAutoCriado,
         origem_tipo: origemTipo,
         origem_beneficiario_nome: origemBeneficiarioNome,
-        origem_beneficiario_cpf: null,
-        origem_beneficiario_vinculo: null,
-        origem_classificacao_status: origemClassificacaoStatus,
-        origem_criterios_batidos: origemCriteriosBatidos,
+        // QA fix (achado Crítico #11): usa os estados populados a partir do
+        // classificador/despesa existente, em vez de null fixo — preserva o
+        // CPF/vínculo do beneficiário pessoal em toda gravação e edição.
+        origem_beneficiario_cpf: origemBeneficiarioCpf,
+        origem_beneficiario_vinculo: origemBeneficiarioVinculo,
+        origem_classificacao_status: statusClassificacaoFinal,
+        origem_criterios_batidos: criteriosBatidosFinal,
         origem_ia_sugestao: null,
         documento_numero: documentoNumero || null,
         documento_data_emissao: documentoDataEmissao || null,
@@ -321,18 +380,41 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
             </div>
           )}
 
+          {/* QA fix (achados Médio #12/#13): aviso quando favorecido/CNPJ/
+              categoria/origem foram editados manualmente após a classificação
+              automática já ter rodado — grava como revisão manual, nunca
+              como "auto_classificado" desatualizado */}
+          {classificacaoDesatualizadaPorEdicao && origemClassificacaoStatus !== 'revisao_manual' && (
+            <div style={{ marginBottom: '14px', padding: '10px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', fontSize: '12px', color: '#1e4e7a' }}>
+              <strong>Classificação recalculada como revisão manual.</strong> Campos que afetam a origem (favorecido, CNPJ/CPF, categoria ou origem) foram editados após a classificação automática — ao salvar, o registro será marcado como revisado manualmente.
+            </div>
+          )}
+
           {/* Favorecido */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px', marginBottom: '10px' }}>
             <div>
               <label style={labelStyle}>Favorecido</label>
-              <input style={inputStyle} value={favorecidoNome} onChange={(e) => setFavorecidoNome(e.target.value)} />
+              <input
+                style={inputStyle}
+                value={favorecidoNome}
+                onChange={(e) => {
+                  setFavorecidoNome(e.target.value)
+                  // QA fix (achado #12): edição manual pós-classificação — os
+                  // critérios batidos exibidos deixam de refletir o dado atual
+                  if (!isNovo) setClassificacaoDesatualizadaPorEdicao(true)
+                }}
+              />
             </div>
             <div>
               <label style={labelStyle}>CNPJ / CPF</label>
               <input
                 style={inputStyle}
                 value={favorecidoCnpjCpf}
-                onChange={(e) => setFavorecidoCnpjCpf(e.target.value)}
+                onChange={(e) => {
+                  setFavorecidoCnpjCpf(e.target.value)
+                  // QA fix (achado #12): mesmo motivo do campo Favorecido acima
+                  if (!isNovo) setClassificacaoDesatualizadaPorEdicao(true)
+                }}
                 onBlur={isNovo ? handleBuscarFornecedorManual : undefined}
                 placeholder={isNovo ? 'Buscar fornecedor ao sair do campo' : ''}
               />
@@ -355,7 +437,17 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
           <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
             <div>
               <label style={labelStyle}>Categoria Financeira</label>
-              <select style={inputStyle} value={categoriaFinanceira} onChange={(e) => setCategoriaFinanceira(e.target.value as CategoriaFinanceira)}>
+              <select
+                style={inputStyle}
+                value={categoriaFinanceira}
+                onChange={(e) => {
+                  setCategoriaFinanceira(e.target.value as CategoriaFinanceira)
+                  // QA fix (achado #12): categoria afeta diretamente a exceção
+                  // MEI/servicos_profissionais e os sinais de fallback — mudar
+                  // manualmente também desatualiza a classificação exibida
+                  if (!isNovo) setClassificacaoDesatualizadaPorEdicao(true)
+                }}
+              >
                 {Object.entries(CATEGORIA_FINANCEIRA_LABELS).map(([valor, label]) => (
                   <option key={valor} value={valor}>{label}</option>
                 ))}
@@ -379,7 +471,18 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px', marginBottom: '14px' }}>
             <div>
               <label style={labelStyle}>Origem da Despesa</label>
-              <select style={inputStyle} value={origemTipo} onChange={(e) => setOrigemTipo(e.target.value as OrigemDespesaTipo)}>
+              <select
+                style={inputStyle}
+                value={origemTipo}
+                onChange={(e) => {
+                  setOrigemTipo(e.target.value as OrigemDespesaTipo)
+                  // QA fix (achado #13): troca manual do tipo de origem
+                  // sobrescreve o que a classificação automática decidiu —
+                  // marca para não gravar um status "auto_classificado"
+                  // contraditório com uma escolha manual do usuário
+                  setClassificacaoDesatualizadaPorEdicao(true)
+                }}
+              >
                 {Object.entries(ORIGEM_TIPO_LABELS).map(([valor, label]) => (
                   <option key={valor} value={valor}>{label}</option>
                 ))}

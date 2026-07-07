@@ -42,6 +42,13 @@ export class ErroValidacaoNfse extends Error {
   }
 }
 
+// QA fix (achado Médio #16 — Relatorio_Auditoria_Modulo_Despesas.md):
+// CNPJ da própria empresa, em dígitos puros — usado para validar
+// estruturalmente que o tomador (<toma>) do serviço é de fato a Ceras
+// Babinete, mesmo padrão de validação já usado em
+// nfeCompraXmlParser.ts::CNPJ_CERAS_BABINETE
+const CNPJ_CERAS_BABINETE = '10666614000160'
+
 // ------------------------------------------------------------
 // Função auxiliar: formatarCnpj
 // Recebe um CNPJ em dígitos puros (14 caracteres) e retorna formatado
@@ -95,6 +102,20 @@ export function parsearNfseXml(xmlString: string): DocumentoExtraidoDespesa {
   if (!infNFSe) {
     throw new ErroValidacaoNfse(
       'XML não reconhecido como NFS-e no layout nacional (tag infNFSe não encontrada). Verifique se o arquivo corresponde ao padrão Sped/Ambiente Nacional.',
+    )
+  }
+
+  // QA fix (achado Médio #16): valida estruturalmente que o TOMADOR
+  // (<toma>) do serviço é a própria Ceras Babinete — antes, só a guarda
+  // na API route (checagem do CNPJ do favorecido em importar-xml.ts)
+  // protegia esse caminho; agora há dupla proteção, espelhando a
+  // validação já feita em nfeCompraXmlParser.ts para o destinatário.
+  // Sem essa checagem, uma NFS-e emitida para outra empresa/pessoa (não
+  // a Ceras Babinete) poderia ser processada indevidamente como despesa.
+  const tomadorCnpjDigitos = textoDe(doc, 'toma cnpj')
+  if (tomadorCnpjDigitos && tomadorCnpjDigitos.replace(/\D/g, '') !== CNPJ_CERAS_BABINETE) {
+    throw new ErroValidacaoNfse(
+      'CNPJ do tomador (toma) não é da Ceras Babinete — este XML não é uma NFS-e de serviço tomado pela empresa.',
     )
   }
 

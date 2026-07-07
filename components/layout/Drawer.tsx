@@ -17,18 +17,25 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
+// QA fix (achado Médio #18 — Relatorio_Auditoria_Modulo_Despesas.md):
+// campo "habilitado" adicionado — "Contas a Pagar" apontava para /pagar,
+// rota que ainda não existe (módulo não construído, fora de escopo desta
+// sessão), levando a um 404 real hoje. Mesma correção de curto prazo
+// aplicada em NavBar.tsx (desktop): item visível, mas não clicável
+// enquanto a rota não existir. Arquivo congelado — alteração feita
+// seguindo o processo de exceção do projeto, com aprovação explícita.
 const MODULOS = [
-  { label: 'Início',           href: '/',            icon: '/img/home.svg' },
-  { label: 'Dashboard',        href: '/dashboard',   icon: '/img/dashboard.svg' },
-  { label: 'Relatórios',       href: '/relatorios',  icon: '/img/relatorios.svg' },
-  { label: 'Receitas',         href: '/receitas',    icon: '/img/receitas.svg' },
-  { label: 'Despesas',         href: '/despesas',    icon: '/img/despesas.svg' },
-  { label: 'Contas a Receber', href: '/receber',     icon: '/img/contas_receber.svg' },
-  { label: 'Contas a Pagar',   href: '/pagar',       icon: '/img/contas_pagar.svg' },
-  { label: 'Clientes',         href: '/clientes',    icon: '/img/clientes.svg' },
-  { label: 'Fornecedores',     href: '/fornecedores',icon: '/img/fornecedores.svg' },
-  { label: 'Usuários',         href: '/usuarios',    icon: '/img/usuarios.svg' },
-  { label: 'Backup',           href: '/backup',      icon: '/img/backup.svg' },
+  { label: 'Início',           href: '/',            icon: '/img/home.svg',           habilitado: true },
+  { label: 'Dashboard',        href: '/dashboard',   icon: '/img/dashboard.svg',       habilitado: true },
+  { label: 'Relatórios',       href: '/relatorios',  icon: '/img/relatorios.svg',      habilitado: true },
+  { label: 'Receitas',         href: '/receitas',    icon: '/img/receitas.svg',        habilitado: true },
+  { label: 'Despesas',         href: '/despesas',    icon: '/img/despesas.svg',        habilitado: true },
+  { label: 'Contas a Receber', href: '/receber',     icon: '/img/contas_receber.svg',  habilitado: true },
+  { label: 'Contas a Pagar',   href: '/pagar',       icon: '/img/contas_pagar.svg',    habilitado: false },
+  { label: 'Clientes',         href: '/clientes',    icon: '/img/clientes.svg',        habilitado: true },
+  { label: 'Fornecedores',     href: '/fornecedores',icon: '/img/fornecedores.svg',    habilitado: true },
+  { label: 'Usuários',         href: '/usuarios',    icon: '/img/usuarios.svg',        habilitado: true },
+  { label: 'Backup',           href: '/backup',      icon: '/img/backup.svg',          habilitado: true },
 ]
 
 interface DrawerProps {
@@ -100,6 +107,39 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
             const ativo = modulo.href === '/'
               ? pathname === '/'
               : pathname === modulo.href || pathname.startsWith(modulo.href + '/')
+
+            // QA fix (achado Médio #18): módulo desabilitado renderiza como
+            // <div> cinza, sem navegação — nunca gera um <Link> para uma
+            // rota inexistente (404)
+            if (!modulo.habilitado) {
+              return (
+                <div
+                  key={modulo.href}
+                  title="Módulo em construção"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '10px 16px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    fontFamily: 'Tahoma, Geneva, sans-serif',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.03em',
+                    color: '#a9bccb',
+                    background: 'transparent',
+                    borderLeft: '3px solid transparent',
+                    borderBottom: '1px solid #eef3f7',
+                    cursor: 'not-allowed',
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={modulo.icon} alt={modulo.label} style={{ width: '22px', height: '22px', objectFit: 'contain', flexShrink: 0, opacity: 0.4 }} />
+                  {modulo.label}
+                </div>
+              )
+            }
+
             return (
               <Link
                 key={modulo.href}

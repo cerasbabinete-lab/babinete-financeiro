@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { buscarDespesas, contarDespesas, cancelarDespesa } from '@/lib/despesasService'
+import { buscarDespesas, contarDespesas } from '@/lib/despesasService'
 import { parsearNfseXml, ErroValidacaoNfse } from '@/lib/despesas/nfseXmlParser'
 import { parsearNfeCompraXml, ErroValidacaoNfeCompra } from '@/lib/despesas/nfeCompraXmlParser'
 import type { Despesa, FiltrosDespesas, ModoModalDespesa, ResultadoProcessamentoDespesa } from '@/types/despesas'
@@ -262,9 +262,25 @@ export default function DespesasPage() {
   function handleSalvo() { carregarDespesas(); handleFecharModal(); setMsgSucesso('Despesa gravada com sucesso.') }
   function handleLimparFiltros() { setFiltros(FILTROS_INICIAIS) }
 
+  // QA fix (achado Alto #8 — Relatorio_Auditoria_Modulo_Despesas.md):
+  // antes chamava cancelarDespesa() diretamente do browser com a anon
+  // key, sem passar por nenhuma rota pages/api/despesas/*, dependendo
+  // inteiramente de RLS (nunca configurado/verificado explicitamente
+  // para despesas/despesas_parcelas). Agora passa pela nova rota
+  // /api/despesas/cancelar, com o mesmo padrão Bearer token + getUser()
+  // usado nas demais operações de escrita deste módulo.
   async function handleExcluir(d: Despesa) {
     try {
-      await cancelarDespesa(d.id)
+      const token = await obterToken()
+      const res = await fetch('/api/despesas/cancelar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ despesaId: d.id }),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({ erro: 'Erro desconhecido' }))
+        throw new Error(json.erro ?? 'Erro ao cancelar despesa')
+      }
       carregarDespesas()
     } catch (err: unknown) {
       setMsgErro(err instanceof Error ? err.message : 'Erro ao cancelar despesa')

@@ -266,10 +266,14 @@ export async function atualizarDespesaComSync(
 
     if (parcelaId) {
       // Parcela já existente — UPDATE
+      // QA fix (achado Baixo #10): filtro .is('deleted_at', null) adicionado
+      // por defesa em profundidade — evita, em tese, reviver/atualizar uma
+      // parcela já soft-deletada por outro caminho concorrente
       const { error: erroUpdateParcela } = await client
         .from(TABELA_PARCELAS)
         .update({ ...dadosParcela, updated_at: new Date().toISOString() })
         .eq('id', parcelaId)
+        .is('deleted_at', null)
 
       if (erroUpdateParcela) {
         console.error('[despesasService] atualizarDespesaComSync (update parcela) error:', erroUpdateParcela)
@@ -304,13 +308,22 @@ export async function atualizarDespesaComSync(
 // cancelarDespesa()
 // Soft-delete da despesa E de todas as suas parcelas ativas, na mesma
 // operação — nunca DELETE físico, conforme convenção do projeto
-// Chamado por: DespesasTabela.tsx (ação de cancelar/excluir)
+// QA fix (achado Alto #8 — Relatorio_Auditoria_Modulo_Despesas.md):
+// passou a aceitar um client injetável (mesmo padrão de
+// criarDespesaComParcelas/atualizarDespesaComSync), para poder ser
+// chamada com o client ADMIN a partir de pages/api/despesas/cancelar.ts
+// (nova rota, Bearer+getUser()) em vez de gravar direto do browser com a
+// anon key, sem passar por nenhuma autenticação server-side.
+// Chamado por: pages/api/despesas/cancelar.ts
 // ============================================================
-export async function cancelarDespesa(despesaId: string): Promise<void> {
+export async function cancelarDespesa(
+  despesaId: string,
+  client: SupabaseClient = supabase, // permite uso a partir de API routes com client admin — padrão é o client do browser
+): Promise<void> {
   const agora = new Date().toISOString()
 
   // Soft-delete da despesa principal
-  const { error: erroDespesa } = await supabase
+  const { error: erroDespesa } = await client
     .from(TABELA)
     .update({ deleted_at: agora, status_pagamento: 'cancelado', updated_at: agora })
     .eq('id', despesaId)
@@ -321,7 +334,7 @@ export async function cancelarDespesa(despesaId: string): Promise<void> {
   }
 
   // Soft-delete em cascata de todas as parcelas ainda ativas
-  const { error: erroParcelas } = await supabase
+  const { error: erroParcelas } = await client
     .from(TABELA_PARCELAS)
     .update({ deleted_at: agora, status: 'cancelado', updated_at: agora })
     .eq('despesa_id', despesaId)

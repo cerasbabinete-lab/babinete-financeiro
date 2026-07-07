@@ -65,9 +65,12 @@ export async function buscarRosterBeneficiarios(
 
   // Executa a query na tabela beneficiarios_pessoais (produção),
   // selecionando todas as colunas relevantes para o matching
+  // QA fix (achado Alto #1): inclui a coluna "endereco", necessária para
+  // o sinal "endereço" comparar de fato contra o endereço de cada
+  // beneficiário, em vez de apenas checar presença de texto
   const { data, error } = await supabaseAdmin
     .from('beneficiarios_pessoais') // tabela de produção — criada no item 1 do build
-    .select('id, nome, cpf, vinculo, aliases') // colunas necessárias para a classificação
+    .select('id, nome, cpf, vinculo, aliases, endereco') // colunas necessárias para a classificação
     .order('nome', { ascending: true }) // ordena por nome apenas para leitura/debug mais legível
 
   // Se a query falhar (ex: tabela inacessível, erro de rede),
@@ -86,6 +89,7 @@ export async function buscarRosterBeneficiarios(
     cpf: linha.cpf, // CPF do beneficiário, pode ser null se não cadastrado
     vinculo: linha.vinculo, // "socio" ou "prestador_mei"
     aliases: linha.aliases ?? [], // lista de apelidos cadastrados na linha, nunca null
+    endereco: linha.endereco ?? null, // QA fix (achado Alto #1): endereço cadastrado do beneficiário, para comparação real no sinal "endereço"
   }))
 }
 
@@ -121,16 +125,28 @@ export function resolverAliasEspecial(
     }
   }
 
-  // Verifica variações de grafia do sobrenome ("Aquotte" ou "Aquotti"),
-  // usado como sinal de "nome/alias" na classificação de 3-de-4 sinais
-  const contemVariacaoSobrenome = ALIASES_ESPECIAIS_DOCUMENTADOS.variacoesGrafiaSobrenome.some(
-    (variacao) => nomeNormalizado.includes(variacao.toLowerCase()),
-  )
-  if (contemVariacaoSobrenome) {
-    return {
-      tipo: 'residencia_familia', // trata como o mesmo caso da família Aquotti
-    }
-  }
+  // QA fix (achado Crítico #2 — Relatorio_Auditoria_Modulo_Despesas.md):
+  // O curto-circuito genérico abaixo foi REMOVIDO. Ele tratava qualquer
+  // nome contendo a substring "aquott" (Aquotte/Aquotti) como o caso
+  // documentado "Eldo Aquotte" (residência da família) — mas Darci, Fabio
+  // e Sheli de Almeida Aquotti também contêm essa substring em seus
+  // próprios nomes completos, então QUALQUER despesa em nome de qualquer
+  // um dos três sócios caía aqui e era atribuída ao PRIMEIRO beneficiário
+  // do roster com "aquott" em seus aliases (ordem alfabética) — nunca ao
+  // sócio correto de fato mencionado no documento.
+  //
+  // A regra documentada em ALIASES_ESPECIAIS_DOCUMENTADOS.variacoesGrafiaSobrenome
+  // continua existindo como referência de negócio (mesma família, erro de
+  // cartório), mas a normalização Aquotte/Aquotti deve ocorrer DENTRO do
+  // roster (cada sócio com ambas as grafias cadastradas em sua própria
+  // coluna "aliases"), e ser testada pelo loop normal de 3-de-4 sinais em
+  // classificadorOrigemDespesa.ts — que já compara o nome do favorecido
+  // contra o nome/aliases de CADA beneficiário individualmente, discriminando
+  // corretamente entre os três sócios em vez de escolher o primeiro da lista.
+  //
+  // O caso "Eldo Aquotte" (proprietário falecido, sem "Me") continua
+  // resolvido acima como exceção documentada específica — apenas o
+  // curto-circuito genérico do sobrenome sozinho foi removido.
 
   // Nenhum alias especial reconhecido — segue para o matching genérico
   // contra o roster (nome exato, CPF, ou aliases cadastrados por linha)

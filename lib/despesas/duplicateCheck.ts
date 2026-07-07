@@ -76,11 +76,18 @@ export async function verificarDuplicidade(
   // existe uma despesas_parcelas com o mesmo valor + vencimento,
   // vinculada a uma das despesas candidatas encontradas no Passo 1 ──
   for (const parcela of documento.parcelas) {
+    // QA fix (achado Baixo #15 — Relatorio_Auditoria_Modulo_Despesas.md):
+    // arredonda o valor a 2 casas decimais antes de comparar — o caminho
+    // de IA não garante arredondamento explícito, e uma comparação de
+    // igualdade exata de ponto flutuante (ex: 83.850000000001 vs 83.85)
+    // poderia deixar de detectar uma duplicata legítima. Mesmo
+    // arredondamento já aplicado em nfeCompraXmlParser.ts::numEl().
+    const valorArredondado = Math.round(parcela.valor * 100) / 100
     const { data: parcelasCandidatas, error: erroParcelas } = await supabaseAdmin
       .from('despesas_parcelas')
       .select('id')
       .in('despesa_id', despesaIds)
-      .eq('valor', parcela.valor)
+      .eq('valor', valorArredondado)
       .eq('data_vencimento', parcela.dataVencimento)
       .limit(1)
 

@@ -501,6 +501,18 @@ export interface BeneficiarioPessoalRoster {
   cpf:      string | null // CPF do beneficiário, se cadastrado
   vinculo:  string    // "socio" ou "prestador_mei"
   aliases:  string[]  // lista de apelidos/nomes alternativos documentados
+  // QA fix (achado Alto #1 — Relatorio_Auditoria_Modulo_Despesas.md):
+  // campo de endereço cadastrado do beneficiário, necessário para o sinal
+  // "endereço" da classificação de 3-de-4 sinais realmente COMPARAR o
+  // endereço do documento contra o endereço de CADA beneficiário testado,
+  // em vez de apenas checar se existe algum endereço em ambos os lados
+  // (o que antes disparava igual para qualquer beneficiário, sempre que
+  // houvesse algum endereço no documento — não era discriminante).
+  // Requer a coluna "endereco" (text, nullable) na tabela de produção
+  // beneficiarios_pessoais — ainda não existe, precisa ser adicionada via
+  // SQL Editor do Supabase, mesmo processo manual já usado para as demais
+  // colunas desta tabela (ver Handoff_Despesas_Modulo_Para_Deep_Code_Audit.md §3).
+  endereco: string | null
 }
 
 

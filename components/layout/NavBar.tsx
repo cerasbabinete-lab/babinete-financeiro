@@ -17,19 +17,29 @@ import { usePathname } from 'next/navigation'
 
 // ============================================================
 // Módulos do sistema — ordem e rotas conforme mockup aprovado
+// QA fix (achado Médio #18 — Relatorio_Auditoria_Modulo_Despesas.md):
+// campo "habilitado" adicionado — "Contas a Pagar" apontava para /pagar,
+// rota que ainda não existe no projeto (módulo não construído; fora de
+// escopo desta sessão, previsto para uma interview futura), levando a um
+// 404 real hoje. Correção de curto prazo (opção 1 do achado): mesmo
+// mecanismo de "módulo desabilitado" que app/page.tsx já usa no grid da
+// Home (flag "ativo"), aplicado aqui ao NavBar — o item aparece
+// visualmente, mas não é mais um link clicável enquanto a rota não
+// existir. Alteração feita seguindo o processo de exceção de arquivo
+// congelado do projeto, com aprovação explícita do usuário para este item.
 // ============================================================
 const MODULOS = [
-  { label: 'Início',           href: '/',            icon: 'ti-home-star' },
-  { label: 'Dashboard',        href: '/dashboard',   icon: null },
-  { label: 'Relatórios',       href: '/relatorios',  icon: null },
-  { label: 'Receitas',         href: '/receitas',    icon: null },
-  { label: 'Despesas',         href: '/despesas',    icon: null },
-  { label: 'Contas a Receber', href: '/receber',     icon: null },
-  { label: 'Contas a Pagar',   href: '/pagar',       icon: null },
-  { label: 'Clientes',         href: '/clientes',    icon: null },
-  { label: 'Fornecedores',     href: '/fornecedores',icon: null },
-  { label: 'Usuários',         href: '/usuarios',    icon: null },
-  { label: 'Backup',           href: '/backup',      icon: null },
+  { label: 'Início',           href: '/',            icon: 'ti-home-star', habilitado: true },
+  { label: 'Dashboard',        href: '/dashboard',   icon: null,           habilitado: true },
+  { label: 'Relatórios',       href: '/relatorios',  icon: null,           habilitado: true },
+  { label: 'Receitas',         href: '/receitas',    icon: null,           habilitado: true },
+  { label: 'Despesas',         href: '/despesas',    icon: null,           habilitado: true },
+  { label: 'Contas a Receber', href: '/receber',     icon: null,           habilitado: true },
+  { label: 'Contas a Pagar',   href: '/pagar',       icon: null,           habilitado: false },
+  { label: 'Clientes',         href: '/clientes',    icon: null,           habilitado: true },
+  { label: 'Fornecedores',     href: '/fornecedores',icon: null,           habilitado: true },
+  { label: 'Usuários',         href: '/usuarios',    icon: null,           habilitado: true },
+  { label: 'Backup',           href: '/backup',      icon: null,           habilitado: true },
 ]
 
 // ============================================================
@@ -86,6 +96,42 @@ export default function NavBar() {
           const ativo = modulo.href === '/'
             ? pathname === '/'
             : pathname === modulo.href || pathname.startsWith(modulo.href + '/')
+
+          // QA fix (achado Médio #18): módulo desabilitado (ainda sem rota
+          // construída) renderiza como <span> cinza, sem href — nunca gera
+          // um <Link> apontando para uma página inexistente (404)
+          if (!modulo.habilitado) {
+            return (
+              <span
+                key={modulo.href}
+                title="Módulo em construção"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '0 10px',
+                  fontSize: '9.5px',
+                  fontWeight: 600,
+                  fontFamily: 'Tahoma, Geneva, sans-serif',
+                  color: '#a9bccb',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.025em',
+                  borderRight: '1px solid rgba(26,96,148,0.1)',
+                  borderLeft: index === 0 ? '1px solid rgba(26,96,148,0.1)' : 'none',
+                  borderBottom: '3px solid transparent',
+                  whiteSpace: 'nowrap',
+                  height: '100%',
+                  boxSizing: 'border-box',
+                  cursor: 'not-allowed',
+                }}
+              >
+                {modulo.icon && (
+                  <i className={`ti ${modulo.icon}`} style={{ fontSize: '14px', marginRight: '4px' }} aria-hidden="true" />
+                )}
+                {modulo.label}
+              </span>
+            )
+          }
+
           return (
             <Link
               key={modulo.href}

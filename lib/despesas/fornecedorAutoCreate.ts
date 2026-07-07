@@ -31,6 +31,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Favorecido, ResultadoFornecedorMatchDespesa } from '@/types/despesas'
 import type { FornecedorInsert } from '@/types/fornecedores'
 
+// QA fix (achado Médio #6): reaproveita a comparação de endereço por
+// token (normaliza acentos/pontuação e exige 2+ palavras em comum) já
+// validada em classificadorOrigemDespesa.ts, em vez de duplicar a lógica
+// ou manter a heurística antiga de 15 caracteres fixos
+import { enderecosBatem as enderecosCoincidemPorToken } from './classificadorOrigemDespesa'
+
 // ------------------------------------------------------------
 // Função auxiliar: separarCnpjCpf
 // Decide, a partir da contagem de dígitos, se o documento extraído é
@@ -45,6 +51,25 @@ function separarCnpjCpf(cnpjCpf: string | null): { cnpj?: string; cpf?: string }
   if (digitos.length === 14) return { cnpj: cnpjCpf }
   if (digitos.length === 11) return { cpf: cnpjCpf }
   return {} // contagem inesperada — não grava em nenhuma coluna de documento
+}
+
+// ------------------------------------------------------------
+// QA fix (achado Alto #5 — Relatorio_Auditoria_Modulo_Despesas.md):
+// Função: escaparParaFiltroOr
+// O método .or() do PostgREST usa vírgula como separador de condições e
+// parênteses para agrupamento — um valor extraído literalmente (razão
+// social brasileira comum: "ACME COMÉRCIO LTDA (MATRIZ)", ou nomes com
+// vírgula) quebra a sintaxe do filtro ou é interpretado como agrupamento
+// não pretendido. O PostgREST reconhece "\" como caractere de escape
+// dentro do valor de um filtro — escapamos vírgula, parênteses e a
+// própria barra invertida antes de montar a string do .or().
+// ------------------------------------------------------------
+function escaparParaFiltroOr(valor: string): string {
+  return valor
+    .replace(/\\/g, '\\\\') // escapa a barra invertida primeiro, para não escapar duplamente os próximos
+    .replace(/,/g, '\\,') // escapa vírgula (separador de condições no .or())
+    .replace(/\(/g, '\\(') // escapa parêntese de abertura (agrupamento no .or())
+    .replace(/\)/g, '\\)') // escapa parêntese de fechamento
 }
 
 // ------------------------------------------------------------
@@ -113,10 +138,15 @@ export async function buscarOuCriarFornecedor(
   // ── Passo 2: fallback por nome/razão social + endereço ──
   // Usado quando o CNPJ/CPF está ausente/mascarado no documento, ou
   // quando não bateu nenhum registro exato no passo 1
+  // QA fix (achado Alto #5): nome do favorecido escapado antes de entrar
+  // no filtro .or() — nomes com vírgula/parênteses (comuns em razão
+  // social brasileira) não quebram mais a sintaxe do PostgREST nem viram
+  // agrupamento de filtro não pretendido
+  const nomeFavorecidoEscapado = escaparParaFiltroOr(favorecido.nome)
   const { data: candidatosPorNome, error: erroNome } = await supabaseAdmin
     .from('fornecedores')
     .select('id, razao, fantasia, cnpj, cpf, end')
-    .or(`razao.ilike.%${favorecido.nome}%,fantasia.ilike.%${favorecido.nome}%`)
+    .or(`razao.ilike.%${nomeFavorecidoEscapado}%,fantasia.ilike.%${nomeFavorecidoEscapado}%`)
 
   if (erroNome) {
     throw new Error(`Falha ao buscar fornecedor por nome: ${erroNome.message}`)
@@ -130,9 +160,16 @@ export async function buscarOuCriarFornecedor(
     const candidatoUnico = candidatosPorNome.length === 1 ? candidatosPorNome[0] : null
 
     if (candidatoUnico) {
+      // QA fix (achado Médio #6): a heurística antiga comparava apenas os
+      // 15 primeiros caracteres do endereço extraído contra o endereço
+      // cadastrado — prefixos genéricos como "Rua "/"Avenida " fazem essa
+      // comparação bater mesmo entre ruas totalmente diferentes. Agora
+      // normaliza (remove acentos/pontuação) e compara por sobreposição
+      // de tokens significativos (3+ caracteres), exigindo pelo menos 2
+      // tokens em comum entre os dois endereços.
       const enderecoBate =
         !favorecido.endereco || // se não temos endereço extraído, não bloqueia o match
-        (candidatoUnico.end ?? '').toLowerCase().includes(favorecido.endereco.toLowerCase().slice(0, 15))
+        (candidatoUnico.end ? enderecosCoincidemPorToken(favorecido.endereco, candidatoUnico.end) : false)
 
       if (enderecoBate) {
         return {
