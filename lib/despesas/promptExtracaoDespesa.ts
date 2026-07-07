@@ -1,39 +1,40 @@
 // ============================================================
-// lib/motorUniversal/promptMotorUniversal.ts
-// Página avulsa: Motor Universal de Documentos Financeiros (teste)
+// lib/despesas/promptExtracaoDespesa.ts
+// Projeto: Ceras Babinete — Gestão Financeira
+// Módulo: Despesas
 // Função: Definir o prompt de instrução e o response_schema (saída
 //         estruturada) enviados à API do Gemini para extrair documentos
-//         financeiros (PDF/imagem) em formato JSON Universal.
-// Conecta com: lib/motorUniversal/geminiClient.ts (consome PROMPT_MOTOR_UNIVERSAL
-//              e GEMINI_RESPONSE_SCHEMA nas chamadas à API), e types/motorUniversal.ts
-//              (o schema abaixo espelha o shape de JsonUniversal, exceto os
+//         financeiros (PDF, imagem, TXT, DOC, XLS, XLSX) no modelo
+//         canônico de extração (DocumentoExtraidoDespesa).
+// Conecta com: lib/despesas/extracaoIaCliente.ts (consome
+//              buildPromptExtracaoDespesa e GEMINI_RESPONSE_SCHEMA nas
+//              chamadas à API), types/despesas.ts (o schema abaixo
+//              espelha o shape de DocumentoExtraidoDespesa, exceto os
 //              campos computados fora da IA — ver nota de escopo abaixo)
-// Referência: spec seção 2.4 ("APIs & Integrations" — Gemini) e seção 5
-//              ("Function: Document Classification & Extraction")
+// Referência: Especificacao_Modulo_Despesas.md §2.4 ("APIs & Integrations"
+//             — Gemini) e §5 ("Function: AI-Assisted Import")
 //
-// NOTA DE ESCOPO IMPORTANTE (revisada a pedido do usuário):
-// A IA extrai os dados PRESENTES no documento e AGORA também SUGERE uma
+// NOTA DE ESCOPO IMPORTANTE:
+// A IA extrai os dados PRESENTES no documento e também SUGERE uma
 // classificação de origemDespesa (campo "origemDespesaSugeridaIA"), mas
 // essa sugestão é só um SINAL A MAIS — nunca a decisão final. A decisão
-// oficial de origemDespesa continua sendo calculada por
-// origemDespesaClassifier.ts (código determinístico, spec seção 5),
-// que aplica a regra de negócio obrigatória: só auto-classifica quando
-// pelo menos 3 de 4 sinais concretos concordam (nome/alias, endereço,
-// unidade consumidora/matrícula, CPF parcial como desempate). A sugestão
-// da IA pode contar como parte do sinal "nome/alias", mas NUNCA substitui
-// a regra de 3-de-4 sinais (non-negotiable da spec, seção 7: "must never
-// guess when fewer than 3 fallback signals agree").
-// Os seguintes campos do JSON Universal continuam fora da resposta da IA,
-// pois são sempre fixos/computados em código, nunca extraídos do documento:
-//   - "pagador"        → sempre fixo (Ceras Babinete), preenchido em código
-//   - "statusPagamento"→ sempre inicia como "em_aberto", preenchido em código
-//   - "anexoOriginal"  → não utilizado nesta fase de teste (arquivo original
-//                         não é persistido, ver decisão do usuário)
+// oficial de origemDespesa é sempre calculada por
+// classificadorOrigemDespesa.ts (código determinístico), que aplica a
+// regra de negócio obrigatória: só auto-classifica quando pelo menos 3
+// de 4 sinais concretos concordam (nome/alias, endereço, unidade
+// consumidora/matrícula, CPF parcial como desempate). A sugestão da IA
+// pode contar como parte do sinal "nome/alias", mas NUNCA substitui a
+// regra de 3-de-4 sinais.
+// Os seguintes campos do modelo canônico continuam fora da resposta da
+// IA, pois são sempre fixos/computados em código, nunca extraídos:
+//   - fornecedor_id      → resolvido via cross-reference/auto-criação
+//   - origemDespesa      → calculado por classificadorOrigemDespesa.ts
+//   - status_pagamento   → sempre inicia como "em_aberto", em código
 // ============================================================
 
 // ------------------------------------------------------------
 // CONSTANTE: lista fixa dos tipos de documento suportados
-// Espelha o tipo TipoDocumento em types/motorUniversal.ts
+// Espelha o tipo TipoDocumento em types/despesas.ts
 // ------------------------------------------------------------
 export const TIPOS_DOCUMENTO_GEMINI = [
   'boleto',
@@ -46,7 +47,7 @@ export const TIPOS_DOCUMENTO_GEMINI = [
 
 // ------------------------------------------------------------
 // CONSTANTE: lista fixa das 8 categorias financeiras
-// Espelha o tipo CategoriaFinanceira em types/motorUniversal.ts
+// Espelha o tipo CategoriaFinanceira em types/despesas.ts
 // ------------------------------------------------------------
 export const CATEGORIAS_FINANCEIRAS_GEMINI = [
   'aluguel',
@@ -62,11 +63,11 @@ export const CATEGORIAS_FINANCEIRAS_GEMINI = [
 // ------------------------------------------------------------
 // SCHEMA: response_schema no formato aceito pela API do Gemini
 // (subconjunto de OpenAPI Schema: type, properties, items, enum, nullable)
-// Usado no generationConfig.responseSchema da chamada em geminiClient.ts
+// Usado no generationConfig.responseSchema da chamada em extracaoIaCliente.ts
 // junto com responseMimeType: "application/json"
 // ATENÇÃO: a casing dos "type" (OBJECT/STRING/...) segue a documentação
 // oficial do Gemini structured output — validar contra a versão exata
-// do pacote @google/generative-ai instalada ao integrar em geminiClient.ts
+// do pacote @google/generative-ai instalada ao integrar em extracaoIaCliente.ts
 // ------------------------------------------------------------
 export const GEMINI_RESPONSE_SCHEMA = {
   type: 'OBJECT',
@@ -132,10 +133,10 @@ export const GEMINI_RESPONSE_SCHEMA = {
 
     // Sugestão da IA sobre a origem da despesa (empresarial vs pessoal de
     // sócio). NÃO é a decisão final — é apenas um sinal a mais, consumido
-    // por origemDespesaClassifier.ts junto com os outros 3 sinais da regra
-    // de negócio (nome/alias, endereço, unidade consumidora, CPF parcial).
-    // A IA nunca tem acesso ao roster de beneficiários; a sugestão é
-    // baseada apenas no que está literalmente escrito no documento.
+    // por classificadorOrigemDespesa.ts junto com os outros 3 sinais da
+    // regra de negócio (nome/alias, endereço, unidade consumidora, CPF
+    // parcial). A IA nunca tem acesso ao roster de beneficiários; a
+    // sugestão é baseada apenas no que está literalmente escrito no documento.
     origemDespesaSugeridaIA: {
       type: 'OBJECT',
       properties: {
@@ -360,16 +361,17 @@ export const GEMINI_RESPONSE_SCHEMA = {
 } as const
 
 // ------------------------------------------------------------
-// Função: buildPromptMotorUniversal
+// Função: buildPromptExtracaoDespesa
 // Monta o texto de instrução (system/user prompt) enviado ao Gemini
 // junto com o arquivo do documento e o GEMINI_RESPONSE_SCHEMA acima.
 // Não recebe o roster de beneficiários como parâmetro — a resolução de
-// origemDespesa é feita depois, em código, não pela IA (ver nota de escopo
-// no topo do arquivo).
+// origemDespesa é feita depois, em código, não pela IA (ver nota de
+// escopo no topo do arquivo).
 // ------------------------------------------------------------
-export function buildPromptMotorUniversal(): string {
+export function buildPromptExtracaoDespesa(): string {
   // Texto único de instrução, em português, detalhando as regras de
-  // extração conforme spec seção 5 ("Function: Document Classification & Extraction")
+  // extração conforme Especificacao_Modulo_Despesas.md §5,
+  // "Function: AI-Assisted Import"
   return `
 Você é um extrator de dados de documentos financeiros brasileiros (boletos, guias de tributo, notas fiscais de compra, recibos, faturas de concessionária, holerites).
 

@@ -1,28 +1,39 @@
 // ============================================================
-// lib/motorUniversal/origemDespesaClassifier.ts
-// Página avulsa: Motor Universal de Documentos Financeiros (teste)
+// lib/despesas/classificadorOrigemDespesa.ts
+// Projeto: Ceras Babinete — Gestão Financeira
+// Módulo: Despesas
 // Função: Classificar deterministicamente se uma despesa é "empresarial"
 //         ou "pessoal_socio", aplicando a regra obrigatória de negócio:
 //         match exato por CNPJ/CPF, OU pelo menos 3 de 4 sinais de
 //         fallback concordando — NUNCA "chutar" quando os sinais não bastam.
-// Conecta com: lib/motorUniversal/beneficiariosRoster.ts (roster +
-//              resolverAliasEspecial), types/motorUniversal.ts
-//              (Favorecido, OrigemDespesa, ResultadoOrigemDespesaClassificacao),
-//              e é consumido por pages/api/teste-motor-universal/processar.ts
-// Referência: spec seção 2.1.1 ("origemDespesa automatic classification
-//              logic") e seção 7 (non-negotiable: "must never guess when
-//              fewer than 3 fallback signals agree")
+// Conecta com: lib/despesas/beneficiariosRoster.ts (roster +
+//              resolverAliasEspecial), types/despesas.ts (Favorecido,
+//              OrigemDespesa, ResultadoOrigemDespesaClassificacaoDespesa),
+//              consumido por pages/api/despesas/importar-xml.ts e
+//              pages/api/despesas/importar-documento.ts
+// Referência: Especificacao_Modulo_Despesas.md §5, "origemDespesa
+//             Auto-Classification" — nunca classificar automaticamente
+//             com sinais insuficientes
 //
-// IMPORTANTE: a sugestão da IA (origemDespesaSugeridaIA, vinda do Gemini)
-// é usada aqui APENAS como um possível componente do sinal "nome/alias" —
+// IMPORTANTE: a sugestão da IA (origemIaSugestao, vinda do Gemini) é
+// usada aqui APENAS como possível componente do sinal "nome/alias" —
 // nunca decide sozinha, e nunca substitui a regra de 3-de-4 sinais.
 // ============================================================
+
+// Tipo do client Supabase — usado para tipar o parâmetro repassado
+// para buscarRosterBeneficiarios, nunca instanciado neste arquivo
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Importa as funções de roster e resolução de aliases especiais
 import { buscarRosterBeneficiarios, resolverAliasEspecial } from './beneficiariosRoster'
 
 // Importa os tipos usados nesta função
-import type { CategoriaFinanceira, Favorecido, OrigemDespesa, ResultadoOrigemDespesaClassificacao } from '@/types/motorUniversal'
+import type {
+  CategoriaFinanceira,
+  Favorecido,
+  OrigemDespesa,
+  ResultadoOrigemDespesaClassificacaoDespesa,
+} from '@/types/despesas'
 
 // ------------------------------------------------------------
 // CONSTANTE: CNPJ da própria empresa, usado no match exato
@@ -30,43 +41,93 @@ import type { CategoriaFinanceira, Favorecido, OrigemDespesa, ResultadoOrigemDes
 const CNPJ_CERAS_BABINETE = '10.666.614/0001-60'
 
 // ------------------------------------------------------------
-// TIPO: entrada auxiliar — dados que podem servir como sinais de fallback,
-// além do "favorecido" já presente no JSON Universal. Nem todo documento
-// terá todos esses campos (dependem da categoria), então todos são opcionais.
+// TIPO: entrada auxiliar — sinais de fallback além do "favorecido" já
+// presente no documento extraído. Nem todo documento terá todos esses
+// campos (dependem da categoria), então todos são opcionais/nuláveis.
 // ------------------------------------------------------------
 export interface SinaisFallbackOrigemDespesa {
-  enderecoDocumento: string | null // endereço extraído do documento (favorecido.endereco ou unidade consumidora)
-  unidadeConsumidoraOuMatricula: string | null // código de unidade consumidora (utilidades) ou matrícula (tributos)
-  cpfParcialDocumento: string | null // dígitos parciais de CPF, quando disponíveis (usado só como desempate)
-  sugestaoIA: { tipoSugerido: string; nomeBeneficiarioMencionado: string | null } | null // sugestão vinda do Gemini
+  enderecoDocumento:              string | null // endereço extraído (favorecido.endereco ou unidade consumidora)
+  unidadeConsumidoraOuMatricula:  string | null // código de unidade consumidora (utilidades) ou matrícula (tributos)
+  cpfParcialDocumento:            string | null // dígitos parciais de CPF, quando disponíveis (só desempate)
+  sugestaoIA:                     { tipoSugerido: string; nomeBeneficiarioMencionado: string | null } | null // sugestão do Gemini
+}
+
+// ------------------------------------------------------------
+// Função: extrairSinaisFallbackDeDocumento
+// Monta os 4 sinais de fallback (nome/alias já vem do próprio favorecido,
+// então aqui só endereço/unidade consumidora/CPF parcial/sugestão IA) a
+// partir do documento já extraído (XML ou IA) — reaproveitada por
+// pages/api/despesas/importar-xml.ts e importar-documento.ts, evitando
+// duplicar essa lógica de montagem nas duas rotas.
+// ------------------------------------------------------------
+export function extrairSinaisFallbackDeDocumento(
+  documento: {
+    favorecido: Favorecido
+    extensaoCategoria: {
+      concessionariasUtilidades?: { codigoClienteUnidade: string | null; enderecoUnidadeConsumidora: string | null }
+      tributosEstadualMunicipal?: { identificadorBem: string | null }
+    }
+    origemIaSugestao?: { tipoSugerido: string; nomeBeneficiarioMencionado: string | null } | null
+  },
+): SinaisFallbackOrigemDespesa {
+  // Endereço: prioriza o endereço específico da unidade consumidora
+  // (utilidades), quando existir, senão usa o endereço geral do favorecido
+  const enderecoDocumento =
+    documento.extensaoCategoria.concessionariasUtilidades?.enderecoUnidadeConsumidora ||
+    documento.favorecido.endereco ||
+    null
+
+  // Unidade consumidora ou matrícula: vem do bloco de extensão específico
+  // da categoria (utilidades usa codigoClienteUnidade; tributos usa
+  // identificadorBem — placa/matrícula). Categorias sem esses blocos
+  // (ex: compra_mercadoria_insumo, servicos_profissionais) retornam null,
+  // o que é esperado — nem todo documento tem esse sinal disponível.
+  const unidadeConsumidoraOuMatricula =
+    documento.extensaoCategoria.concessionariasUtilidades?.codigoClienteUnidade ||
+    documento.extensaoCategoria.tributosEstadualMunicipal?.identificadorBem ||
+    null
+
+  // CPF parcial: este projeto não extrai CPF parcial separadamente do
+  // cnpjCpf do favorecido — quando o documento vier de pessoa física
+  // com CPF mascarado, cnpjCpf já chega null do parser/IA (ver regra de
+  // extração literal), então não há dígito parcial disponível aqui
+  const cpfParcialDocumento: string | null = null
+
+  return {
+    enderecoDocumento,
+    unidadeConsumidoraOuMatricula,
+    cpfParcialDocumento,
+    sugestaoIA: documento.origemIaSugestao ?? null,
+  }
 }
 
 // ------------------------------------------------------------
 // Função: classificarOrigemDespesa
-// Implementa a lógica de 2 passos da spec (seção 2.1.1):
+// Implementa a lógica de 2 passos (Especificacao_Modulo_Despesas.md §5):
 //   1. Match exato de CNPJ/CPF contra empresa ou roster → classifica direto
 //   2. Sem match exato → exige 3 de 4 sinais concordando (nome/alias,
 //      endereço, unidade consumidora/matrícula, CPF parcial como desempate)
 //      → senão, marca para revisão manual (nunca adivinha)
 //
-// REGRA DE EXCEÇÃO (confirmada com o usuário após teste real com a NFS-e
-// do próprio Maycon): documentos de categoriaFinanceira "servicos_profissionais"
+// REGRA DE EXCEÇÃO (validada com documento real durante a etapa de
+// prototipagem): documentos de categoriaFinanceira "servicos_profissionais"
 // emitidos pelo prestador MEI (Maycon) são SEMPRE "empresarial" — é a
 // contrapartida do serviço prestado à empresa, não um benefício pessoal.
 // O vínculo "pessoal_socio" de Maycon só se aplica à guia de IRPF dele
-// especificamente, que aparece sob a categoria "contabilidade" (ver spec
-// seção 2.1.1: "his personal IRPF payment is a benefit granted to him").
-// Por isso, beneficiários com vinculo "prestador_mei" são EXCLUÍDOS do
-// loop de matching quando a categoria for "servicos_profissionais".
+// especificamente, sob a categoria "contabilidade". Por isso, beneficiários
+// com vinculo "prestador_mei" são EXCLUÍDOS do loop de matching quando a
+// categoria for "servicos_profissionais".
 // ------------------------------------------------------------
 export async function classificarOrigemDespesa(
-  favorecido: Favorecido, // bloco favorecido do JSON Universal (nome, cnpjCpf, endereco)
+  supabaseAdmin: SupabaseClient, // client admin já instanciado pela rota chamadora
+  favorecido: Favorecido, // bloco favorecido do documento extraído (nome, cnpjCpf, endereco)
   categoriaFinanceira: CategoriaFinanceira, // necessário para aplicar a regra de exceção do Maycon/MEI acima
   sinaisFallback: SinaisFallbackOrigemDespesa, // sinais adicionais extraídos, quando disponíveis
-): Promise<{ origemDespesa: OrigemDespesa; resultado: ResultadoOrigemDespesaClassificacao }> {
+): Promise<{ origemDespesa: OrigemDespesa; resultado: ResultadoOrigemDespesaClassificacaoDespesa }> {
+
   // ── Passo 0: verifica os aliases especiais documentados primeiro ──
-  // (Eldo Aquotte Me / Eldo Aquotte / Aquotte / Aquotti) — estes são
-  // exceções de negócio, resolvidas antes de qualquer outra lógica
+  // (Eldo Aquotte Me / Eldo Aquotte / Aquotte / Aquotti) — exceções de
+  // negócio, resolvidas antes de qualquer outra lógica
   const aliasEspecial = resolverAliasEspecial(favorecido.nome)
 
   if (aliasEspecial.tipo === 'empresa') {
@@ -77,13 +138,14 @@ export async function classificarOrigemDespesa(
     }
   }
 
-  // Busca o roster de beneficiários pessoais (sócios + Maycon/MEI)
-  const roster = await buscarRosterBeneficiarios()
+  // Busca o roster de beneficiários pessoais (sócios + Maycon/MEI),
+  // usando o client Supabase já instanciado pela rota chamadora
+  const roster = await buscarRosterBeneficiarios(supabaseAdmin)
 
-  // ── Regra de exceção direta: NFS-e de serviços profissionais do
+  // ── Regra de exceção direta: documento de serviços profissionais do
   // prestador MEI (Maycon) é SEMPRE despesa empresarial, com confiança
-  // total — não precisa passar pela checagem de 3-de-4 sinais, já que
-  // esta é justamente a contrapartida do serviço prestado à empresa.
+  // total — não passa pela checagem de 3-de-4 sinais, já que é a
+  // contrapartida do serviço prestado à empresa
   if (categoriaFinanceira === 'servicos_profissionais') {
     const prestadorMei = roster.find((b) => b.vinculo === 'prestador_mei')
     const nomeFavorecidoNormalizado = favorecido.nome.toLowerCase()
@@ -100,8 +162,8 @@ export async function classificarOrigemDespesa(
 
   if (aliasEspecial.tipo === 'residencia_familia') {
     // "Eldo Aquotte" (sem "Me") ou variações "Aquotte"/"Aquotti" →
-    // residência da família — vincula ao primeiro sócio do roster que
-    // tenha esse alias cadastrado (Darci ou Sheli, conforme spec)
+    // residência da família — vincula ao primeiro sócio do roster com
+    // esse alias cadastrado (Darci ou Sheli)
     const beneficiarioFamilia = roster.find((b) =>
       b.aliases.some((a) => a.toLowerCase().includes('aquott')),
     )
@@ -150,10 +212,8 @@ export async function classificarOrigemDespesa(
 
   // ── Passo 2: sem match exato — exige 3 de 4 sinais de fallback ──
   // Testa cada beneficiário do roster individualmente, contando quantos
-  // dos 4 sinais concordam com aquele beneficiário específico.
-  // Exclui prestadores MEI (Maycon) quando a categoria é
-  // servicos_profissionais — sua NFS-e de serviço é sempre despesa
-  // empresarial, não deve ser testada contra o roster pessoal (ver regra
+  // dos 4 sinais concordam com aquele beneficiário específico. Exclui
+  // prestadores MEI quando a categoria é servicos_profissionais (regra
   // de exceção documentada no cabeçalho desta função).
   const rosterParaTestar = roster.filter(
     (b) => !(b.vinculo === 'prestador_mei' && categoriaFinanceira === 'servicos_profissionais'),
@@ -190,8 +250,7 @@ export async function classificarOrigemDespesa(
     }
 
     // Sinal 4: CPF parcial — usado SOMENTE como desempate, nunca conta
-    // como um dos 3 sinais obrigatórios (conforme spec: "used only as a
-    // tie-breaker, never as one of the 3 required signals")
+    // como um dos 3 sinais obrigatórios (regra explícita da spec)
     const cpfParcialBate =
       sinaisFallback.cpfParcialDocumento &&
       beneficiario.cpf &&
@@ -226,8 +285,8 @@ export async function classificarOrigemDespesa(
   }
 
   // ── Nenhum beneficiário atingiu os 3 sinais necessários ──
-  // Regra não-negociável da spec: nunca adivinhar, sempre marcar para
-  // revisão manual quando os sinais não forem suficientes
+  // Regra não-negociável: nunca adivinhar, sempre marcar para revisão
+  // manual quando os sinais não forem suficientes
   return {
     origemDespesa: { tipo: 'empresarial', beneficiarioPessoal: null }, // valor neutro provisório, sujeito a revisão manual na UI
     resultado: { status: 'revisao_manual', criteriosBatidos: [] },
