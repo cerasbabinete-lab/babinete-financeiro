@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:https": "next dev --experimental-https",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -11,6 +12,7 @@
     "prepare": "node patch.js"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@mmachadosantos/nfe-danfe-pdf": "^1.0.5",
     "@supabase/supabase-js": "^2.108.1",
     "gerar-boletos": "^2.1.3",
