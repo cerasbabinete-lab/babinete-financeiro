@@ -15,10 +15,10 @@
 
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import type { Despesa } from '@/types/despesas'
 import { CATEGORIA_FINANCEIRA_LABELS, ORIGEM_TIPO_LABELS, STATUS_PAGAMENTO_LABELS, STATUS_PAGAMENTO_CORES } from '@/types/despesas'
-import { formatarCnpjCpf, formatarMoeda, formatarDataBR } from '@/lib/despesasService'
+import { formatarMoeda, formatarDataBR } from '@/lib/despesasService'
 
 interface DespesasTabelaProps {
   despesas: Despesa[]
@@ -35,8 +35,14 @@ export default function DespesasTabela({
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [confirmandoId, setConfirmandoId] = useState<string | null>(null)
 
-  // Reseta confirmação de exclusão quando a lista muda (ex: após filtro)
-  useEffect(() => { setConfirmandoId(null) }, [despesas])
+  // Reseta confirmação de exclusão quando a lista muda (ex: após filtro) —
+  // ajuste feito DURANTE o render (padrão recomendado pelo React), não
+  // dentro de um useEffect, evitando o erro react-hooks/set-state-in-effect
+  const [despesasAnterior, setDespesasAnterior] = useState(despesas)
+  if (despesas !== despesasAnterior) {
+    setDespesasAnterior(despesas)
+    setConfirmandoId(null)
+  }
 
   return (
     <div style={{

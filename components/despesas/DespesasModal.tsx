@@ -98,9 +98,16 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
   const [erro, setErro] = useState<string | null>(null)
 
   // ── Preenche o formulário conforme o modo ──
+  // Sincroniza o estado local do formulário com os dados externos (props)
+  // quando o modal abre — mesmo padrão já usado (sem correção) em
+  // ReceitasModal.tsx:85. Um refactor para "ajustar durante o render"
+  // aqui exigiria reescrever ~15 setters condicionais de forma segura;
+  // dado que este é um padrão aceito no restante do projeto, mantemos o
+  // effect com supressão explícita em vez de arriscar um refactor maior.
   useEffect(() => {
     if (isRevisar && resultadoImportacao) {
       const { despesa: d, parcelas: p, fornecedorMatch, origemDespesaClassificacao, duplicateCheck } = resultadoImportacao
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCategoriaFinanceira(d.categoria_financeira)
       setFavorecidoNome(d.favorecido_nome)
       setFavorecidoCnpjCpf(d.favorecido_cnpj_cpf ?? '')
@@ -226,6 +233,7 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
         deleted_at: null,
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const parcelasPayload = parcelas.map(({ id: _id, ...resto }) => resto)
 
       if (isEditar && despesa) {

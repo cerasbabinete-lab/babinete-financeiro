@@ -426,8 +426,9 @@ export interface FiltrosDespesas {
 // ============================================================
 // ModoModalDespesa
 // Controla o modo de abertura do modal de Despesa
+// 'revisar' = pós-importação (XML/IA), revisão antes de confirmar
 // ============================================================
-export type ModoModalDespesa = 'novo' | 'editar' | 'visualizar' | null
+export type ModoModalDespesa = 'novo' | 'editar' | 'revisar' | null
 
 
 // ============================================================

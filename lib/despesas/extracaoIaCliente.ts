@@ -30,6 +30,7 @@
 
 // Importa o SDK oficial do Google para a API do Gemini
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import type { Schema } from '@google/generative-ai'
 
 // Importa o prompt de instrução e o schema de saída estruturada definidos
 // no arquivo companheiro deste módulo (fonte única de verdade do schema)
@@ -97,7 +98,7 @@ export async function extrairDocumentoComGemini(
     model: NOME_MODELO_GEMINI,
     generationConfig: {
       responseMimeType: 'application/json', // força a resposta a ser JSON puro, sem texto ao redor
-      responseSchema: GEMINI_RESPONSE_SCHEMA as any, // schema definido em promptExtracaoDespesa.ts (cast: shape compatível, tipagem exata do SDK pode divergir em minúcias de casing)
+      responseSchema: GEMINI_RESPONSE_SCHEMA as unknown as Schema, // schema definido em promptExtracaoDespesa.ts (cast: shape compatível, tipagem exata do SDK pode divergir em minúcias de casing)
     },
   })
 

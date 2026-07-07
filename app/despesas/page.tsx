@@ -123,7 +123,14 @@ export default function DespesasPage() {
     }
   }, [filtros])
 
+  // Efeito de carregamento inicial — mesmo padrão de data-fetch-on-mount
+  // já usado (sem correção) em app/receitas/page.tsx:144 e
+  // app/receber/page.tsx:190. Buscar dados em resposta a uma mudança de
+  // estado (autenticação concluída) é o caso de uso descrito na própria
+  // documentação do React para efeitos; mantido consistente com o padrão
+  // já estabelecido no restante do projeto.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!authCarregando) carregarDespesas()
   }, [authCarregando, carregarDespesas])
 
@@ -273,43 +280,6 @@ export default function DespesasPage() {
     )
   }
 
-  // ── Inputs de arquivo ocultos (compartilhados entre desktop e mobile) ──
-  const InputsOcultos = () => (
-    <>
-      <input ref={inputXmlRef} type="file" accept=".xml" style={{ display: 'none' }} onChange={handleArquivoXmlSelecionado} />
-      <input
-        ref={inputDocumentoRef}
-        type="file"
-        accept=".pdf,.jpg,.jpeg,.png,.txt,.doc,.docx,.xls,.xlsx"
-        style={{ display: 'none' }}
-        onChange={handleArquivoDocumentoSelecionado}
-      />
-    </>
-  )
-
-  // ── Feedback inline ──
-  const FeedbackBanner = () => (
-    <>
-      {importando && (
-        <div style={{ margin: '0 0 10px', padding: '8px 12px', background: '#e8f0f7', border: '1px solid #c4d8eb', borderRadius: '5px', color: '#1a6094', fontSize: '12px', fontFamily: 'Tahoma, Geneva, sans-serif' }}>
-          <i className="ti ti-loader-2" style={{ marginRight: '6px' }} />Processando documento...
-        </div>
-      )}
-      {msgSucesso && (
-        <div style={{ margin: '0 0 10px', padding: '8px 12px', background: '#eaf3de', border: '1px solid #b7d98f', borderRadius: '5px', color: '#3b6d11', fontSize: '12px', fontFamily: 'Tahoma, Geneva, sans-serif', display: 'flex', justifyContent: 'space-between' }}>
-          <span><i className="ti ti-check" style={{ marginRight: '6px' }} />{msgSucesso}</span>
-          <button onClick={() => setMsgSucesso(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b6d11' }}>✕</button>
-        </div>
-      )}
-      {msgErro && (
-        <div style={{ margin: '0 0 10px', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '5px', color: '#a32d2d', fontSize: '12px', fontFamily: 'Tahoma, Geneva, sans-serif', display: 'flex', justifyContent: 'space-between' }}>
-          <span><i className="ti ti-alert-triangle" style={{ marginRight: '6px' }} />{msgErro}</span>
-          <button onClick={() => setMsgErro(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a32d2d' }}>✕</button>
-        </div>
-      )}
-    </>
-  )
-
   // ============================================================
   // Render — Desktop
   // ============================================================
@@ -327,9 +297,20 @@ export default function DespesasPage() {
             onNovaDespesa={handleNovaDespesa}
           />
 
-          <InputsOcultos />
+          <InputsOcultos
+            inputXmlRef={inputXmlRef}
+            inputDocumentoRef={inputDocumentoRef}
+            onArquivoXmlSelecionado={handleArquivoXmlSelecionado}
+            onArquivoDocumentoSelecionado={handleArquivoDocumentoSelecionado}
+          />
 
-          <FeedbackBanner />
+          <FeedbackBanner
+            importando={importando}
+            msgSucesso={msgSucesso}
+            msgErro={msgErro}
+            onFecharSucesso={() => setMsgSucesso(null)}
+            onFecharErro={() => setMsgErro(null)}
+          />
 
           <DespesasFiltros
             filtros={filtros}
@@ -371,7 +352,12 @@ export default function DespesasPage() {
       <TopbarMobile usuario={usuario} onOpenDrawer={() => setDrawerAberto(true)} />
       <Drawer isOpen={drawerAberto} onClose={() => setDrawerAberto(false)} />
 
-      <InputsOcultos />
+      <InputsOcultos
+            inputXmlRef={inputXmlRef}
+            inputDocumentoRef={inputDocumentoRef}
+            onArquivoXmlSelecionado={handleArquivoXmlSelecionado}
+            onArquivoDocumentoSelecionado={handleArquivoDocumentoSelecionado}
+          />
 
       <main style={{ flex: 1, padding: '10px 12px' }}>
         <div style={{ marginBottom: '8px' }}>
@@ -379,7 +365,13 @@ export default function DespesasPage() {
           <div style={{ fontSize: '9px', color: '#5a84a6' }}>{total} registros</div>
         </div>
 
-        <FeedbackBanner />
+        <FeedbackBanner
+            importando={importando}
+            msgSucesso={msgSucesso}
+            msgErro={msgErro}
+            onFecharSucesso={() => setMsgSucesso(null)}
+            onFecharErro={() => setMsgErro(null)}
+          />
 
         <DespesasFiltros
           filtros={filtros}
@@ -416,5 +408,72 @@ export default function DespesasPage() {
         />
       )}
     </div>
+  )
+}
+
+// ============================================================
+// InputsOcultos
+// Componente de MÓDULO (fora de DespesasPage) — os dois file pickers
+// ocultos, compartilhados entre desktop e mobile. Declarado fora do
+// componente principal para não ser recriado a cada render (o que
+// disparava react-hooks/static-components e podia causar remount dos
+// inputs, perdendo o estado interno do <input type="file">).
+// ============================================================
+interface InputsOcultosProps {
+  inputXmlRef: React.RefObject<HTMLInputElement | null>
+  inputDocumentoRef: React.RefObject<HTMLInputElement | null>
+  onArquivoXmlSelecionado: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onArquivoDocumentoSelecionado: (e: React.ChangeEvent<HTMLInputElement>) => void
+}
+
+function InputsOcultos({ inputXmlRef, inputDocumentoRef, onArquivoXmlSelecionado, onArquivoDocumentoSelecionado }: InputsOcultosProps) {
+  return (
+    <>
+      <input ref={inputXmlRef} type="file" accept=".xml" style={{ display: 'none' }} onChange={onArquivoXmlSelecionado} />
+      <input
+        ref={inputDocumentoRef}
+        type="file"
+        accept=".pdf,.jpg,.jpeg,.png,.txt,.doc,.docx,.xls,.xlsx"
+        style={{ display: 'none' }}
+        onChange={onArquivoDocumentoSelecionado}
+      />
+    </>
+  )
+}
+
+// ============================================================
+// FeedbackBanner
+// Componente de MÓDULO (fora de DespesasPage) — banners de status
+// (processando/sucesso/erro), mesmo motivo de InputsOcultos acima.
+// ============================================================
+interface FeedbackBannerProps {
+  importando: boolean
+  msgSucesso: string | null
+  msgErro: string | null
+  onFecharSucesso: () => void
+  onFecharErro: () => void
+}
+
+function FeedbackBanner({ importando, msgSucesso, msgErro, onFecharSucesso, onFecharErro }: FeedbackBannerProps) {
+  return (
+    <>
+      {importando && (
+        <div style={{ margin: '0 0 10px', padding: '8px 12px', background: '#e8f0f7', border: '1px solid #c4d8eb', borderRadius: '5px', color: '#1a6094', fontSize: '12px', fontFamily: 'Tahoma, Geneva, sans-serif' }}>
+          <i className="ti ti-loader-2" style={{ marginRight: '6px' }} />Processando documento...
+        </div>
+      )}
+      {msgSucesso && (
+        <div style={{ margin: '0 0 10px', padding: '8px 12px', background: '#eaf3de', border: '1px solid #b7d98f', borderRadius: '5px', color: '#3b6d11', fontSize: '12px', fontFamily: 'Tahoma, Geneva, sans-serif', display: 'flex', justifyContent: 'space-between' }}>
+          <span><i className="ti ti-check" style={{ marginRight: '6px' }} />{msgSucesso}</span>
+          <button onClick={onFecharSucesso} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b6d11' }}>✕</button>
+        </div>
+      )}
+      {msgErro && (
+        <div style={{ margin: '0 0 10px', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '5px', color: '#a32d2d', fontSize: '12px', fontFamily: 'Tahoma, Geneva, sans-serif', display: 'flex', justifyContent: 'space-between' }}>
+          <span><i className="ti ti-alert-triangle" style={{ marginRight: '6px' }} />{msgErro}</span>
+          <button onClick={onFecharErro} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a32d2d' }}>✕</button>
+        </div>
+      )}
+    </>
   )
 }

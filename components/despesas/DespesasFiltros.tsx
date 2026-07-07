@@ -32,8 +32,14 @@ export default function DespesasFiltros({
   const [inputBusca, setInputBusca] = useState(filtros.busca)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Mantém o input local sincronizado se o filtro for limpo externamente
-  useEffect(() => { setInputBusca(filtros.busca) }, [filtros.busca])
+  // Mantém o input local sincronizado se o filtro for limpo externamente —
+  // ajuste feito DURANTE o render (padrão recomendado pelo React), evitando
+  // o erro react-hooks/set-state-in-effect
+  const [buscaAnterior, setBuscaAnterior] = useState(filtros.busca)
+  if (filtros.busca !== buscaAnterior) {
+    setBuscaAnterior(filtros.busca)
+    setInputBusca(filtros.busca)
+  }
 
   // Limpa o debounce pendente ao desmontar, evitando setState após unmount
   useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])

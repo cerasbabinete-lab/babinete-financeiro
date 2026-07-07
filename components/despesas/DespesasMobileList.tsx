@@ -12,7 +12,7 @@
 
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import type { Despesa } from '@/types/despesas'
 import { CATEGORIA_FINANCEIRA_LABELS, ORIGEM_TIPO_LABELS } from '@/types/despesas'
 import { formatarMoeda, formatarDataBR } from '@/lib/despesasService'
@@ -32,8 +32,15 @@ export default function DespesasMobileList({
   const [sheetId, setSheetId] = useState<string | null>(null)
   const [confirmandoId, setConfirmandoId] = useState<string | null>(null)
 
-  // Reseta bottom-sheet e confirmação quando a lista muda (ex: após filtro)
-  useEffect(() => { setSheetId(null); setConfirmandoId(null) }, [despesas])
+  // Reseta bottom-sheet e confirmação quando a lista muda (ex: após filtro) —
+  // ajuste feito DURANTE o render (padrão recomendado pelo React), evitando
+  // o erro react-hooks/set-state-in-effect
+  const [despesasAnterior, setDespesasAnterior] = useState(despesas)
+  if (despesas !== despesasAnterior) {
+    setDespesasAnterior(despesas)
+    setSheetId(null)
+    setConfirmandoId(null)
+  }
 
   if (despesas.length === 0) {
     return (
