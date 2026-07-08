@@ -67,6 +67,10 @@ export default function DespesasPage() {
   // ── Modal ──
   const [modoModal, setModoModal] = useState<ModoModalDespesa>(null)
   const [despesaSelecionada, setDespesaSelecionada] = useState<Despesa | null>(null)
+  // FEATURE: botão "Visualizar" inline (pedido do usuário) — reaproveita
+  // o modo 'editar' do modal (já carrega despesa + parcelas completas),
+  // mas com os campos desabilitados via fieldset e sem botão "Salvar"
+  const [somenteLeituraModal, setSomenteLeituraModal] = useState(false)
   const [resultadoImportacao, setResultadoImportacao] = useState<ResultadoProcessamentoDespesa | null>(null)
 
   // ── Mobile ──
@@ -256,9 +260,11 @@ export default function DespesasPage() {
   }
 
   // ── Handlers modal ──
-  function handleNovaDespesa() { setDespesaSelecionada(null); setResultadoImportacao(null); setModoModal('novo') }
-  function handleEditar(d: Despesa) { setDespesaSelecionada(d); setResultadoImportacao(null); setModoModal('editar') }
-  function handleFecharModal() { setModoModal(null); setDespesaSelecionada(null); setResultadoImportacao(null) }
+  function handleNovaDespesa() { setDespesaSelecionada(null); setResultadoImportacao(null); setSomenteLeituraModal(false); setModoModal('novo') }
+  function handleEditar(d: Despesa) { setDespesaSelecionada(d); setResultadoImportacao(null); setSomenteLeituraModal(false); setModoModal('editar') }
+  // FEATURE: abre o mesmo modal de edição, porém somente leitura
+  function handleVisualizar(d: Despesa) { setDespesaSelecionada(d); setResultadoImportacao(null); setSomenteLeituraModal(true); setModoModal('editar') }
+  function handleFecharModal() { setModoModal(null); setDespesaSelecionada(null); setResultadoImportacao(null); setSomenteLeituraModal(false) }
   function handleSalvo() { carregarDespesas(); handleFecharModal(); setMsgSucesso('Despesa gravada com sucesso.') }
   function handleLimparFiltros() { setFiltros(FILTROS_INICIAIS) }
 
@@ -343,6 +349,7 @@ export default function DespesasPage() {
               despesas={despesas}
               onEditar={handleEditar}
               onExcluir={handleExcluir}
+              onVisualizar={handleVisualizar}
             />
           )}
         </main>
@@ -354,6 +361,7 @@ export default function DespesasPage() {
             resultadoImportacao={resultadoImportacao}
             onFechar={handleFecharModal}
             onSalvo={handleSalvo}
+            somenteLeitura={somenteLeituraModal}
           />
         )}
       </div>
@@ -404,6 +412,7 @@ export default function DespesasPage() {
             despesas={despesas}
             onEditar={handleEditar}
             onExcluir={handleExcluir}
+            onVisualizar={handleVisualizar}
           />
         )}
       </main>
@@ -421,6 +430,7 @@ export default function DespesasPage() {
           resultadoImportacao={resultadoImportacao}
           onFechar={handleFecharModal}
           onSalvo={handleSalvo}
+          somenteLeitura={somenteLeituraModal}
         />
       )}
     </div>

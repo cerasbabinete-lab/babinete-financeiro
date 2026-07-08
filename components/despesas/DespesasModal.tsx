@@ -59,9 +59,16 @@ interface DespesasModalProps {
   resultadoImportacao: ResultadoProcessamentoDespesa | null // usado em modo 'revisar'
   onFechar: () => void
   onSalvo: () => void
+  // FEATURE: botão "Visualizar" inline (pedido do usuário após a entrega
+  // de QA) — reaproveita o modo 'editar' (já carrega a despesa + parcelas
+  // existentes com todos os campos), mas com somenteLeitura=true: os
+  // campos ficam desabilitados via <fieldset disabled> (desabilita todos
+  // os inputs/selects/botões descendentes de uma vez, sem precisar tocar
+  // em cada input individualmente) e o botão "Salvar" não aparece.
+  somenteLeitura?: boolean
 }
 
-export default function DespesasModal({ modo, despesa, resultadoImportacao, onFechar, onSalvo }: DespesasModalProps) {
+export default function DespesasModal({ modo, despesa, resultadoImportacao, onFechar, onSalvo, somenteLeitura = false }: DespesasModalProps) {
 
   const isRevisar = modo === 'revisar'
   const isEditar = modo === 'editar'
@@ -350,7 +357,7 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
         {/* Cabeçalho */}
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #e8f0f7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: '14px', fontWeight: 700, color: '#1a6094' }}>
-            {isRevisar ? 'Revisar Documento Importado' : isEditar ? 'Editar Despesa' : 'Nova Despesa'}
+            {somenteLeitura ? 'Visualizar Despesa' : isRevisar ? 'Revisar Documento Importado' : isEditar ? 'Editar Despesa' : 'Nova Despesa'}
           </span>
           <button onClick={onFechar} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: '#5a84a6' }}>
             <i className="ti ti-x" aria-hidden="true" />
@@ -358,6 +365,18 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
         </div>
 
         <div style={{ padding: '20px' }}>
+          {/* FEATURE: fieldset disabled desabilita TODOS os inputs/selects/
+              botões descendentes de uma vez quando somenteLeitura=true —
+              evita ter que adicionar disabled={somenteLeitura} em cada um
+              dos ~15 campos do formulário individualmente */}
+          <fieldset disabled={somenteLeitura} style={{ border: 'none', padding: 0, margin: 0 }}>
+
+          {somenteLeitura && (
+            <div style={{ marginBottom: '14px', padding: '10px 12px', background: '#f0f4f7', border: '1px solid #d8e3ec', borderRadius: '6px', fontSize: '12px', color: '#3a6080' }}>
+              <i className="ti ti-eye" aria-hidden="true" style={{ marginRight: '6px' }} />
+              Modo somente leitura. Para editar, feche esta janela e use o botão de edição.
+            </div>
+          )}
 
           {/* Aviso de duplicidade (bloqueia gravação) */}
           {isRevisar && duplicadoBloqueado && (
@@ -526,13 +545,17 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
               {erro}
             </div>
           )}
+          </fieldset>
         </div>
 
         {/* Rodapé */}
         <div style={{ padding: '14px 20px', borderTop: '1px solid #e8f0f7', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
           <button onClick={onFechar} style={{ padding: '7px 16px', fontSize: '12px', fontWeight: 600, background: '#f0f4f7', color: '#3a6080', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-            Cancelar
+            {somenteLeitura ? 'Fechar' : 'Cancelar'}
           </button>
+          {/* FEATURE: em modo somente leitura não faz sentido "Salvar" —
+              o botão simplesmente não é renderizado */}
+          {!somenteLeitura && (
           <button
             onClick={handleSalvar}
             disabled={salvando || (isRevisar && duplicadoBloqueado)}
@@ -546,6 +569,7 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
           >
             {salvando ? 'Salvando...' : isEditar ? 'Salvar Alterações' : 'Confirmar e Gravar'}
           </button>
+          )}
         </div>
       </div>
     </div>

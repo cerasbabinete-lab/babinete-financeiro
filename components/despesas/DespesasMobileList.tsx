@@ -21,12 +21,14 @@ interface DespesasMobileListProps {
   despesas: Despesa[]
   onEditar: (despesa: Despesa) => void
   onExcluir: (despesa: Despesa) => void
+  onVisualizar: (despesa: Despesa) => void // FEATURE: mesmo padrão do botão "olho" na tabela desktop
 }
 
 export default function DespesasMobileList({
   despesas,
   onEditar,
   onExcluir,
+  onVisualizar,
 }: DespesasMobileListProps) {
 
   const [sheetId, setSheetId] = useState<string | null>(null)
@@ -150,6 +152,10 @@ export default function DespesasMobileList({
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button onClick={() => { onVisualizar(despesaSheet); setSheetId(null) }} style={sheetBtnStyle('#f0f4f7', '#3a6080')}>
+                  <i className="ti ti-eye" style={{ fontSize: '16px' }} aria-hidden="true" />
+                  Visualizar
+                </button>
                 <button onClick={() => { onEditar(despesaSheet); setSheetId(null) }} style={sheetBtnStyle('#1a6094', '#ffffff')}>
                   <i className="ti ti-writing" style={{ fontSize: '16px' }} aria-hidden="true" />
                   Editar

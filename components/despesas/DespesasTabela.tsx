@@ -24,12 +24,17 @@ interface DespesasTabelaProps {
   despesas: Despesa[]
   onEditar: (despesa: Despesa) => void
   onExcluir: (despesa: Despesa) => void
+  // FEATURE: botão "Visualizar" inline (olho) — abre o mesmo modal do
+  // modo 'editar', porém somente leitura (fieldset disabled), sem passar
+  // pela confirmação de exclusão nem habilitar campos
+  onVisualizar: (despesa: Despesa) => void
 }
 
 export default function DespesasTabela({
   despesas,
   onEditar,
   onExcluir,
+  onVisualizar,
 }: DespesasTabelaProps) {
 
   const [hoverId, setHoverId] = useState<string | null>(null)
@@ -179,6 +184,9 @@ export default function DespesasTabela({
                       </div>
                     ) : (
                       <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                        <button onClick={() => onVisualizar(despesa)} title="Visualizar despesa" style={btnAcaoStyle}>
+                          <i className="ti ti-eye" aria-hidden="true" />
+                        </button>
                         <button onClick={() => onEditar(despesa)} title="Editar despesa" style={btnAcaoStyle}>
                           <i className="ti ti-writing" aria-hidden="true" />
                         </button>
