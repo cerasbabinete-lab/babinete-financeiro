@@ -170,7 +170,9 @@ export const GEMINI_RESPONSE_SCHEMA = {
           type: 'OBJECT',
           nullable: true,
           properties: {
-            esfera: { type: 'STRING', enum: ['estadual', 'municipal'] },
+            // FEATURE: 'federal' adicionado — guias federais avulsas (fora
+            // da relação com o escritório contábil) também cabem aqui
+            esfera: { type: 'STRING', enum: ['estadual', 'municipal', 'federal'] },
             orgaoArrecadador: { type: 'STRING' },
             tributo: {
               type: 'OBJECT',
@@ -394,6 +396,8 @@ REGRAS OBRIGATÓRIAS:
 8. SUGESTÃO DE ORIGEM DA DESPESA (campo "origemDespesaSugeridaIA"): com base APENAS no que está literalmente escrito no documento (nome do favorecido/titular, endereço, tipo de documento), sugira se a despesa parece ser "empresarial" (relacionada à Ceras Babinete Ltda. ME) ou "pessoal_socio" (relacionada a uma pessoa física, não à empresa). Se não houver informação suficiente para sugerir com confiança, use "indefinido". Esta é APENAS uma sugestão auxiliar — a decisão final não depende de você, então não hesite em usar "indefinido" quando não tiver certeza. Preencha "justificativa" com uma frase curta explicando o que no documento levou à sugestão (ex: "documento em nome de pessoa física, sem CNPJ visível").
 
 9. IDENTIFICAÇÃO CORRETA DO FAVORECIDO (regra crítica): o campo "favorecido" é SEMPRE quem EMITE o documento e RECEBE o pagamento (o vendedor/prestador/fornecedor) — NUNCA quem compra ou recebe a mercadoria/serviço. Como todos os documentos processados por este sistema são despesas da Ceras Babinete Ltda. ME (CNPJ 10.666.614/0001-60), a empresa é SEMPRE quem paga, nunca quem recebe. PORTANTO: o campo "favorecido.cnpjCpf" NUNCA pode ser "10.666.614/0001-60" (ou variações sem formatação, como "10666614000160"), e o campo "favorecido.nome" NUNCA pode ser "Ceras Babinete" ou variações. Se o nome/CNPJ da Ceras Babinete aparecer no documento (é comum aparecer como "cliente", "destinatário", "tomador" ou "comprador"), esse é o PAGADOR, não o favorecido — ignore-o ao preencher o campo "favorecido" e procure o outro nome/CNPJ presente no documento (o emitente/vendedor/prestador real).
+
+10. TRIBUTOS FEDERAIS (DARF/DAS) — CRITÉRIO DE CATEGORIA: guias de tributo federal (DARF, DAS) emitidas pelo escritório de contabilidade da empresa (nome que aparece como "Organização Contábil Armelin" ou similar no documento, ou junto de honorários contábeis/pró-labore) devem ser classificadas em "contabilidade" (subtipo "guia_tributo_federal") — NÃO em "tributos_estadual_municipal". Já uma guia de tributo federal AVULSA, recebida diretamente do órgão arrecadador (Receita Federal, INSS, etc.) sem vínculo com o escritório contábil, deve ser classificada em "tributos_estadual_municipal", com "esfera": "federal".
 
 Retorne a resposta estritamente no formato JSON definido pelo schema fornecido, sem texto adicional antes ou depois do JSON.
 `.trim()

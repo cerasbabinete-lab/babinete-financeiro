@@ -41,25 +41,39 @@ export async function verificarDuplicidade(
   documento: Pick<DocumentoExtraidoDespesa, 'favorecido' | 'documentoOrigem' | 'parcelas'>, // campos necessários para a chave composta
 ): Promise<ResultadoDuplicateCheckDespesa> {
 
-  // ── Passo 1: localiza despesas já lançadas com o mesmo favorecido
-  // e (quando presente) o mesmo número de documento ──
+  // ── Passo 1: localiza despesas já lançadas com o mesmo favorecido ──
+  // BUG FIX: não filtra mais por número de documento aqui (ver
+  // justificativa detalhada logo abaixo, junto à query) — o Passo 2 é
+  // quem decide de fato, comparando valor + vencimento por parcela.
   // IMPORTANTE: a busca INCLUI despesas com deleted_at preenchido
   // (canceladas/soft-deleted) de propósito — mesma decisão de design já
   // usada em Contas a Receber, para impedir reimportação do mesmo
   // documento mesmo que o lançamento original tenha sido cancelado depois
-  let queryDespesas = supabaseAdmin
+  // BUG FIX (achado real de uso — não estava no relatório de auditoria):
+  // o filtro por documento_numero foi REMOVIDO do Passo 1. Antes, exigir
+  // esse campo idêntico aqui fazia o Passo 1 não encontrar NENHUMA
+  // despesa candidata sempre que o número do documento fosse lido de
+  // forma diferente entre duas importações do MESMO boleto/documento
+  // físico (ex: erro de OCR/IA invertendo dois dígitos) — e como o Passo
+  // 1 não achava candidata, o Passo 2 (que compararia valor+vencimento
+  // corretamente) nunca chegava a rodar, deixando passar um duplicado
+  // real. A própria spec já reconhece valor+vencimento como sinal
+  // suficiente para distinguir documentos genuinamente diferentes
+  // ("legitimately similar documents... are correctly distinguished
+  // because dataVencimento differs" — Especificacao_Modulo_Despesas.md
+  // §5), então o número do documento não precisa ser um filtro
+  // obrigatório aqui — o Passo 2 já faz a comparação fina.
+  const { data: despesasCandidatas, error: erroDespesas } = await supabaseAdmin
     .from('despesas')
     .select('id')
-    .eq('favorecido_nome', documento.favorecido.nome)
-
-  // numeroDocumento pode ser null (ex: recibos informais) — só filtra
-  // por ele quando o documento atual efetivamente tem esse dado, para
-  // não descartar candidatos válidos por causa de um campo ausente
-  if (documento.documentoOrigem.numeroDocumento) {
-    queryDespesas = queryDespesas.eq('documento_numero', documento.documentoOrigem.numeroDocumento)
-  }
-
-  const { data: despesasCandidatas, error: erroDespesas } = await queryDespesas
+    // BUG FIX complementar: ilike (sem wildcards) em vez de eq — mesma
+    // categoria de risco do fix acima: se a IA/OCR ler o nome do
+    // favorecido com capitalização diferente entre duas importações do
+    // mesmo documento (ex: "Casadei Soft" vs "CASADEI SOFT"), a
+    // comparação exata (eq) deixaria passar como se fossem favorecidos
+    // diferentes. ilike sem "%" continua exigindo o texto idêntico,
+    // só ignora maiúsculas/minúsculas.
+    .ilike('favorecido_nome', documento.favorecido.nome)
 
   if (erroDespesas) {
     throw new Error(`Falha ao verificar duplicidade (busca por favorecido/documento): ${erroDespesas.message}`)

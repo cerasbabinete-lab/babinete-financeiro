@@ -89,7 +89,9 @@ export interface ExtensaoAluguel {
 }
 
 export interface ExtensaoTributosEstadualMunicipal {
-  esfera: 'estadual' | 'municipal'
+  // FEATURE: 'federal' adicionado — cobre guias federais avulsas (fora da
+  // relação com o escritório contábil, que continua indo em 'contabilidade')
+  esfera: 'estadual' | 'municipal' | 'federal'
   orgaoArrecadador: string
   tributo: { codigo: string | null; descricao: string; periodoApuracao: string | null }
   identificadorBem: string | null
@@ -557,7 +559,15 @@ export const ORIGEM_TIPO_LABELS: Record<OrigemDespesaTipo, string> = {
 // ============================================================
 export const CATEGORIA_FINANCEIRA_LABELS: Record<CategoriaFinanceira, string> = {
   aluguel:                       'Aluguel',
-  tributos_estadual_municipal:   'Tributos Estadual/Municipal',
+  // FEATURE (a pedido do usuário): rótulo ampliado para incluir Federal.
+  // O valor interno da categoria continua 'tributos_estadual_municipal'
+  // (não renomeado), para não exigir migração dos registros já gravados
+  // com esse valor — a ampliação é só na cobertura semântica: guias
+  // federais AVULSAS (fora da relação com o escritório contábil) agora
+  // também cabem aqui, via esfera: 'federal'. DARF/DAS vindos do
+  // escritório contábil continuam em 'contabilidade' (decisão do usuário,
+  // sem alterar essa rota de classificação).
+  tributos_estadual_municipal:   'Tributos Federais/Estadual/Municipal',
   concessionarias_utilidades:    'Concessionárias e Utilidades',
   transporte_frete:              'Transporte/Frete',
   compra_mercadoria_insumo:      'Compra de Mercadoria/Insumo',
