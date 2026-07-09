@@ -359,10 +359,19 @@ export async function buscarFornecedorPorDocumento(cpfCnpj: string): Promise<{ i
   const digitos = cpfCnpj.replace(/[^0-9]/g, '')
   if (!digitos) return null
 
+  // BUG FIX: a busca antiga usava só os dígitos puros no ILIKE
+  // ("04368898000106"), mas a tabela fornecedores guarda o CNPJ/CPF
+  // FORMATADO com pontuação ("04.368.898/0001-06") — uma sequência de
+  // dígitos crus nunca aparece como substring dentro do valor pontuado,
+  // então a busca sempre voltava vazia mesmo com o fornecedor já
+  // cadastrado. Agora tenta o valor formatado (mesma convenção já usada
+  // em Clientes/Fornecedores) E os dígitos puros, cobrindo os dois jeitos
+  // que o dado pode estar salvo.
+  const formatado = formatarCnpjCpf(digitos)
   const { data, error } = await supabase
     .from('fornecedores')
     .select('id, razao, cnpj, cpf')
-    .or(`cnpj.ilike.%${digitos}%,cpf.ilike.%${digitos}%`)
+    .or(`cnpj.ilike.%${formatado}%,cpf.ilike.%${formatado}%,cnpj.ilike.%${digitos}%,cpf.ilike.%${digitos}%`)
     .limit(5)
 
   if (error || !data || data.length === 0) return null
