@@ -11,14 +11,12 @@
 //              types/contasReceber.ts (RegistroRetSegmentoT)
 // Sem dependências externas — pure TypeScript string parsing
 //
-// CNAB 240 Retorno BB — Posições Segmento T (0-indexed):
-// [13]     = 'T' (tipo de segmento)
-// [37:54]  = nosso_número (17 chars)
-// [15:17]  = código de ocorrência (2 dígitos, ex: '06', '09', '23', '25')
-// [58:66]  = data da ocorrência DDMMYYYY
-// [85:100] = valor pago (15 dígitos em centavos)
-// [100:115]= valor de juros/mora (15 dígitos em centavos)
-// [115:130]= valor de desconto (15 dígitos em centavos)
+// CNAB 240 Retorno BB — Posições Segmento T (0-indexed, validadas contra RET real):
+// [13]    = 'T' (tipo de segmento)
+// [15:17] = código de ocorrência (2 dígitos, ex: '06', '09', '23', '25')
+// [37:54] = nosso_número (17 chars)
+// [73:81] = data da ocorrência DDMMYYYY  ← CORRIGIDO (era [58:66])
+// [81:96] = valor pago (15 dígitos em centavos) ← CORRIGIDO (era [85:100])
 // ============================================================
 
 import type { RegistroRetSegmentoT } from '@/types/contasReceber'
@@ -83,28 +81,29 @@ function parseSegmentoT(linha: string, numLinha: number): RegistroRetSegmentoT |
   }
 
   // ── Data da Ocorrência ────────────────────────────────────
-  // Posição [58:66]: DDMMYYYY — data em que o evento ocorreu no banco
-  const dataOcorrenciaRaw = linha.slice(58, 66)
+  // Posição [73:81]: DDMMYYYY — data em que o evento ocorreu no banco
+  // CORRIGIDO: era [58:66] que capturava o número do documento por engano
+  const dataOcorrenciaRaw = linha.slice(73, 81)
   const dataOcorrencia    = dataOcorrenciaRaw // Mantém DDMMYYYY — service converte
 
   // ── Valor Pago ────────────────────────────────────────────
-  // Posição [85:100]: 15 dígitos em centavos
-  // Representa o valor efetivamente creditado pelo banco
-  const valorPagoRaw = linha.slice(85, 100)
+  // Posição [81:96]: 15 dígitos em centavos
+  // CORRIGIDO: era [85:100] que produzia valores absurdos (ex: R$ 18.540.023,70)
+  const valorPagoRaw = linha.slice(81, 96)
   const valorPago    = /^\d+$/.test(valorPagoRaw)
     ? parseInt(valorPagoRaw, 10) / 100  // Centavos → reais
     : 0                                  // Campo inválido → zero
 
   // ── Juros / Mora ─────────────────────────────────────────
-  // Posição [100:115]: juros cobrados por atraso
-  const jurosRaw = linha.slice(100, 115)
+  // Posição [96:111]
+  const jurosRaw = linha.slice(96, 111)
   const juros    = /^\d+$/.test(jurosRaw)
     ? parseInt(jurosRaw, 10) / 100
     : 0
 
   // ── Desconto ─────────────────────────────────────────────
-  // Posição [115:130]: desconto concedido pelo cedente
-  const descontoRaw = linha.slice(115, 130)
+  // Posição [111:126]
+  const descontoRaw = linha.slice(111, 126)
   const desconto    = /^\d+$/.test(descontoRaw)
     ? parseInt(descontoRaw, 10) / 100
     : 0
