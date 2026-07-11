@@ -354,21 +354,14 @@ ALTER TABLE beneficiarios_pessoais
 -- Despesas) — se alguma não existir, o UPDATE correspondente não
 -- afeta nenhuma linha e deve ser convertido em INSERT manualmente.
 --
--- ⚠️ AMBIGUIDADE DE SCHEMA NÃO RESOLVIDA — Maycon precisa confirmar
--- antes desta parte ser executada: o caso Maycon tem DUAS regras
--- diferentes dependendo do documento que bate na transação (CPF ->
--- despesa_automatica_baixada / categoria contabilidade; CNPJ ->
--- acumulo_ate_valor_integral / categoria servicos_profissionais).
--- O modelo de dados definido na Seção 2.1 da especificação só
--- prevê UMA linha com UM valor de regra_conciliacao_pagar por
--- beneficiário — não há coluna para "regra por tipo de documento"
--- na mesma linha. A saída abaixo assume DUAS LINHAS de roster para
--- Maycon (uma por cpf, outra por cnpj, mesmo nome) para manter os
--- dados fiéis à regra de negócio sem alterar o motor de
--- conciliação para lógica hardcoded fora do roster. Isso é uma
--- interpretação minha da especificação, não uma decisão validada
--- por você — preciso da sua confirmação antes de rodar isto contra
--- produção.
+-- CONFIRMADO por Maycon: o caso Maycon usa DUAS LINHAS de roster
+-- (uma por cpf, outra por cnpj, mesmo nome) para representar as
+-- duas regras de conciliação diferentes por tipo de documento
+-- (CPF -> despesa_automatica_baixada / contabilidade; CNPJ ->
+-- acumulo_ate_valor_integral / servicos_profissionais). Não há
+-- UNIQUE em (nome) nem em (cpf) na tabela beneficiarios_pessoais
+-- (conferido na Parte A deste arquivo — só há PK em id), então
+-- as duas linhas não geram conflito de constraint.
 -- ------------------------------------------------------------
 
 UPDATE beneficiarios_pessoais SET
@@ -389,11 +382,14 @@ UPDATE beneficiarios_pessoais SET
   despesa_gerada_subtipo = 'retirada_socio'
 WHERE cpf = '051.750.059-01';  -- Fábio de Almeida Aquotti
 
--- Maycon — linha por CPF (documento pessoal, IRPF/benefício)
+-- Maycon — linha por CPF (documento pessoal, IRPF/benefício).
+-- CONFIRMADO por Maycon: é um bônus que acontece isoladamente,
+-- 1 vez ao ano — subtipo novo 'bonus_anual' (ver alteração de
+-- types/despesas.ts no rodapé deste arquivo, além de 'retirada_socio')
 UPDATE beneficiarios_pessoais SET
   regra_conciliacao_pagar = 'despesa_automatica_baixada',
   despesa_gerada_categoria = 'contabilidade',
-  despesa_gerada_subtipo = NULL  -- categoria/subtipo "existente" citado na especificação — Maycon deve confirmar qual subtipo usar aqui
+  despesa_gerada_subtipo = 'bonus_anual'
 WHERE cpf = '985.286.969-87';  -- Maycon Luiz Malaquias (CPF)
 
 -- Maycon — linha por CNPJ (NF de serviço, prestador MEI)
@@ -415,9 +411,14 @@ VALUES (
 -- ============================================================
 -- Alteração em types/despesas.ts (fora do banco, referência)
 -- ============================================================
--- Adicionar 'retirada_socio' ao enum de subtipo de ExtensaoContabilidade,
+-- Adicionar DOIS valores novos ao enum de subtipo de ExtensaoContabilidade,
 -- hoje: 'guia_tributo_federal' | 'honorarios_contabeis' | 'folha_pro_labore'
+--   -> 'retirada_socio'  (já autorizado na especificação original, §2.1)
+--   -> 'bonus_anual'     (autorizado por Maycon nesta sessão, para o
+--                          bônus isolado que ocorre 1x/ano no caso
+--                          Maycon-CPF — não estava na especificação
+--                          original, é uma extensão pontual confirmada)
 -- Alteração de CÓDIGO (não de banco) — feita como unidade própria do
 -- plano de build (item 3), não neste arquivo SQL. Citada aqui apenas
 -- para rastreabilidade, já que os valores usados no seed acima
--- (despesa_gerada_subtipo = 'retirada_socio') dependem dela.
+-- (despesa_gerada_subtipo = 'retirada_socio' / 'bonus_anual') dependem dela.
