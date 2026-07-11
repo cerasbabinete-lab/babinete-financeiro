@@ -269,14 +269,24 @@ export interface RegistroRelatorioBB {
 // RegistroComprovantePdf
 // Um registro extraído de um comprovante individual de boleto
 // (PDF) — parserComprovantePdf.ts
+// CORREÇÃO (auto-detectada antes da entrega do parser): a versão
+// anterior deste tipo estava incompleta — faltavam numeroDocumento
+// e a linha digitável/código de barras, ambos exigidos como Output
+// pela Especificação §5 ("Function: Parsing de Comprovante
+// Individual — PDF"). Também removido o campo nossoNumero, que não
+// existe no formato real deste documento (só o Relatório BB tem
+// Nosso Número) — estava presente por engano na primeira versão.
 // ============================================================
 export interface RegistroComprovantePdf {
-  nrAutenticacao:    string  // NR.AUTENTICACAO — chave de dedupe primária
-  dataPagamento:     string  // ISO date
-  nomeFavorecido:    string  // Extração literal
-  cnpjCpfFavorecido?: string | null
-  valor:             number
-  nossoNumero?:      string | null
+  nrAutenticacao:       string       // NR.AUTENTICACAO — chave de dedupe primária
+  numeroDocumento:      string       // NR. DOCUMENTO — extração literal (ex: "70.703")
+  dataVencimento:       string | null // DATA DE VENCIMENTO — ISO date
+  dataPagamento:        string       // DATA DO PAGAMENTO — ISO date
+  nomeFavorecido:       string       // Nome após "BENEFICIARIO:" — extração literal
+  cnpjCpfFavorecido?:   string | null // Primeiro CNPJ/CPF após "BENEFICIARIO:", nunca o de "PAGADOR:"
+  valorDocumento:       number | null // VALOR DO DOCUMENTO — valor de face, pode divergir do cobrado (juros/desconto)
+  valor:                number       // VALOR COBRADO — valor efetivo da baixa (Especificação §5, edge case)
+  linhaDigitavelOuCodigoBarras?: string | null // String numérica longa antes de "BENEFICIARIO:"
 }
 
 
