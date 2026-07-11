@@ -146,7 +146,12 @@ export interface ItemHonorario {
 }
 
 export interface ExtensaoContabilidade {
+  // Alteração autorizada no build do módulo Contas a Pagar:
+  // 'retirada_socio' (Especificacao_Modulo_Contas_a_Pagar.md, §2.1) e
+  // 'bonus_anual' (confirmado por Maycon nesta sessão — bônus isolado,
+  // ocorre 1x/ano, aplicável ao caso Maycon-CPF no roster de beneficiários)
   subtipo: 'guia_tributo_federal' | 'honorarios_contabeis' | 'folha_pro_labore'
+         | 'retirada_socio' | 'bonus_anual'
   composicaoTributos: ComposicaoTributo[] | null
   funcionario: { nome: string; cpf: string | null; cargo: string | null; admissao: string | null } | null
   rubricas: RubricaFolha[] | null
