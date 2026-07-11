@@ -262,6 +262,15 @@ export interface RegistroRelatorioBB {
   nossoNumero?:     string | null           // Presente só quando o pagamento foi via boleto
   tipoInstrumento:  'boleto' | 'pix'         // "Boleto" ou "Pix" no relatório
   canal:            'pagamento_online' | 'transferencia_online'
+  // Descoberta real nos dados (não documentada na Especificação original,
+  // confirmada por Maycon durante o build): em alguns registros pagos por
+  // CNPJ (observado nos 2 pagamentos do Maycon-CNPJ), o relatório BB traz
+  // um token numérico solto (11 ou 14 dígitos, sem rótulo) entre o nome
+  // do favorecido e o valor. O parser separa esse token do nome (nunca
+  // deixa "vazar" para dentro de nomeFavorecido) e o preserva aqui, sem
+  // usá-lo no Motor de Conciliação (o CNPJ/CPF da linha 2 já é a fonte
+  // de verdade do documento) — guardado só para auditoria/rastreabilidade
+  identificadorInlineNaoRotulado?: string | null
 }
 
 
