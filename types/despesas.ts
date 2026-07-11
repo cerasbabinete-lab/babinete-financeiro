@@ -204,6 +204,12 @@ export type OrigemEntradaDespesa =
   | 'xml_nfe_compra' // Importado via NF-e de compra XML (parser direto, sem IA)
   | 'ia_gemini'      // Extraído via Gemini (PDF, imagem, TXT, DOC, XLS, XLSX)
   | 'manual'         // Lançamento manual, sem documento de origem
+  // Valor novo, autorizado por Maycon durante o build do módulo Contas
+  // a Pagar: Despesa criada automaticamente pelo motor de conciliação
+  // (lib/pagar/motorConciliacao.ts), a partir de uma regra de roster
+  // (despesa_automatica_baixada / excedente de holerite_com_abatimento
+  // ou acumulo_ate_valor_integral) — nunca por documento de origem real
+  | 'motor_conciliacao_pagar'
 
 
 // ============================================================

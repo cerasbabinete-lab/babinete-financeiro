@@ -339,10 +339,17 @@ export type OrigemImportacaoPagar = 'relatorio_bb' | 'comprovante_pdf' | 'compro
 // ============================================================
 // ResultadoConciliacaoItem
 // Resultado do Motor de Conciliação para UM registro processado
-// (Especificação §5, "Outputs") — uma de 4 categorias possíveis
+// (Especificação §5, "Outputs") — uma de 4 categorias possíveis.
+// O variant 'baixa_automatica' ganhou despesaComplementarId opcional
+// (adição própria durante o build): cobre o caso em que um pagamento
+// de acúmulo fecha o título original E gera, na MESMA operação, uma
+// Despesa complementar pelo valor excedente (Especificação §5,
+// passo 1, "excedente") — o resultado principal continua sendo a
+// baixa do título original, mas o id da despesa complementar fica
+// disponível para o resumo de importação referenciar as duas coisas.
 // ============================================================
 export type ResultadoConciliacaoItem =
-  | { tipo: 'baixa_automatica'; contaAPagarId: string; formaBaixa: FormaBaixaPagar }
+  | { tipo: 'baixa_automatica'; contaAPagarId: string; formaBaixa: FormaBaixaPagar; despesaComplementarId?: string }
   | { tipo: 'despesa_criada_automaticamente'; despesaId: string; contaAPagarId: string }
   | { tipo: 'pendente_confirmacao'; item: ItemPendenteConfirmacao }
   | { tipo: 'nao_encontrado'; nomeFavorecido: string; cnpjCpf: string; valor: number; data: string }
