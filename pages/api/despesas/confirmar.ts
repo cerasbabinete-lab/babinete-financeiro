@@ -29,6 +29,12 @@ import { createClient } from '@supabase/supabase-js'
 // Importa a função de persistência (despesa + parcelas)
 import { criarDespesaComParcelas } from '@/lib/despesasService'
 
+// QA fix: cria os títulos em contas_a_pagar correspondentes às
+// parcelas desta Despesa — peça que faltava desde o build original
+// do módulo Contas a Pagar (ver lib/contasAPagarService.ts::criarTitulosDePagar
+// para o contexto completo)
+import { criarTitulosDePagar } from '@/lib/contasAPagarService'
+
 // Importa a função de checagem de duplicidade, para a re-validação final
 import { verificarDuplicidade } from '@/lib/despesas/duplicateCheck'
 
@@ -119,7 +125,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // ── Persiste a Despesa + parcelas, usando o client admin ──
     const resultado = await criarDespesaComParcelas(despesa, parcelas, supabaseAdmin)
 
-    return res.status(201).json(resultado)
+    // ── Cria os títulos em contas_a_pagar, um por parcela ──────
+    // Erros aqui são reportados na resposta mas NÃO revertem a
+    // Despesa já gravada (mesma filosofia de criarTitulosDeReceita)
+    const resultadoTitulos = await criarTitulosDePagar({
+      despesa: {
+        id: resultado.despesa.id,
+        documento_numero: resultado.despesa.documento_numero,
+        documento_data_emissao: resultado.despesa.documento_data_emissao,
+        favorecido_nome: resultado.despesa.favorecido_nome,
+        favorecido_cnpj_cpf: resultado.despesa.favorecido_cnpj_cpf,
+        favorecido_endereco: resultado.despesa.favorecido_endereco,
+        fornecedor_id: resultado.despesa.fornecedor_id,
+      },
+      parcelas: resultado.parcelas.map((p) => ({
+        id: p.id,
+        valor: p.valor,
+        data_vencimento: p.data_vencimento,
+        nosso_numero: p.nosso_numero,
+        linha_digitavel: p.linha_digitavel,
+      })),
+      client: supabaseAdmin,
+    })
+
+    if (resultadoTitulos.erros.length > 0) {
+      console.error('[confirmar] falhas ao criar títulos de contas_a_pagar:', resultadoTitulos.erros)
+    }
+
+    return res.status(201).json({ ...resultado, titulosPagarCriados: resultadoTitulos.criados, titulosPagarErros: resultadoTitulos.erros })
 
   } catch (err: unknown) {
     // Convenção do projeto: catch (err: unknown), nunca "any"

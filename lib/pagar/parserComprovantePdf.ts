@@ -28,13 +28,13 @@
 // nesta sessão (não havia nenhuma no projeto antes deste módulo;
 // Despesas manda o PDF inteiro pro Gemini, nunca extraiu texto
 // deterministicamente)
-// QA fix (tsc TS1192): a instalação real de pdf-parse neste projeto
-// (build ESM em dist/pdf-parse/esm/index) não expõe um export default
-// que o TypeScript reconheça sob a configuração atual — import de
-// namespace + resolução em runtime cobre tanto o caso de export
-// default quanto o de export nomeado, sem depender de esModuleInterop
-// nem usar require() (proibido pelo eslint deste projeto)
-import * as pdfParseModule from 'pdf-parse'
+// QA fix (bug real em uso, confirmado via documentação oficial do
+// pacote): package.json instala pdf-parse@^2.4.5, cuja API é
+// completamente diferente da v1 assumida pelo código original — v2
+// não tem função default, exporta a classe nomeada `PDFParse`
+// (`new PDFParse({ data: buffer }).getText()`). O helper anterior
+// causava "pdfParse is not a function" em runtime.
+import { PDFParse } from 'pdf-parse'
 
 // SDK do Gemini — usado só no fallback (Especificação §2.4: IA nunca
 // é o caminho primário)
@@ -48,13 +48,20 @@ import type { RegistroComprovantePdf } from '@/types/contasAPagar'
 
 
 // ------------------------------------------------------------
-// Helper: resolução em runtime do pdf-parse (ver nota no import acima)
+// Helper: extrairTextoPdf
+// Wrapper da API real de pdf-parse v2 — mesma implementação de
+// parserRelatorioBB.ts (deliberadamente duplicada, cada parser
+// auto-contido, mesmo padrão do resto do módulo)
 // ------------------------------------------------------------
-type FuncaoPdfParse = (data: Buffer) => Promise<{ text: string }>
-const pdfParse: FuncaoPdfParse =
-  'default' in pdfParseModule
-    ? (pdfParseModule as unknown as { default: FuncaoPdfParse }).default
-    : (pdfParseModule as unknown as FuncaoPdfParse)
+async function extrairTextoPdf(bufferArquivo: Buffer): Promise<string> {
+  const parser = new PDFParse({ data: bufferArquivo })
+  try {
+    const resultado = await parser.getText()
+    return resultado.text
+  } finally {
+    await parser.destroy()
+  }
+}
 
 
 // ------------------------------------------------------------
@@ -262,8 +269,7 @@ export async function parseComprovantePdf(
   bufferArquivo: Buffer, // conteúdo binário do PDF, como veio do upload
 ): Promise<RegistroComprovantePdf> {
   // Extrai o texto do PDF via pdf-parse
-  const resultadoExtracao = await pdfParse(bufferArquivo)
-  const textoDocumento = resultadoExtracao.text
+  const textoDocumento = await extrairTextoPdf(bufferArquivo)
 
   // Validação de conteúdo — confirma que é de fato um comprovante de
   // pagamento de título do BB antes de tentar parsear (Especificação

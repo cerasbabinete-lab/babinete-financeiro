@@ -29,6 +29,7 @@ import { supabase } from '@/lib/supabase'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   ContaAPagar,
+  ContaAPagarInsert,
   ContaAPagarUpdate,
   ContaAPagarEvento,
   FiltrosContasAPagar,
@@ -254,6 +255,146 @@ export async function registrarEvento(
     // (mesma filosofia de contasReceberService.registrarEvento)
     console.error('[contasAPagarService] registrarEvento error:', error)
   }
+}
+
+// ============================================================
+// criarTitulosDePagar()
+// Cria automaticamente um título em contas_a_pagar para cada
+// despesas_parcela de uma Despesa recém-criada — espelha
+// criarTitulosDeReceita() de lib/contasReceberService.ts
+// (Especificação Módulo Contas a Pagar §1: "este módulo consome
+// diretamente a saída do módulo Despesas [despesas_parcelas], da
+// mesma forma que Contas a Receber consome receitas_duplicatas/
+// receitas via criarTitulosDeReceita").
+//
+// QA fix (achado em uso real, sessão de fechamento do módulo): esta
+// peça nunca foi construída durante o build original — o único
+// código que inseria em contas_a_pagar era o Motor de Conciliação
+// (lib/pagar/motorConciliacao.ts), e só para os títulos sintéticos
+// do roster (sócios/Maycon-CNPJ). Toda Despesa comum lançada nunca
+// gerava título nenhum, então nunca aparecia em Contas a Pagar —
+// o Motor de Conciliação concilia pagamentos contra títulos que
+// precisam existir primeiro, e essa ponte não existia.
+//
+// Regra de cardinalidade (Especificação §2.1, "Regra crítica",
+// confirmada explicitamente com o usuário — não alterar): uma
+// despesas_parcela gera EXATAMENTE um contas_a_pagar, nunca mais de
+// um. Dedupe por despesa_parcela_id — inclui títulos cancelados no
+// filtro de já-existe (cancelado bloqueia recriação, mesmo princípio
+// de verificarDuplicataXml em Contas a Receber). A constraint UNIQUE
+// parcial de contas_a_pagar (M5, sql/05_migration_contas_a_pagar_
+// idempotente.sql) é o backstop no banco — esta checagem aqui evita
+// o round-trip de erro antes de chegar lá.
+//
+// Erros são coletados e retornados — NÃO lança exceção global para
+// não desfazer a Despesa já gravada com sucesso (mesma filosofia de
+// criarTitulosDeReceita).
+//
+// Chamado por: pages/api/despesas/confirmar.ts, logo após
+// criarDespesaComParcelas()
+// ============================================================
+export async function criarTitulosDePagar(params: {
+  despesa: {
+    id:                      string
+    documento_numero?:       string | null
+    documento_data_emissao?: string | null
+    favorecido_nome:         string
+    favorecido_cnpj_cpf?:    string | null
+    favorecido_endereco?:    string | null
+    fornecedor_id:           number
+  }
+  parcelas: {
+    id:               string
+    valor:            number
+    data_vencimento:  string
+    nosso_numero?:    string | null
+    linha_digitavel?: string | null
+  }[]
+  client?: SupabaseClient // permite uso a partir de API routes com client admin — padrão é o client do browser
+}): Promise<{ criados: number; erros: string[] }> {
+  const { despesa, parcelas, client = supabase } = params
+  let criados = 0
+  const erros: string[] = []
+
+  for (const parcela of parcelas) {
+    try {
+      // ── Dedupe por despesa_parcela_id ──────────────────────
+      const { data: existente, error: erroChecagem } = await client
+        .from(TABELA)
+        .select('id')
+        .eq('despesa_parcela_id', parcela.id)
+        .maybeSingle()
+
+      if (erroChecagem) {
+        erros.push(`Parcela ${parcela.id}: falha ao checar duplicidade — ${erroChecagem.message}`)
+        continue
+      }
+      if (existente) {
+        // Título já existe para esta parcela — pula silenciosamente
+        continue
+      }
+
+      // data_processamento: usa a data de emissão do documento de
+      // origem quando disponível (mesmo princípio de
+      // criarTitulosDeReceita, que usa receita.data_emissao);
+      // fallback para a data de vencimento da própria parcela quando
+      // a Despesa não tem data de emissão de documento (ex: lançamento manual)
+      const dataProcessamento = (despesa.documento_data_emissao ?? parcela.data_vencimento).slice(0, 10)
+
+      const titulo: ContaAPagarInsert = {
+        despesa_parcela_id:  parcela.id,
+        despesa_id:          despesa.id,
+        fornecedor_id:       despesa.fornecedor_id,
+        numero_documento:    despesa.documento_numero ?? null,
+        data_vencimento:     parcela.data_vencimento,
+        data_processamento:  dataProcessamento,
+        valor:               parcela.valor,
+        // Herdados da parcela — mesmo princípio de criarTitulosDeReceita
+        // (nosso_numero/linha_digitavel podem já vir preenchidos de
+        // boletos emitidos, ou ficam null até confirmação via Relatório BB)
+        nosso_numero:        parcela.nosso_numero ?? null,
+        linha_digitavel:     parcela.linha_digitavel ?? null,
+        status:              'em_aberto',
+        data_baixa:          null,
+        forma_baixa:         null,
+        // Dados do favorecido/credor — imutáveis após criação, mesmo
+        // princípio de cliente_nome em Contas a Receber
+        favorecido_nome:        despesa.favorecido_nome,
+        favorecido_cnpj_cpf:    despesa.favorecido_cnpj_cpf ?? null,
+        favorecido_endereco:    despesa.favorecido_endereco ?? null,
+        observacoes:         null,
+        deleted_at:          null,
+      }
+
+      const { data: tituloInserido, error: erroInsert } = await client
+        .from(TABELA)
+        .insert(titulo)
+        .select('id')
+        .single()
+
+      if (erroInsert || !tituloInserido) {
+        erros.push(`Parcela ${parcela.id}: falha ao criar título — ${erroInsert?.message ?? 'sem retorno do insert'}`)
+        continue
+      }
+
+      await registrarEvento(
+        tituloInserido.id,
+        'criado',
+        `Título criado automaticamente a partir da Despesa (parcela ${parcela.id}).`,
+        null,
+        client,
+      )
+
+      criados++
+
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[contasAPagarService] criarTitulosDePagar parcela error:', msg)
+      erros.push(`Parcela ${parcela.id}: ${msg}`)
+    }
+  }
+
+  return { criados, erros }
 }
 
 // ============================================================

@@ -30,10 +30,19 @@
 
 // Biblioteca de extração de texto de PDF — mesma dependência nova
 // aprovada nesta sessão, já usada em parserComprovantePdf.ts
-// QA fix (tsc TS1192): mesma correção de parserComprovantePdf.ts — a
-// instalação real de pdf-parse não expõe export default reconhecido
-// pelo TS sob a configuração atual
-import * as pdfParseModule from 'pdf-parse'
+// QA fix (bug real em uso, confirmado via documentação oficial do
+// pacote): o package.json instala pdf-parse@^2.4.5, cuja API é
+// COMPLETAMENTE diferente da v1 que o código original assumia. Na
+// v1, o pacote exportava uma função default (`pdf(buffer)`). Na v2,
+// não existe mais função default nenhuma — o pacote exporta a
+// classe nomeada `PDFParse`, usada como
+// `new PDFParse({ data: buffer }).getText()`. O helper anterior
+// (`'default' in pdfParseModule ? ... : ...`) sempre caía no branch
+// errado e tentava chamar o módulo inteiro como função, causando
+// "pdfParse is not a function" em runtime — o `tsc` não pegava
+// porque o cast `as unknown as FuncaoPdfParse` escondia o erro do
+// compilador.
+import { PDFParse } from 'pdf-parse'
 
 // SDK do Gemini — usado só no fallback por linha (Especificação §2.4)
 import { GoogleGenerativeAI } from '@google/generative-ai'
@@ -44,13 +53,21 @@ import type { RegistroRelatorioBB } from '@/types/contasAPagar'
 
 
 // ------------------------------------------------------------
-// Helper: resolução em runtime do pdf-parse (ver nota no import acima)
+// Helper: extrairTextoPdf
+// Wrapper da API real de pdf-parse v2 — instancia o parser, extrai
+// o texto, e SEMPRE libera os recursos via destroy() (mesmo em caso
+// de erro, via try/finally), conforme a documentação oficial do
+// pacote. Substitui a resolução em runtime da versão anterior.
 // ------------------------------------------------------------
-type FuncaoPdfParse = (data: Buffer) => Promise<{ text: string }>
-const pdfParse: FuncaoPdfParse =
-  'default' in pdfParseModule
-    ? (pdfParseModule as unknown as { default: FuncaoPdfParse }).default
-    : (pdfParseModule as unknown as FuncaoPdfParse)
+async function extrairTextoPdf(bufferArquivo: Buffer): Promise<string> {
+  const parser = new PDFParse({ data: bufferArquivo })
+  try {
+    const resultado = await parser.getText()
+    return resultado.text
+  } finally {
+    await parser.destroy()
+  }
+}
 
 
 // ------------------------------------------------------------
@@ -232,8 +249,7 @@ export async function parseRelatorioBB(
   bufferArquivo: Buffer, // conteúdo binário do PDF, como veio do upload
 ): Promise<ResultadoParsingRelatorioBB> {
   // Extrai o texto do PDF via pdf-parse
-  const resultadoExtracao = await pdfParse(bufferArquivo)
-  const textoDocumento = resultadoExtracao.text
+  const textoDocumento = await extrairTextoPdf(bufferArquivo)
 
   // Validação de conteúdo — Especificação §5: nunca confiar só no nome
   // do arquivo, checar as duas âncoras de texto obrigatórias
