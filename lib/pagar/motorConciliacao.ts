@@ -638,6 +638,15 @@ export async function conciliarRegistro(
       return {
         tipo: 'pendente_confirmacao',
         item: {
+          // NOTA: registroOriginal aqui é um placeholder normalizado,
+          // não o shape real do parser de origem (RegistroRelatorioBB
+          // ou RegistroComprovantePdf) — os campos que a UI de fato
+          // precisa (favorecidoIdentificado, cnpjCpfIdentificado,
+          // valor, data, origem) já estão nos campos irmãos abaixo.
+          // Simplificação própria para não ter que repassar o tipo
+          // genérico do parser até aqui — sinalizar se a UI da
+          // ImportarConciliacaoPreviewModal precisar de mais detalhe
+          // bruto do documento original.
           registroOriginal: {
             id: null,
             autenticacaoSisbb: null,
@@ -652,6 +661,7 @@ export async function conciliarRegistro(
           cnpjCpfIdentificado: registro.cnpjCpf,
           valor: registro.valor,
           data: registro.data,
+          origem: registro.origem,
           titulosEmAbertoDoFornecedor: listaTitulos,
           tituloEscolhidoId: null,
         },

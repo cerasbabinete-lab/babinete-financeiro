@@ -367,6 +367,11 @@ export interface ItemPendenteConfirmacao {
   cnpjCpfIdentificado: string
   valor: number
   data: string
+  // Origem da importação — necessário para confirmar-conciliacao.ts
+  // saber se forma_baixa deve ser 'relatorio_bb' ou 'comprovante_individual'
+  // ao aplicar a baixa escolhida (adição própria, não estava no shape
+  // original — descoberta ao implementar a rota de confirmação)
+  origem: OrigemImportacaoPagar
   // Lista de parcelas em aberto/vencidas daquele fornecedor, para
   // o usuário escolher qual corresponde
   titulosEmAbertoDoFornecedor: ContaAPagar[]
