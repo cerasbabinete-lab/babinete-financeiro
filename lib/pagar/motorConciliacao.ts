@@ -629,21 +629,65 @@ export async function conciliarRegistro(
   }
 
   // ── PASSO 2: Nosso Número (só pagamentos via boleto) ──────
+  // QA fix (sessão 12/07/2026 — bug real confirmado com o boleto SKY,
+  // 402560110347, e cruzado contra o Relatório BB 10072026): o Nosso
+  // Número gravado no título (formato curto, ex: "00007883515-2",
+  // extraído do próprio boleto no momento da Despesa) NUNCA é igual,
+  // caractere a caractere, ao "Nosso Número" impresso no Relatório de
+  // Pagamentos BB. Decompondo a linha digitável real do boleto SKY
+  // (23792.37205 90000.788357 15027.140209 2 14960000032974) pelos
+  // campos padrão FEBRABAN, o CAMPO LIVRE resultante (25 dígitos,
+  // formato interno do banco emissor) bate dígito a dígito com o
+  // "Nosso Número" do relatório ("2372090000788351502714020") — ou
+  // seja, o relatório imprime o campo livre inteiro, não o Nosso
+  // Número curto isolado. O Nosso Número curto aparece CONTIDO dentro
+  // desse campo livre, mas em posição variável conforme o banco/
+  // carteira por trás do boleto (não é um offset fixo universal —
+  // confirmado comparando 2 boletos de bancos diferentes, CASADEI e
+  // SKY). Comparação trocada de igualdade exata (`.eq()`) para
+  // "dígitos contidos", testada nas duas direções e com/sem o dígito
+  // verificador final do formato "NNNNN-D".
   if (registro.nossoNumero) {
-    const { data: titulosPorNossoNumero, error: erroNossoNumero } = await supabaseAdmin
+    const digitosRegistro = extrairSomenteDigitos(registro.nossoNumero)
+
+    // Busca todos os títulos em aberto com nosso_numero preenchido —
+    // "contido em" não é expressável via .ilike() nesta direção (o
+    // valor do relatório costuma ser MAIOR que o valor salvo no
+    // título, não o contrário), então o filtro fino é feito em
+    // código logo abaixo, sobre este conjunto candidato
+    const { data: titulosComNossoNumero, error: erroNossoNumero } = await supabaseAdmin
       .from('contas_a_pagar')
-      .select('id')
-      .eq('nosso_numero', registro.nossoNumero)
+      .select('id, nosso_numero')
       .eq('status', 'em_aberto')
       .is('deleted_at', null)
+      .not('nosso_numero', 'is', null)
 
     if (erroNossoNumero) {
-      throw new Error(`Falha ao buscar título por Nosso Número: ${erroNossoNumero.message}`)
+      throw new Error(`Falha ao buscar títulos por Nosso Número: ${erroNossoNumero.message}`)
     }
 
-    // Match exato e único — baixa automática direta (Especificação §5, passo 2)
-    if (titulosPorNossoNumero && titulosPorNossoNumero.length === 1) {
-      const tituloId = titulosPorNossoNumero[0].id
+    // Match por dígitos contidos — testa o Nosso Número do título com
+    // o dígito verificador final ("NNNNN-D" → dígitos completos) e
+    // também sem ele (só a base, "NNNNN"), já que o campo livre do
+    // relatório pode conter só a base sem o DV (caso SKY confirmado).
+    // Testa as duas direções (relatório contém título / título
+    // contém relatório) para cobrir também um eventual caso inverso.
+    // Comprimento mínimo de 8 dígitos evita falso positivo por
+    // sequência curta demais para ser um Nosso Número real.
+    const candidatos = (titulosComNossoNumero ?? []).filter((t: { id: string; nosso_numero: string | null }) => {
+      const digitosTitulo = extrairSomenteDigitos(t.nosso_numero ?? '')
+      if (digitosTitulo.length < 8) return false
+      const digitosTituloSemDv = digitosTitulo.slice(0, -1)
+      return (
+        digitosRegistro.includes(digitosTitulo) ||
+        digitosRegistro.includes(digitosTituloSemDv) ||
+        digitosTitulo.includes(digitosRegistro)
+      )
+    })
+
+    // Match único — baixa automática direta (Especificação §5, passo 2)
+    if (candidatos.length === 1) {
+      const tituloId = candidatos[0].id
 
       const { error: erroUpdate } = await supabaseAdmin
         .from('contas_a_pagar')
@@ -658,15 +702,15 @@ export async function conciliarRegistro(
         supabaseAdmin,
         tituloId,
         'baixa_total',
-        `Baixa automática por Nosso Número "${registro.nossoNumero}" via ${registro.origem}.`,
+        `Baixa automática por Nosso Número "${registro.nossoNumero}" via ${registro.origem} (match por dígitos contidos — campo livre do relatório BB).`,
         registro.valor,
       )
 
       return { tipo: 'baixa_automatica', contaAPagarId: tituloId, formaBaixa }
     }
-    // Nenhum ou mais de um match (não deveria acontecer, nosso_numero
-    // é herdado único por parcela, mas se acontecer, segue para o
-    // passo 3 em vez de decidir arbitrariamente)
+    // Nenhum ou mais de um candidato — segue para o passo 3 em vez de
+    // decidir arbitrariamente (mesmo critério conservador já usado no
+    // resto do motor)
   }
 
   // ── PASSO 3: Fornecedor + valor exato ─────────────────────
