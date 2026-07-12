@@ -28,7 +28,13 @@
 // nesta sessão (não havia nenhuma no projeto antes deste módulo;
 // Despesas manda o PDF inteiro pro Gemini, nunca extraiu texto
 // deterministicamente)
-import pdfParse from 'pdf-parse'
+// QA fix (tsc TS1192): a instalação real de pdf-parse neste projeto
+// (build ESM em dist/pdf-parse/esm/index) não expõe um export default
+// que o TypeScript reconheça sob a configuração atual — import de
+// namespace + resolução em runtime cobre tanto o caso de export
+// default quanto o de export nomeado, sem depender de esModuleInterop
+// nem usar require() (proibido pelo eslint deste projeto)
+import * as pdfParseModule from 'pdf-parse'
 
 // SDK do Gemini — usado só no fallback (Especificação §2.4: IA nunca
 // é o caminho primário)
@@ -39,6 +45,16 @@ import type { Schema } from '@google/generative-ai'
 // verdade do shape (corrigido nesta sessão: faltavam numeroDocumento
 // e a linha digitável/código de barras na primeira versão do tipo)
 import type { RegistroComprovantePdf } from '@/types/contasAPagar'
+
+
+// ------------------------------------------------------------
+// Helper: resolução em runtime do pdf-parse (ver nota no import acima)
+// ------------------------------------------------------------
+type FuncaoPdfParse = (data: Buffer) => Promise<{ text: string }>
+const pdfParse: FuncaoPdfParse =
+  'default' in pdfParseModule
+    ? (pdfParseModule as unknown as { default: FuncaoPdfParse }).default
+    : (pdfParseModule as unknown as FuncaoPdfParse)
 
 
 // ------------------------------------------------------------
@@ -224,8 +240,10 @@ async function extrairComGemini(textoDocumento: string): Promise<Partial<Registr
 
     const textoResposta = resultado.response.text()
     return JSON.parse(textoResposta) as Partial<RegistroComprovantePdf>
-  } catch (err: unknown) {
-    // Convenção do projeto: catch (err: unknown), nunca "any"
+  } catch (_err: unknown) {
+    // Convenção do projeto: catch (err: unknown), nunca "any" — prefixo
+    // _ (mesmo padrão já usado no projeto, ex: ContasReceberModal.tsx)
+    // sinaliza intencionalmente não usado, sem perder a tipagem
     return null
   }
 }

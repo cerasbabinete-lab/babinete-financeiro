@@ -154,7 +154,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           nomeFavorecido: registro.nomeFavorecido,
           // Prioridade da Chave Pix numérica sem máscara já resolvida
           // pelo parser em documentoIdentificado — usa isso como cnpjCpf
-          cnpjCpf: registro.documentoIdentificado,
+          // QA fix (tsc TS2322): documentoIdentificado é opcional
+          // (string | null | undefined) no shape do parser; o motor
+          // exige string | null — normaliza undefined para null aqui
+          cnpjCpf: registro.documentoIdentificado ?? null,
           valor: registro.valor,
           data: registro.dataPagamento,
           nossoNumero: null, // Pix nunca tem Nosso Número

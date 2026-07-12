@@ -259,7 +259,7 @@ async function extrairBlocoComGemini(textoBloco: string): Promise<Partial<Regist
     // Extrai e faz parse do JSON retornado
     const textoResposta = resultado.response.text()
     return JSON.parse(textoResposta) as Partial<RegistroComprovanteTxt>
-  } catch (err: unknown) {
+  } catch (_err: unknown) {
     // Convenção do projeto: catch (err: unknown), nunca "any" — e o
     // fallback falhando não deve derrubar o processamento dos outros
     // blocos, só este bloco específico conta como erro

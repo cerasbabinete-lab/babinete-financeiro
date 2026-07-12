@@ -30,7 +30,10 @@
 
 // Biblioteca de extração de texto de PDF — mesma dependência nova
 // aprovada nesta sessão, já usada em parserComprovantePdf.ts
-import pdfParse from 'pdf-parse'
+// QA fix (tsc TS1192): mesma correção de parserComprovantePdf.ts — a
+// instalação real de pdf-parse não expõe export default reconhecido
+// pelo TS sob a configuração atual
+import * as pdfParseModule from 'pdf-parse'
 
 // SDK do Gemini — usado só no fallback por linha (Especificação §2.4)
 import { GoogleGenerativeAI } from '@google/generative-ai'
@@ -38,6 +41,16 @@ import type { Schema } from '@google/generative-ai'
 
 // Tipo de retorno de cada registro, definido em types/contasAPagar.ts
 import type { RegistroRelatorioBB } from '@/types/contasAPagar'
+
+
+// ------------------------------------------------------------
+// Helper: resolução em runtime do pdf-parse (ver nota no import acima)
+// ------------------------------------------------------------
+type FuncaoPdfParse = (data: Buffer) => Promise<{ text: string }>
+const pdfParse: FuncaoPdfParse =
+  'default' in pdfParseModule
+    ? (pdfParseModule as unknown as { default: FuncaoPdfParse }).default
+    : (pdfParseModule as unknown as FuncaoPdfParse)
 
 
 // ------------------------------------------------------------
@@ -199,8 +212,9 @@ async function extrairLinhaComGemini(textoLinha1: string, textoLinha2: string | 
 
     const textoResposta = resultado.response.text()
     return JSON.parse(textoResposta) as Partial<RegistroRelatorioBB>
-  } catch (err: unknown) {
-    // Convenção do projeto: catch (err: unknown), nunca "any"
+  } catch (_err: unknown) {
+    // Convenção do projeto: catch (err: unknown), nunca "any" — prefixo
+    // _ sinaliza intencionalmente não usado, sem perder a tipagem
     return null
   }
 }
