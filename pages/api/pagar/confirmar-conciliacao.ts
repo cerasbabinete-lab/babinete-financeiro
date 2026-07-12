@@ -19,7 +19,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 
-import { registrarEvento } from '@/lib/contasAPagarService'
+import { registrarEvento, somarValorPagoEventosComClient } from '@/lib/contasAPagarService'
 import type { ItemPendenteConfirmacao, FormaBaixaPagar } from '@/types/contasAPagar'
 
 function getSupabaseAdmin() {
@@ -70,8 +70,60 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         continue
       }
 
+      // QA fix (achado em uso real — pagamento da Sheli, sessão de
+      // testes deste módulo): esta rota antes marcava SEMPRE 'pago'
+      // com o valor escolhido, sem checar se o valor confirmado bate
+      // com o valor de face do título. Isso causava dois problemas:
+      // (a) pagamento MENOR que o título virava 'pago' igual assim
+      // mesmo (perdia o estado pago_parcial); (b) pagamento MAIOR
+      // que o título (excedente) tinha o valor extra simplesmente
+      // descartado, sem nenhum rastro.
+      //
+      // Busca o título para saber o valor de face e decidir o status
+      // correto — mesmo padrão de registrarBaixaManual() e de
+      // processarAcumulo() em motorConciliacao.ts
+      const { data: tituloAtual, error: erroBusca } = await supabaseAdmin
+        .from('contas_a_pagar')
+        .select('valor')
+        .eq('id', escolha.tituloEscolhidoId)
+        .single()
+
+      if (erroBusca || !tituloAtual) {
+        erros.push(`Título ${escolha.tituloEscolhidoId}: falha ao buscar título — ${erroBusca?.message ?? 'não encontrado'}`)
+        continue
+      }
+
       const formaBaixa: FormaBaixaPagar = escolha.origem === 'relatorio_bb' ? 'relatorio_bb' : 'comprovante_individual'
 
+      const somaAnterior = await somarValorPagoEventosComClient(escolha.tituloEscolhidoId, supabaseAdmin)
+      const novaSoma = somaAnterior + escolha.valor
+      const valorExcedente = Math.round((novaSoma - tituloAtual.valor) * 100) / 100
+
+      // ── Caso 1: soma ainda menor que o valor do título → baixa parcial ──
+      if (novaSoma < tituloAtual.valor - 0.01) {
+        const { error: erroUpdateParcial } = await supabaseAdmin
+          .from('contas_a_pagar')
+          .update({ status: 'pago_parcial' })
+          .eq('id', escolha.tituloEscolhidoId)
+
+        if (erroUpdateParcial) {
+          erros.push(`Título ${escolha.tituloEscolhidoId}: ${erroUpdateParcial.message}`)
+          continue
+        }
+
+        await registrarEvento(
+          escolha.tituloEscolhidoId,
+          'baixa_parcial',
+          `Baixa parcial confirmada manualmente pelo usuário — favorecido "${escolha.favorecidoIdentificado}", valor ${escolha.valor}, via ${escolha.origem} — acumulado ${novaSoma} de ${tituloAtual.valor}.`,
+          escolha.valor,
+          supabaseAdmin,
+        )
+
+        baixasAplicadas++
+        continue
+      }
+
+      // ── Caso 2: soma fecha (ou ultrapassa) o valor do título → baixa total ──
       const { error: erroUpdate } = await supabaseAdmin
         .from('contas_a_pagar')
         .update({ status: 'pago', data_baixa: escolha.data, forma_baixa: formaBaixa })
@@ -82,10 +134,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         continue
       }
 
+      // Descrição do evento sinaliza o excedente explicitamente quando
+      // houver — este caminho (confirmação manual de fornecedor
+      // genérico) não tem contexto de roster (categoria/subtipo) para
+      // criar uma Despesa complementar automática como
+      // processarAcumulo() faz para os casos de sócio/prestador MEI.
+      // Em vez de descartar o valor excedente silenciosamente, ele
+      // fica registrado de forma explícita na descrição do evento
+      // para revisão manual — nunca inventa um lançamento sem ter
+      // categoria/subtipo confiável para ele.
+      const descricaoBase = `Baixa confirmada manualmente pelo usuário — favorecido "${escolha.favorecidoIdentificado}", valor ${escolha.valor}, via ${escolha.origem}.`
+      const descricao = valorExcedente > 0.01
+        ? `${descricaoBase} ATENÇÃO: valor pago excede o valor do título (${tituloAtual.valor}) em ${valorExcedente} — revisar se é necessário lançamento de Despesa complementar manual (este fluxo não cria automaticamente, diferente do roster de sócios/prestador).`
+        : descricaoBase
+
       await registrarEvento(
         escolha.tituloEscolhidoId,
         'baixa_total',
-        `Baixa confirmada manualmente pelo usuário — favorecido "${escolha.favorecidoIdentificado}", valor ${escolha.valor}, via ${escolha.origem}.`,
+        descricao,
         escolha.valor,
         supabaseAdmin,
       )

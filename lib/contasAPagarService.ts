@@ -455,9 +455,12 @@ export async function registrarBaixaManual(
   )
 }
 
-// Helper interno — mesma lógica de somarValorPagoEventos, mas aceita
-// client injetável (a versão pública usa sempre o client do browser)
-async function somarValorPagoEventosComClient(tituloId: string, client: SupabaseClient): Promise<number> {
+// QA fix: exportada (antes era interna) para reaproveitar em
+// pages/api/pagar/confirmar-conciliacao.ts, que precisa do mesmo
+// cálculo de acúmulo (soma dos eventos de baixa) que registrarBaixaManual
+// já usa — mesmo princípio de não duplicar a lógica de "quanto já foi
+// pago" em dois lugares diferentes
+export async function somarValorPagoEventosComClient(tituloId: string, client: SupabaseClient): Promise<number> {
   const { data, error } = await client
     .from(TABELA_EVENTOS)
     .select('valor_pago')
