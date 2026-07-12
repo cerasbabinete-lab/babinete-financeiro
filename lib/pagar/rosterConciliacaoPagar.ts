@@ -94,6 +94,14 @@ export async function buscarBeneficiarioRosterPorDocumento(
   // se for NULL, a linha existe no roster mas não tem regra especial
   // para Contas a Pagar (Especificação §2.1: tratado como fornecedor
   // genérico mesmo que exista uma linha no roster)
+  // QA fix (L1, Relatorio_Auditoria_Contas_a_Pagar_QA_Directive.md) —
+  // avaliado e classificado como seguro sem alteração de código:
+  // `digitos`/`formatado` vêm só de extrairSomenteDigitos()/
+  // formatarComoCnpjOuCpf() (dígitos ou dígitos+pontuação fixa),
+  // `colunaAlvo` é literal 'cnpj'|'cpf' fixado em código — nenhum dos
+  // três vem de texto livre do usuário, não há caractere que quebre a
+  // sintaxe do filtro .or() do PostgREST. Mesma avaliação já
+  // documentada em lib/pagar/motorConciliacao.ts.
   const { data: candidatos, error } = await supabaseAdmin
     .from('beneficiarios_pessoais')
     .select('id, nome, cpf, cnpj, vinculo, aliases, endereco, regra_conciliacao_pagar, despesa_gerada_categoria, despesa_gerada_subtipo')

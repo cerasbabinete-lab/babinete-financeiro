@@ -119,7 +119,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         data: registro.dataPagamento,
         nossoNumero: registro.nossoNumero,
         origem: 'relatorio_bb',
-      })
+      }, registro)
 
       resumo.detalhes.push(resultado)
 

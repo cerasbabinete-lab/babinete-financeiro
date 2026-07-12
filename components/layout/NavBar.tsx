@@ -19,14 +19,13 @@ import { usePathname } from 'next/navigation'
 // Módulos do sistema — ordem e rotas conforme mockup aprovado
 // QA fix (achado Médio #18 — Relatorio_Auditoria_Modulo_Despesas.md):
 // campo "habilitado" adicionado — "Contas a Pagar" apontava para /pagar,
-// rota que ainda não existe no projeto (módulo não construído; fora de
-// escopo desta sessão, previsto para uma interview futura), levando a um
-// 404 real hoje. Correção de curto prazo (opção 1 do achado): mesmo
-// mecanismo de "módulo desabilitado" que app/page.tsx já usa no grid da
-// Home (flag "ativo"), aplicado aqui ao NavBar — o item aparece
-// visualmente, mas não é mais um link clicável enquanto a rota não
-// existir. Alteração feita seguindo o processo de exceção de arquivo
-// congelado do projeto, com aprovação explícita do usuário para este item.
+// rota que ainda não existia no projeto (módulo não construído), levando
+// a um 404 real. Mesmo mecanismo de "módulo desabilitado" que
+// app/page.tsx já usa no grid da Home (flag "ativo"), aplicado aqui.
+// ATUALIZAÇÃO: módulo Contas a Pagar concluído (código + banco
+// validados) nesta sessão — "habilitado" alterado para true. Alteração
+// feita seguindo o processo de exceção do projeto (arquivo congelado),
+// com aprovação explícita do usuário para este item.
 // ============================================================
 const MODULOS = [
   { label: 'Início',           href: '/',            icon: 'ti-home-star', habilitado: true },
@@ -35,7 +34,7 @@ const MODULOS = [
   { label: 'Receitas',         href: '/receitas',    icon: null,           habilitado: true },
   { label: 'Despesas',         href: '/despesas',    icon: null,           habilitado: true },
   { label: 'Contas a Receber', href: '/receber',     icon: null,           habilitado: true },
-  { label: 'Contas a Pagar',   href: '/pagar',       icon: null,           habilitado: false },
+  { label: 'Contas a Pagar',   href: '/pagar',       icon: null,           habilitado: true },
   { label: 'Clientes',         href: '/clientes',    icon: null,           habilitado: true },
   { label: 'Fornecedores',     href: '/fornecedores',icon: null,           habilitado: true },
   { label: 'Usuários',         href: '/usuarios',    icon: null,           habilitado: true },

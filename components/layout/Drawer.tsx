@@ -19,11 +19,12 @@ import { supabase } from '@/lib/supabase'
 
 // QA fix (achado Médio #18 — Relatorio_Auditoria_Modulo_Despesas.md):
 // campo "habilitado" adicionado — "Contas a Pagar" apontava para /pagar,
-// rota que ainda não existe (módulo não construído, fora de escopo desta
-// sessão), levando a um 404 real hoje. Mesma correção de curto prazo
-// aplicada em NavBar.tsx (desktop): item visível, mas não clicável
-// enquanto a rota não existir. Arquivo congelado — alteração feita
-// seguindo o processo de exceção do projeto, com aprovação explícita.
+// rota que ainda não existia (módulo não construído), levando a um 404
+// real. Item ficou visível, mas não clicável, enquanto a rota não existia.
+// ATUALIZAÇÃO: módulo Contas a Pagar concluído (código + banco validados)
+// nesta sessão — "habilitado" alterado para true. Alteração feita
+// seguindo o processo de exceção do projeto (arquivo congelado), com
+// aprovação explícita do usuário para este item.
 const MODULOS = [
   { label: 'Início',           href: '/',            icon: '/img/home.svg',           habilitado: true },
   { label: 'Dashboard',        href: '/dashboard',   icon: '/img/dashboard.svg',       habilitado: true },
@@ -31,7 +32,7 @@ const MODULOS = [
   { label: 'Receitas',         href: '/receitas',    icon: '/img/receitas.svg',        habilitado: true },
   { label: 'Despesas',         href: '/despesas',    icon: '/img/despesas.svg',        habilitado: true },
   { label: 'Contas a Receber', href: '/receber',     icon: '/img/contas_receber.svg',  habilitado: true },
-  { label: 'Contas a Pagar',   href: '/pagar',       icon: '/img/contas_pagar.svg',    habilitado: false },
+  { label: 'Contas a Pagar',   href: '/pagar',       icon: '/img/contas_pagar.svg',    habilitado: true },
   { label: 'Clientes',         href: '/clientes',    icon: '/img/clientes.svg',        habilitado: true },
   { label: 'Fornecedores',     href: '/fornecedores',icon: '/img/fornecedores.svg',    habilitado: true },
   { label: 'Usuários',         href: '/usuarios',    icon: '/img/usuarios.svg',        habilitado: true },

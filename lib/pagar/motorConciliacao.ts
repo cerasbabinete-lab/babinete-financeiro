@@ -39,6 +39,9 @@ import type {
   BeneficiarioPessoalRosterPagar,
   OrigemImportacaoPagar,
   ResultadoConciliacaoItem,
+  RegistroRelatorioBB,
+  RegistroComprovantePdf,
+  RegistroComprovanteTxt,
 } from '@/types/contasAPagar'
 
 import type { DespesaInsert, DespesaParcelaInsert, CategoriaFinanceira, Favorecido } from '@/types/despesas'
@@ -139,13 +142,28 @@ async function buscarFornecedorPorDocumentoAdmin(
   if (!digitos) return null
 
   const formatado = formatarComoCnpjOuCpf(digitos)
+  // QA fix (L2, Relatorio_Auditoria_Contas_a_Pagar_QA_Directive.md):
+  // .limit(5) removido — com mais de 5 fornecedores compartilhando um
+  // substring de dígitos, um match real podia ficar fora da janela
+  // retornada e o código concluir "não encontrado" incorretamente. O
+  // filtro de match exato abaixo (linhas seguintes) já garante que só
+  // o registro certo é usado, então não há necessidade de limitar a
+  // busca — o pré-filtro em si continua barato (índice em cnpj/cpf).
+  // QA fix (L1, Relatorio_Auditoria_Contas_a_Pagar_QA_Directive.md) —
+  // avaliado e classificado como seguro sem alteração de código:
+  // `digitos` vem sempre de extrairSomenteDigitos() (só [0-9]) e
+  // `formatado` só de formatarComoCnpjOuCpf() (dígitos + pontuação
+  // fixa "./-", nunca texto arbitrário do usuário) — não existe
+  // caractere que quebre a sintaxe do filtro .or() do PostgREST
+  // (vírgula, parênteses, aspas) nesses dois formatos. Não há
+  // `escaparParaFiltroOr()` disponível no projeto para reaproveitar
+  // sem criar uma dependência nova não validada.
   const { data, error } = await supabaseAdmin
     .from('fornecedores')
     .select('id, razao, cnpj, cpf')
     .or(
       `cnpj.ilike.%${digitos}%,cpf.ilike.%${digitos}%${formatado ? `,cnpj.ilike.%${formatado}%,cpf.ilike.%${formatado}%` : ''}`,
     )
-    .limit(5)
 
   if (error || !data || data.length === 0) return null
 
@@ -270,6 +288,17 @@ async function criarDespesaEContaAPagarAutomatica(
     origem_entrada: 'motor_conciliacao_pagar',
   }
 
+  // QA fix (M3, Relatorio_Auditoria_Contas_a_Pagar_QA_Directive.md):
+  // Supabase client (via PostgREST) não expõe transação multi-tabela
+  // client-side — a alternativa correta seria uma função RPC no
+  // Postgres, mas isso exigiria uma nova migration + teste separado
+  // fora do escopo desta sessão. Como mitigação, cada insert que falha
+  // APÓS um insert anterior ter tido sucesso agora limpa (DELETE) o
+  // que já foi criado antes de propagar o erro — nunca deixa uma
+  // Despesa ou parcela órfã, sem contas_a_pagar correspondente. Ainda
+  // não é atômico (há uma janela entre os inserts), mas elimina o
+  // cenário mais provável de dado inconsistente: falha no 2º/3º passo
+  // sem qualquer rollback do 1º/2º.
   const { data: despesaInserida, error: erroDespesa } = await supabaseAdmin
     .from('despesas')
     .insert(novaDespesa)
@@ -301,7 +330,10 @@ async function criarDespesaEContaAPagarAutomatica(
     .single()
 
   if (erroParcela || !parcelaInserida) {
-    throw new Error(`Despesa criada, mas falha ao criar parcela automática: ${erroParcela?.message ?? 'sem retorno do insert'}`)
+    // Limpeza compensatória — despesa já foi criada, mas a parcela
+    // falhou, então a despesa ficaria órfã (sem parcela, sem título)
+    await supabaseAdmin.from('despesas').delete().eq('id', despesaInserida.id)
+    throw new Error(`Falha ao criar parcela automática (Despesa ${despesaInserida.id} foi revertida): ${erroParcela?.message ?? 'sem retorno do insert'}`)
   }
 
   // ── Insere o título em contas_a_pagar, já baixado ──
@@ -331,10 +363,19 @@ async function criarDespesaEContaAPagarAutomatica(
     .single()
 
   if (erroTitulo || !tituloInserido) {
-    throw new Error(`Despesa e parcela criadas, mas falha ao criar contas_a_pagar automático: ${erroTitulo?.message ?? 'sem retorno do insert'}`)
+    // Limpeza compensatória — despesa E parcela já foram criadas, mas
+    // o título falhou. Remove parcela primeiro (FK despesa_id), depois
+    // a despesa, para não deixar nada órfão de pé
+    await supabaseAdmin.from('despesas_parcelas').delete().eq('id', parcelaInserida.id)
+    await supabaseAdmin.from('despesas').delete().eq('id', despesaInserida.id)
+    throw new Error(`Falha ao criar contas_a_pagar automático (Despesa ${despesaInserida.id} e parcela foram revertidas): ${erroTitulo?.message ?? 'sem retorno do insert'}`)
   }
 
   // ── Registra os 2 eventos de auditoria no título recém-criado ──
+  // (eventos falhando aqui não justificam reverter despesa/parcela/
+  // título já criados com sucesso — o título em si está correto, só
+  // o histórico de auditoria ficaria incompleto; registrarEvento()
+  // já lança erro próprio se falhar, propagado normalmente)
   await registrarEvento(supabaseAdmin, tituloInserido.id, 'criado', descricaoContexto, null)
   await registrarEvento(supabaseAdmin, tituloInserido.id, 'baixa_total', descricaoContexto, valor)
 
@@ -354,7 +395,14 @@ async function processarDespesaAutomaticaBaixada(
   beneficiario: BeneficiarioPessoalRosterPagar,
   registro: RegistroNormalizadoConciliacao,
 ): Promise<ResultadoConciliacaoItem> {
-  const formaBaixa = formaBaixaPelaOrigem(registro.origem)
+  // QA fix (M2, Relatorio_Auditoria_Contas_a_Pagar_QA_Directive.md):
+  // formaBaixa aqui é sempre 'acumulo_automatico' — este é um dos 2
+  // caminhos 100% automáticos do roster (Especificação §5, passo 1),
+  // nunca 'relatorio_bb'/'comprovante_individual' (esses são só para
+  // baixas de título pré-existente via Nosso Número/fornecedor+valor,
+  // passos 2 e 3). FormaBaixaPagar já tem esse valor no enum desde a
+  // Especificação original — só não estava sendo usado em lugar nenhum.
+  const formaBaixa: FormaBaixaPagar = 'acumulo_automatico'
   const descricao = `Pagamento identificado automaticamente para ${beneficiario.nome} (regra de roster: despesa_automatica_baixada) — Despesa criada e baixada diretamente.`
 
   const { despesaId, contaAPagarId } = await criarDespesaEContaAPagarAutomatica(
@@ -383,7 +431,11 @@ async function processarAcumulo(
   beneficiario: BeneficiarioPessoalRosterPagar,
   registro: RegistroNormalizadoConciliacao,
 ): Promise<ResultadoConciliacaoItem> {
-  const formaBaixa = formaBaixaPelaOrigem(registro.origem)
+  // QA fix (M2) — mesmo motivo de processarDespesaAutomaticaBaixada:
+  // toda baixa aplicada por este caminho (holerite_com_abatimento /
+  // acumulo_ate_valor_integral) é automática via roster, nunca
+  // proveniente de Nosso Número ou fornecedor+valor exato
+  const formaBaixa: FormaBaixaPagar = 'acumulo_automatico'
   const documento = beneficiario.cnpj ?? beneficiario.cpf ?? ''
   const digitosDocumento = extrairSomenteDigitos(documento)
   const formatado = formatarComoCnpjOuCpf(digitosDocumento)
@@ -394,20 +446,35 @@ async function processarAcumulo(
   // pega o mais antigo em aberto se houver mais de um (default de
   // engenharia — não especificado explicitamente, mas é o critério
   // mais conservador: fecha o título mais antigo primeiro)
-  const { data: titulosCandidatos, error: erroTitulos } = await supabaseAdmin
+  // QA fix (H1, Relatorio_Auditoria_Contas_a_Pagar_QA_Directive.md):
+  // o .ilike() abaixo é só um PRE-filtro (substring, pode dar falso
+  // positivo). O .limit(1) foi removido daqui — antes ele aceitava o
+  // primeiro match por substring sem checagem de dígito exato, o que
+  // podia baixar o título ERRADO silenciosamente. Agora busca todos os
+  // candidatos do pré-filtro e só depois aplica o mesmo padrão de
+  // match exato por dígitos já usado em buscarFornecedorPorDocumentoAdmin
+  // (mesmo arquivo) e em rosterConciliacaoPagar.ts —
+  // esta função era a única das três que não seguia esse padrão.
+  // QA fix (L1) — mesma avaliação de segurança do buscarFornecedorPorDocumentoAdmin acima
+  const { data: titulosCandidatosBruto, error: erroTitulos } = await supabaseAdmin
     .from('contas_a_pagar')
     .select('*')
     .in('status', ['em_aberto', 'pago_parcial'])
     .is('deleted_at', null)
     .or(`favorecido_cnpj_cpf.ilike.%${digitosDocumento}%${formatado ? `,favorecido_cnpj_cpf.ilike.%${formatado}%` : ''}`)
     .order('data_vencimento', { ascending: true })
-    .limit(1)
 
   if (erroTitulos) {
     throw new Error(`Falha ao buscar título original para acúmulo (${beneficiario.nome}): ${erroTitulos.message}`)
   }
 
-  const titulo = (titulosCandidatos ?? [])[0] as ContaAPagar | undefined
+  // Filtra para match EXATO de dígitos (elimina falso positivo de
+  // substring do .ilike acima) — só então pega o mais antigo em aberto
+  const titulosCandidatos = (titulosCandidatosBruto ?? []).filter(
+    (t: ContaAPagar) => extrairSomenteDigitos(t.favorecido_cnpj_cpf ?? '') === digitosDocumento,
+  )
+
+  const titulo = titulosCandidatos[0] as ContaAPagar | undefined
 
   // ── Anomalia: nenhum título original em aberto para este beneficiário ──
   // Especificação §5: "trate como anomalia — registra o valor total
@@ -518,10 +585,23 @@ async function processarAcumulo(
 // Ponto de entrada único do Motor de Conciliação — recebe um registro
 // já normalizado (nomeFavorecido, cnpjCpf, valor, data, nossoNumero?,
 // origem) e aplica a ordem de prioridade fixa da Especificação §5.
+//
+// QA fix (M1, Relatorio_Auditoria_Contas_a_Pagar_QA_Directive.md):
+// parâmetro `registroOriginal` adicionado — o formato bruto que o
+// parser de origem produziu (RegistroRelatorioBB, RegistroComprovantePdf
+// ou RegistroComprovanteTxt), responsabilidade da API route chamadora
+// passar adiante junto com o normalizado. Antes, quando o resultado
+// caía em 'pendente_confirmacao', o item era montado com um objeto
+// fixo no shape de RegistroComprovanteTxt, mesmo quando a origem era
+// Relatório BB ou PDF — o TypeScript aceitava porque batia
+// estruturalmente com essa variante do union, mas descartava campos
+// reais (sequencial, cnpjCpfFavorecido, tipoInstrumento, nrAutenticacao,
+// numeroDocumento). Agora o registro original de verdade é repassado.
 // ------------------------------------------------------------
 export async function conciliarRegistro(
   supabaseAdmin: SupabaseClient,
   registro: RegistroNormalizadoConciliacao,
+  registroOriginal: RegistroRelatorioBB | RegistroComprovantePdf | RegistroComprovanteTxt,
 ): Promise<ResultadoConciliacaoItem> {
   const formaBaixa = formaBaixaPelaOrigem(registro.origem)
 
@@ -638,25 +718,9 @@ export async function conciliarRegistro(
       return {
         tipo: 'pendente_confirmacao',
         item: {
-          // NOTA: registroOriginal aqui é um placeholder normalizado,
-          // não o shape real do parser de origem (RegistroRelatorioBB
-          // ou RegistroComprovantePdf) — os campos que a UI de fato
-          // precisa (favorecidoIdentificado, cnpjCpfIdentificado,
-          // valor, data, origem) já estão nos campos irmãos abaixo.
-          // Simplificação própria para não ter que repassar o tipo
-          // genérico do parser até aqui — sinalizar se a UI da
-          // ImportarConciliacaoPreviewModal precisar de mais detalhe
-          // bruto do documento original.
-          registroOriginal: {
-            id: null,
-            autenticacaoSisbb: null,
-            dataPagamento: registro.data,
-            nomeFavorecido: registro.nomeFavorecido,
-            cpfMascarado: null,
-            chavePix: null,
-            valor: registro.valor,
-            documentoIdentificado: registro.cnpjCpf,
-          },
+          // QA fix (M1): registro original de verdade do parser,
+          // repassado pelo chamador — não mais um placeholder fixo
+          registroOriginal,
           favorecidoIdentificado: registro.nomeFavorecido,
           cnpjCpfIdentificado: registro.cnpjCpf,
           valor: registro.valor,
@@ -667,6 +731,82 @@ export async function conciliarRegistro(
         },
       }
     }
+  }
+
+  // ── PASSO 3B (H3 fix, Relatorio_Auditoria_Contas_a_Pagar_QA_Directive.md):
+  // sem CNPJ/CPF identificado (Chave Pix não numérica, ex: e-mail,
+  // telefone, chave aleatória — ver resolverDocumentoIdentificado em
+  // parserComprovanteTxt.ts), o registro antes caía direto no Passo 4
+  // "não encontrado", mesmo quando havia um título em aberto óbvio
+  // batendo por nome+valor exato. Critério deliberadamente
+  // CONSERVADOR: nome exato (trim + case-insensitive, sem fuzzy
+  // matching) E valor exato — nunca decide sozinho se houver mais de
+  // 1 candidato, mesma filosofia do Passo 3. Decisão de engenharia:
+  // Maycon pode revisar/ajustar o critério de nome (ex: normalização
+  // de acentos) se aparecerem falsos negativos na prática.
+  // ------------------------------------------------------------
+  if (!registro.cnpjCpf) {
+    const nomeNormalizado = registro.nomeFavorecido.trim().toLowerCase()
+
+    const { data: titulosAbertos, error: erroTitulosAbertos } = await supabaseAdmin
+      .from('contas_a_pagar')
+      .select('*')
+      .eq('status', 'em_aberto')
+      .is('deleted_at', null)
+
+    if (erroTitulosAbertos) {
+      throw new Error(`Falha ao buscar títulos em aberto para fallback nome+valor: ${erroTitulosAbertos.message}`)
+    }
+
+    const candidatosNomeValor = ((titulosAbertos ?? []) as ContaAPagar[]).filter(
+      (t) =>
+        t.favorecido_nome.trim().toLowerCase() === nomeNormalizado &&
+        Math.abs(t.valor - registro.valor) < 0.01,
+    )
+
+    // Exatamente 1 candidato → baixa automática, mesmo padrão de risco
+    // aceito no Passo 3 (fornecedor+valor exato)
+    if (candidatosNomeValor.length === 1) {
+      const tituloAlvo = candidatosNomeValor[0]
+
+      const { error: erroUpdate } = await supabaseAdmin
+        .from('contas_a_pagar')
+        .update({ status: 'pago', data_baixa: registro.data, forma_baixa: formaBaixa })
+        .eq('id', tituloAlvo.id)
+
+      if (erroUpdate) {
+        throw new Error(`Falha ao baixar título por nome+valor exato (${tituloAlvo.id}): ${erroUpdate.message}`)
+      }
+
+      await registrarEvento(
+        supabaseAdmin,
+        tituloAlvo.id,
+        'baixa_total',
+        `Baixa automática por nome (${registro.nomeFavorecido}) + valor exato via ${registro.origem} — sem CNPJ/CPF identificado no documento.`,
+        registro.valor,
+      )
+
+      return { tipo: 'baixa_automatica', contaAPagarId: tituloAlvo.id, formaBaixa }
+    }
+
+    // Mais de 1 candidato por nome+valor → nunca decide sozinho,
+    // acumula como pendente de confirmação manual
+    if (candidatosNomeValor.length > 1) {
+      return {
+        tipo: 'pendente_confirmacao',
+        item: {
+          registroOriginal,
+          favorecidoIdentificado: registro.nomeFavorecido,
+          cnpjCpfIdentificado: registro.cnpjCpf ?? '',
+          valor: registro.valor,
+          data: registro.data,
+          origem: registro.origem,
+          titulosEmAbertoDoFornecedor: candidatosNomeValor,
+          tituloEscolhidoId: null,
+        },
+      }
+    }
+    // 0 candidatos por nome+valor — segue para o Passo 4 normalmente
   }
 
   // ── PASSO 4: CNPJ/CPF não encontrado em lugar nenhum ──────

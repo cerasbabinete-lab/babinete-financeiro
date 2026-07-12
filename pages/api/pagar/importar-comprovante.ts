@@ -108,7 +108,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         data: registro.dataPagamento,
         nossoNumero: null, // comprovante individual não traz Nosso Número separado do numeroDocumento
         origem: 'comprovante_pdf',
-      })
+      }, registro)
 
       resumo.detalhes.push(resultado)
       contabilizarResultado(resumo, resultado)
@@ -162,7 +162,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           data: registro.dataPagamento,
           nossoNumero: null, // Pix nunca tem Nosso Número
           origem: 'comprovante_txt',
-        })
+        }, registro)
 
         resumo.detalhes.push(resultado)
         contabilizarResultado(resumo, resultado)
