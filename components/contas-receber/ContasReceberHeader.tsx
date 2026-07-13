@@ -29,7 +29,6 @@ import {
   processarRegistrosRet,
   processarRegistrosXls,
   gerarPreviewImportacao,
-  processarBoletoPdf,
 } from '@/lib/contasReceberService'
 import type { ItemPreviewImportacao } from '@/lib/contasReceberService'
 import { parseTxtBb, calcularHashSha256 } from '@/lib/txtBbParser'
@@ -195,33 +194,43 @@ export default function ContasReceberHeader({
 
   // ============================================================
   // handleImportarBoletoPdf
-  // Lê um boleto PDF emitido pelo sistema externo (MIGRATE),
-  // extrai texto via pdf-parse (CJS), parseia os campos e
-  // vincula nosso_numero + linha_digitavel ao título existente.
-  // Não tem hash de deduplicação — o mesmo boleto pode ser
-  // reimportado sem problema (a segunda vez atualiza só linha_digitavel).
+  // Envia o PDF para pages/api/importar-boleto-pdf.ts (Node.js)
+  // que extrai o texto com pdf-parse (server-side) e vincula
+  // nosso_numero + linha_digitavel ao título existente.
+  // CRÍTICO: pdf-parse não pode rodar no browser — a extração
+  //          de texto é feita exclusivamente no servidor.
   // ============================================================
   async function handleImportarBoletoPdf(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setLoadingBoleto(true)
     try {
-      // Lê o arquivo como ArrayBuffer para o pdf-parse
-      const buffer = await file.arrayBuffer()
+      // Obtém o token de acesso para autenticar na API
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token ?? ''
 
-      // Importa pdf-parse dinamicamente (CJS — não pode ser import estático)
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { PDFParse } = require('pdf-parse')
-      const parser = new PDFParse()
-      const { text: textoPdf } = await parser.parse(Buffer.from(buffer))
+      // Envia o PDF como body binário — API route faz a extração no servidor
+      const response = await fetch('/api/importar-boleto-pdf', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/pdf',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: file,
+      })
 
-      const resultado = await processarBoletoPdf(textoPdf)
+      const dados = await response.json()
 
-      if (resultado.vinculado) {
-        onSucesso(`Boleto ${resultado.numeroDocumento}: Nosso Número ${resultado.nossoNumero} vinculado com sucesso.`)
+      if (!response.ok) {
+        onErro(dados.erro ?? 'Erro ao importar boleto PDF')
+        return
+      }
+
+      if (dados.vinculado) {
+        onSucesso(`Boleto ${dados.numeroDocumento}: ${dados.descricao}`)
         onImportado()
       } else {
-        onErro(resultado.descricao)
+        onErro(dados.descricao)
       }
     } catch (err: unknown) {
       onErro(err instanceof Error ? err.message : 'Erro ao importar boleto PDF')

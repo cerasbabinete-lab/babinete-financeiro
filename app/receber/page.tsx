@@ -28,7 +28,6 @@ import {
   processarRegistrosXls,
   gerarPreviewImportacao,
   buscarContadoresTitulos,
-  processarBoletoPdf,
   type ContadoresTitulos,
   type ItemPreviewImportacao,
 } from '@/lib/contasReceberService'
@@ -354,19 +353,30 @@ export default function ContasReceberPage() {
   // ── Importar Boleto PDF — mobile (Basebar) ────────────────
   async function processarImportBoletoPdf(file: File) {
     try {
-      // Lê o PDF como ArrayBuffer e extrai texto via pdf-parse
-      const buffer = await file.arrayBuffer()
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { PDFParse } = require('pdf-parse')
-      const parser = new PDFParse()
-      const { text: textoPdf } = await parser.parse(Buffer.from(buffer))
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token ?? ''
 
-      const resultado = await processarBoletoPdf(textoPdf)
-      if (resultado.vinculado) {
-        setMsgSucesso(`Boleto ${resultado.numeroDocumento}: Nosso Número ${resultado.nossoNumero} vinculado.`)
+      const response = await fetch('/api/importar-boleto-pdf', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/pdf',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: file,
+      })
+
+      const dados = await response.json()
+
+      if (!response.ok) {
+        setMsgErro(dados.erro ?? 'Erro ao importar boleto PDF')
+        return
+      }
+
+      if (dados.vinculado) {
+        setMsgSucesso(`Boleto ${dados.numeroDocumento}: ${dados.descricao}`)
         carregarTitulos()
       } else {
-        setMsgErro(resultado.descricao)
+        setMsgErro(dados.descricao)
       }
     } catch (err: unknown) {
       setMsgErro(err instanceof Error ? err.message : 'Erro ao importar boleto PDF')

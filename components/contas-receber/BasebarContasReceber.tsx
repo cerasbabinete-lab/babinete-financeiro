@@ -99,6 +99,8 @@ export default function BasebarContasReceber({
   }
 
   // ── Import Boleto PDF ─────────────────────────────────────
+  // O handler real está em page.tsx (processarImportBoletoPdf)
+  // que faz fetch para /api/importar-boleto-pdf (Node.js)
   async function handleBoleto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
