@@ -36,6 +36,7 @@ import { parseRem } from '@/lib/remParser'
 import { parseRet } from '@/lib/retParser'
 import { parseXls, calcularHashXls } from '@/lib/xlsParser'
 import type { ContaReceber, RegistroRetSegmentoT, RegistroXls } from '@/types/contasReceber'
+import { supabase } from '@/lib/supabase'
 import ExportDropdownContasReceber from './ExportDropdownContasReceber'
 import ImportarRetornoPreviewModal from './ImportarRetornoPreviewModal'
 
