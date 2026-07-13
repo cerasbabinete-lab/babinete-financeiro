@@ -21,7 +21,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 
-import { parseComprovantePdf } from '@/lib/pagar/parserComprovantePdf'
+import { parseComprovantePdf, decodificarCampoLivreDaLinhaDigitavel } from '@/lib/pagar/parserComprovantePdf'
 import { parseComprovanteTxt } from '@/lib/pagar/parserComprovanteTxt'
 import { conciliarRegistro } from '@/lib/pagar/motorConciliacao'
 import { verificarComprovanteJaProcessado, registrarComprovanteProcessado } from '@/lib/pagar/duplicateCheckPagar'
@@ -106,7 +106,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         cnpjCpf: registro.cnpjCpfFavorecido ?? null,
         valor: registro.valor,
         data: registro.dataPagamento,
-        nossoNumero: null, // comprovante individual não traz Nosso Número separado do numeroDocumento
+        // QA fix (sessão 12/07/2026 — bug real confirmado com o
+        // comprovante da SKY): antes gravado como `null` fixo, com um
+        // comentário incorreto ("comprovante individual não traz
+        // Nosso Número separado"). O parser JÁ extrai essa string
+        // (linhaDigitavelOuCodigoBarras — o valor bruto de 47 dígitos
+        // que aparece antes de "BENEFICIARIO:"), só nunca era repassada
+        // pro motor de conciliação. Decodifica pro campo livre (25
+        // dígitos, mesmo formato do Relatório BB) antes de repassar —
+        // ver decodificarCampoLivreDaLinhaDigitavel em
+        // parserComprovantePdf.ts. Retorna null se o valor não tiver o
+        // formato esperado (47 dígitos), caindo para os passos 3/4 do
+        // motor normalmente, sem quebrar nada.
+        nossoNumero: decodificarCampoLivreDaLinhaDigitavel(registro.linhaDigitavelOuCodigoBarras ?? null),
         origem: 'comprovante_pdf',
       }, registro)
 

@@ -18,6 +18,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { buscarDespesas, contarDespesas } from '@/lib/despesasService'
+import {
+  buscarContadoresDespesasAberto,
+  type ContadoresDespesasAberto,
+} from '@/lib/contasAPagarService'
 import { parsearNfseXml, ErroValidacaoNfse } from '@/lib/despesas/nfseXmlParser'
 import { parsearNfeCompraXml, ErroValidacaoNfeCompra } from '@/lib/despesas/nfeCompraXmlParser'
 import type { Despesa, FiltrosDespesas, ModoModalDespesa, ResultadoProcessamentoDespesa } from '@/types/despesas'
@@ -60,6 +64,13 @@ export default function DespesasPage() {
   const [despesas, setDespesas] = useState<Despesa[]>([])
   const [total, setTotal] = useState(0)
   const [carregando, setCarregando] = useState(true)
+
+  // ── Contador de despesas com títulos em aberto em Contas a Pagar
+  // (banner de resumo, mesmo padrão de contadoresReceitas em
+  // app/receitas/page.tsx) ──
+  const [contadoresDespesas, setContadoresDespesas] = useState<ContadoresDespesasAberto>({
+    despesasComAberto: 0, titulosEmAbertoPagar: 0,
+  })
 
   // ── Filtros ──
   const [filtros, setFiltros] = useState<FiltrosDespesas>(FILTROS_INICIAIS)
@@ -113,12 +124,14 @@ export default function DespesasPage() {
   const carregarDespesas = useCallback(async () => {
     setCarregando(true)
     try {
-      const [lista, count] = await Promise.all([
+      const [lista, count, ctd] = await Promise.all([
         buscarDespesas(filtros),
         contarDespesas(),
+        buscarContadoresDespesasAberto(),
       ])
       setDespesas(lista)
       setTotal(count)
+      setContadoresDespesas(ctd)
     } catch (err) {
       console.error('[DespesasPage] carregarDespesas error:', err)
       setMsgErro(err instanceof Error ? err.message : 'Erro ao carregar despesas')
@@ -334,6 +347,33 @@ export default function DespesasPage() {
             onFecharErro={() => setMsgErro(null)}
           />
 
+          {/* Despesas com títulos em aberto em Contas a Pagar — mesmo
+              padrão visual do banner equivalente em app/receitas/page.tsx */}
+          {contadoresDespesas.despesasComAberto > 0 && (
+            <div style={{
+              margin:       '0 0 10px',
+              padding:      '7px 14px',
+              background:   '#e8f0f7',
+              border:       '1px solid #c4d8eb',
+              borderRadius: '5px',
+              display:      'flex',
+              alignItems:   'center',
+              gap:          '10px',
+              fontFamily:   'Tahoma, Geneva, sans-serif',
+              fontSize:     '12px',
+              color:        '#1a6094',
+            }}>
+              <i className="ti ti-receipt" style={{ fontSize: '15px', flexShrink: 0 }} aria-hidden="true" />
+              <span>
+                <strong>{contadoresDespesas.despesasComAberto}</strong>
+                {contadoresDespesas.despesasComAberto === 1 ? ' despesa com ' : ' despesas com '}
+                <strong>{contadoresDespesas.titulosEmAbertoPagar}</strong>
+                {contadoresDespesas.titulosEmAbertoPagar === 1 ? ' título em aberto' : ' títulos em aberto'}
+                {' '}em Contas a Pagar
+              </span>
+            </div>
+          )}
+
           <DespesasFiltros
             filtros={filtros}
             onFiltrosChange={setFiltros}
@@ -396,6 +436,32 @@ export default function DespesasPage() {
             onFecharSucesso={() => setMsgSucesso(null)}
             onFecharErro={() => setMsgErro(null)}
           />
+
+        {/* Despesas com títulos em aberto — mobile */}
+        {contadoresDespesas.despesasComAberto > 0 && (
+          <div style={{
+            margin:       '0 0 8px',
+            padding:      '6px 12px',
+            background:   '#e8f0f7',
+            border:       '1px solid #c4d8eb',
+            borderRadius: '5px',
+            display:      'flex',
+            alignItems:   'center',
+            gap:          '8px',
+            fontFamily:   'Tahoma, Geneva, sans-serif',
+            fontSize:     '11px',
+            color:        '#1a6094',
+          }}>
+            <i className="ti ti-receipt" style={{ fontSize: '14px', flexShrink: 0 }} aria-hidden="true" />
+            <span>
+              <strong>{contadoresDespesas.despesasComAberto}</strong>
+              {contadoresDespesas.despesasComAberto === 1 ? ' despesa com ' : ' despesas com '}
+              <strong>{contadoresDespesas.titulosEmAbertoPagar}</strong>
+              {contadoresDespesas.titulosEmAbertoPagar === 1 ? ' título em aberto' : ' títulos em aberto'}
+              {' '}em Contas a Pagar
+            </span>
+          </div>
+        )}
 
         <DespesasFiltros
           filtros={filtros}

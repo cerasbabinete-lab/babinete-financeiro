@@ -56,9 +56,17 @@ export async function buscarReceitas(filtros: FiltrosReceitas): Promise<Receita[
     const termoDig  = `%${filtros.busca.trim().replace(/[^0-9]/g, '')}%`
     const partes: string[] = [
       `cliente_nome.ilike.${termo}`,
-      `cliente_cpf_cnpj.ilike.${termoDig}`,
       `natureza_operacao.ilike.${termo}`,
     ]
+    // QA fix (bug real confirmado, sessão 12/07/2026 — mesma causa
+    // raiz de despesasService.ts): sem essa trava, um termo sem
+    // nenhum dígito (ex: "sheli") vira termoDig = "%%", que casa com
+    // QUALQUER cliente_cpf_cnpj não-nulo — mascarando o filtro de
+    // nome e devolvendo a lista inteira. Mesmo padrão de trava já
+    // usado (correto) em contasAPagarService.ts.
+    if (termoDig !== '%%') {
+      partes.push(`cliente_cpf_cnpj.ilike.${termoDig}`)
+    }
     // numero_nf é integer — não suporta ilike, mas suporta .eq quando o termo é numérico válido
     const termoInt = parseInt(filtros.busca.trim(), 10)
     if (!isNaN(termoInt)) {

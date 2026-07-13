@@ -436,15 +436,18 @@ export const STATUS_LABELS_PAGAR: Record<StatusTituloPagar, string> = {
 // ============================================================
 // STATUS_CORES_PAGAR
 // Cores de badge para cada status — usadas em ContasAPagarTabela
-// e ContasAPagarMobileList. Reaproveita a paleta já usada em
-// STATUS_CORES de types/contasReceber.ts onde o significado é
-// equivalente (em_aberto → mesmo verde; pago → mesmo verde;
-// cancelado → mesmo cinza). pago_parcial usa um tom âmbar,
-// coerente com "processo em andamento, ainda não concluído"
-// (Especificação §3.2 — não introduzir cor fora da paleta do projeto)
+// e ContasAPagarMobileList. em_aberto é azul (ver STATUS_CORES de
+// types/contasReceber.ts, mesmo padrão); pago reaproveita o verde já
+// usado lá. pago_parcial usa um tom âmbar, coerente com "processo em
+// andamento, ainda não concluído" (Especificação §3.2 — não
+// introduzir cor fora da paleta do projeto)
 // ============================================================
 export const STATUS_CORES_PAGAR: Record<StatusTituloPagar, { bg: string; text: string }> = {
-  em_aberto:    { bg: '#dcfce7', text: '#166534' }, // verde — mesmo de contas_receber.em_aberto
+  // QA fix (a pedido do Maycon, sessão 12/07/2026): "Em Aberto" passa
+  // a ser azul em todo o sistema (Receitas fica de fora, tela
+  // diferente) — como bônus, resolve a ambiguidade visual que existia
+  // aqui: em_aberto e pago usavam exatamente o mesmo verde
+  em_aberto:    { bg: '#dbeafe', text: '#1a6094' }, // azul
   pago:         { bg: '#dcfce7', text: '#166534' }, // verde — mesmo de contas_receber.pago
   pago_parcial: { bg: '#fef3c7', text: '#92400e' }, // âmbar — novo, processo em andamento
   cancelado:    { bg: '#f3f4f6', text: '#9ca3af' }, // cinza — mesmo de contas_receber.cancelado

@@ -358,7 +358,11 @@ export const STATUS_LABELS: Record<StatusTitulo, string> = {
 // e ContasReceberMobileList
 // ============================================================
 export const STATUS_CORES: Record<StatusTitulo, { bg: string; text: string }> = {
-  em_aberto:        { bg: '#dcfce7', text: '#166534' }, // verde
+  // QA fix (a pedido do Maycon, sessão 12/07/2026): "Em Aberto" passa
+  // a ser azul em todo o sistema (Receitas fica de fora, tela
+  // diferente) — como bônus, resolve a ambiguidade visual que existia
+  // aqui: em_aberto e pago usavam exatamente o mesmo verde
+  em_aberto:        { bg: '#dbeafe', text: '#1a6094' }, // azul
   pago:             { bg: '#dcfce7', text: '#166534' }, // verde
   recebido_pix_ted: { bg: '#d1fae5', text: '#065f46' }, // verde-teal
   protestado:       { bg: '#ffedd5', text: '#9a3412' }, // laranja

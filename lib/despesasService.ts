@@ -51,9 +51,21 @@ export async function buscarDespesas(filtros: FiltrosDespesas): Promise<Despesa[
   if (filtros.busca && filtros.busca.trim() !== '') {
     const termo = `%${filtros.busca.trim()}%`
     const termoDig = `%${filtros.busca.trim().replace(/[^0-9]/g, '')}%`
-    query = query.or(
-      `favorecido_nome.ilike.${termo},documento_numero.ilike.${termo},favorecido_cnpj_cpf.ilike.${termoDig}`,
-    )
+    // QA fix (bug real confirmado, sessão 12/07/2026 — busca por nome
+    // não funcionava): quando o termo digitado não tem nenhum dígito
+    // (ex: "sheli"), termoDig vira "%%" — um curinga que casa com
+    // QUALQUER valor não-nulo de favorecido_cnpj_cpf. Incluído sem
+    // essa trava, esse pedaço do OR sozinho fazia a query voltar a
+    // lista inteira, mascarando o filtro de nome por trás. Mesmo
+    // padrão de trava já usado (correto) em contasAPagarService.ts.
+    const partes: string[] = [
+      `favorecido_nome.ilike.${termo}`,
+      `documento_numero.ilike.${termo}`,
+    ]
+    if (termoDig !== '%%') {
+      partes.push(`favorecido_cnpj_cpf.ilike.${termoDig}`)
+    }
+    query = query.or(partes.join(','))
   }
 
   // Filtro por categoria financeira (uma das 8 fixas)

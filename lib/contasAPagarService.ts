@@ -90,10 +90,23 @@ export async function buscarTitulos(filtros: FiltrosContasAPagar): Promise<Conta
 
   if (filtros.status && filtros.status !== '') {
     query = query.eq('status', filtros.status)
+  } else {
+    // QA fix (sessão 12/07/2026, a pedido do Maycon): por padrão a
+    // listagem NÃO mostra títulos cancelados (soft-deleted). O dado
+    // continua intacto no banco — soft-delete via deleted_at, nunca
+    // DELETE físico, mesma convenção do projeto inteiro — só não
+    // polui a tela do dia a dia com histórico de correções antigas.
+    // Pra ver os cancelados, o usuário filtra explicitamente por
+    // Status = "Cancelado" no dropdown (STATUS_LABELS_PAGAR já
+    // inclui essa opção) — nesse caso o filtro acima (.eq('status',
+    // 'cancelado')) já cobre, sem precisar de nenhum controle novo.
+    query = query.is('deleted_at', null)
   }
 
-  // Ativos (deleted_at IS NULL) primeiro, depois cancelados; dentro de
-  // cada grupo, vence mais cedo primeiro — mesmo padrão de Receber
+  // Ativos (deleted_at IS NULL) primeiro, depois cancelados — só
+  // relevante quando o filtro de status = "Cancelado" está ativo
+  // (nos demais casos já não sobra nenhum cancelado pra ordenar);
+  // dentro de cada grupo, vence mais cedo primeiro, mesmo padrão de Receber
   query = query
     .order('deleted_at', { ascending: true, nullsFirst: true })
     .order('data_vencimento', { ascending: true })
@@ -176,6 +189,54 @@ export async function buscarContadoresTitulos(): Promise<ContadoresTitulosPagar>
   }
 
   return { emAberto, atrasados, pagoParcial, pagos, cancelados }
+}
+
+// ============================================================
+// ContadoresDespesasAberto
+// Estrutura com Despesas e títulos em aberto para o banner de
+// Despesas — espelha ContadoresReceitasAberto/
+// buscarContadoresReceitasAberto de contasReceberService.ts
+// (Especificação de UI a pedido do Maycon, sessão 12/07/2026:
+// "X despesas com Y títulos em aberto em Contas a Pagar", mesmo
+// padrão do banner já existente em Receitas).
+// Única diferença deliberada do original: em Contas a Receber só
+// existe o status 'em_aberto' pra esse cálculo; aqui inclui também
+// 'pago_parcial', porque um título parcialmente pago ainda representa
+// dinheiro pendente — contá-lo como "em aberto" é o comportamento
+// esperado pro banner.
+// ============================================================
+export interface ContadoresDespesasAberto {
+  despesasComAberto:    number  // Despesas distintas com ao menos 1 título em_aberto/pago_parcial
+  titulosEmAbertoPagar: number  // Total de títulos em_aberto + pago_parcial (inclui atrasados)
+}
+
+// ============================================================
+// buscarContadoresDespesasAberto()
+// Conta Despesas distintas e títulos totais com status em_aberto ou
+// pago_parcial em contas_a_pagar — mesma query shape de
+// buscarContadoresReceitasAberto, adaptada pra este módulo
+// Chamado por: app/despesas/page.tsx para exibir o banner de resumo
+// ============================================================
+export async function buscarContadoresDespesasAberto(): Promise<ContadoresDespesasAberto> {
+  const { data, error } = await supabase
+    .from(TABELA)
+    .select('despesa_id')
+    .in('status', ['em_aberto', 'pago_parcial'])
+    .is('deleted_at', null)
+    .not('despesa_id', 'is', null)
+
+  if (error) {
+    console.error('[contasAPagarService] buscarContadoresDespesasAberto error:', error)
+    return { despesasComAberto: 0, titulosEmAbertoPagar: 0 }
+  }
+
+  const registros = (data ?? []) as { despesa_id: string }[]
+  const despesasDistintas = new Set(registros.map((r) => r.despesa_id))
+
+  return {
+    despesasComAberto:    despesasDistintas.size,
+    titulosEmAbertoPagar: registros.length,
+  }
 }
 
 // ============================================================

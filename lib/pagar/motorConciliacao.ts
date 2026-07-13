@@ -126,6 +126,57 @@ async function registrarEvento(
 
 
 // ------------------------------------------------------------
+// Função: sincronizarStatusDespesaDoTitulo
+// QA fix (bug real confirmado, sessão 12/07/2026 — caso SKY): toda
+// baixa automática deste motor (Passos 2, 3, 3B e processarAcumulo)
+// atualizava contas_a_pagar.status mas NUNCA propagava a mudança
+// para despesas.status_pagamento nem despesas_parcelas.status —
+// resultado: o título aparecia "Pago" em Contas a Pagar e a mesma
+// Despesa continuava "Em Aberto" na tela de Despesas, os dois campos
+// dessincronizados pra sempre. Chamada logo após CADA UPDATE de
+// contas_a_pagar.status neste arquivo. Nunca lança erro se o título
+// não tiver despesa_id vinculada (títulos sintéticos criados por
+// criarDespesaEContaAPagarAutomatica já nascem com os dois campos
+// sincronizados na criação, não passam por aqui).
+// ------------------------------------------------------------
+async function sincronizarStatusDespesaDoTitulo(
+  supabaseAdmin: SupabaseClient,
+  tituloId: string,
+  novoStatus: 'pago' | 'pago_parcial',
+): Promise<void> {
+  const { data: titulo, error: erroTitulo } = await supabaseAdmin
+    .from('contas_a_pagar')
+    .select('despesa_id, despesa_parcela_id')
+    .eq('id', tituloId)
+    .single()
+
+  // Sem despesa_id vinculada — nada a sincronizar, não é erro
+  if (erroTitulo || !titulo || !titulo.despesa_id) return
+
+  const { error: erroDespesa } = await supabaseAdmin
+    .from('despesas')
+    .update({ status_pagamento: novoStatus })
+    .eq('id', titulo.despesa_id)
+
+  if (erroDespesa) {
+    throw new Error(`Falha ao sincronizar status_pagamento da Despesa (${titulo.despesa_id}): ${erroDespesa.message}`)
+  }
+
+  if (titulo.despesa_parcela_id) {
+    const { error: erroParcela } = await supabaseAdmin
+      .from('despesas_parcelas')
+      .update({ status: novoStatus })
+      .eq('id', titulo.despesa_parcela_id)
+
+    if (erroParcela) {
+      throw new Error(`Falha ao sincronizar status da parcela (${titulo.despesa_parcela_id}): ${erroParcela.message}`)
+    }
+  }
+}
+
+
+
+// ------------------------------------------------------------
 // Função: buscarFornecedorPorDocumentoAdmin
 // Versão com client admin (parametrizado) da busca por CNPJ/CPF já
 // validada em lib/despesasService.ts::buscarFornecedorPorDocumento —
@@ -519,6 +570,8 @@ async function processarAcumulo(
       throw new Error(`Falha ao atualizar título para pago_parcial (${titulo.id}): ${erroUpdate.message}`)
     }
 
+    await sincronizarStatusDespesaDoTitulo(supabaseAdmin, titulo.id, 'pago_parcial')
+
     await registrarEvento(
       supabaseAdmin,
       titulo.id,
@@ -539,6 +592,8 @@ async function processarAcumulo(
   if (erroUpdateTotal) {
     throw new Error(`Falha ao atualizar título para pago (${titulo.id}): ${erroUpdateTotal.message}`)
   }
+
+  await sincronizarStatusDespesaDoTitulo(supabaseAdmin, titulo.id, 'pago')
 
   await registrarEvento(
     supabaseAdmin,
@@ -698,6 +753,8 @@ export async function conciliarRegistro(
         throw new Error(`Falha ao baixar título por Nosso Número (${tituloId}): ${erroUpdate.message}`)
       }
 
+      await sincronizarStatusDespesaDoTitulo(supabaseAdmin, tituloId, 'pago')
+
       await registrarEvento(
         supabaseAdmin,
         tituloId,
@@ -744,6 +801,8 @@ export async function conciliarRegistro(
         if (erroUpdate) {
           throw new Error(`Falha ao baixar título por fornecedor+valor (${tituloAlvo.id}): ${erroUpdate.message}`)
         }
+
+        await sincronizarStatusDespesaDoTitulo(supabaseAdmin, tituloAlvo.id, 'pago')
 
         await registrarEvento(
           supabaseAdmin,
@@ -821,6 +880,8 @@ export async function conciliarRegistro(
       if (erroUpdate) {
         throw new Error(`Falha ao baixar título por nome+valor exato (${tituloAlvo.id}): ${erroUpdate.message}`)
       }
+
+      await sincronizarStatusDespesaDoTitulo(supabaseAdmin, tituloAlvo.id, 'pago')
 
       await registrarEvento(
         supabaseAdmin,

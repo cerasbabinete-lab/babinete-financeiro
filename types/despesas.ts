@@ -546,7 +546,10 @@ export const STATUS_PAGAMENTO_LABELS: Record<StatusPagamentoDespesa, string> = {
 // e DespesasMobileList
 // ============================================================
 export const STATUS_PAGAMENTO_CORES: Record<StatusPagamentoDespesa, { bg: string; text: string }> = {
-  em_aberto: { bg: '#fef3c7', text: '#92400e' }, // amarelo — aguardando pagamento
+  // QA fix (a pedido do Maycon, sessão 12/07/2026): "Em Aberto" passa
+  // a ser azul em todo o sistema (Receitas fica de fora, tela
+  // diferente) — texto no tom primário do projeto (#1a6094)
+  em_aberto: { bg: '#dbeafe', text: '#1a6094' }, // azul — aguardando pagamento
   pago:      { bg: '#dcfce7', text: '#166534' }, // verde — liquidado
   cancelado: { bg: '#f3f4f6', text: '#9ca3af' }, // cinza — soft-deleted
 }

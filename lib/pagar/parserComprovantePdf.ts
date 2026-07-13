@@ -48,6 +48,42 @@ import type { RegistroComprovantePdf } from '@/types/contasAPagar'
 
 
 // ------------------------------------------------------------
+// Função: decodificarCampoLivreDaLinhaDigitavel (export)
+// QA fix (bug real confirmado, sessão 12/07/2026 — boleto SKY,
+// 402560110347/comprovante 1__07072026__Pagamento__32974.pdf):
+// decodifica a linha digitável/código de barras BRUTA (47 dígitos,
+// como aparece literalmente antes de "BENEFICIARIO:" no comprovante,
+// com os dígitos verificadores de cada bloco ainda embutidos) para o
+// CAMPO LIVRE (25 dígitos, sem os DVs de bloco) — mesmo formato que
+// o Relatório de Pagamentos BB usa no campo "Nosso Número". Sem essa
+// decodificação, o valor bruto NUNCA bate contra o Nosso Número do
+// Relatório BB via checagem de dígitos contidos (os DVs de bloco
+// quebram a sequência contígua do Nosso Número real no meio da
+// string) — confirmado decompondo a linha digitável real do boleto
+// SKY (23792.37205 90000.788357 15027.140209 2 14960000032974):
+// campo livre resultante = "2372090000788351502714020", idêntico ao
+// Nosso Número impresso no Relatório BB pro mesmo boleto.
+// Algoritmo padrão FEBRABAN de linha digitável (47 dígitos total):
+//   campo 1 (10 díg.): banco(3) + moeda(1) + campoLivre[0:5]  + DV1(1)
+//   campo 2 (11 díg.): campoLivre[5:15]  + DV2(1)
+//   campo 3 (11 díg.): campoLivre[15:25] + DV3(1)
+//   + DV geral (1 díg.) + fator de vencimento (4 díg.) + valor (10 díg.)
+// Retorna null se o valor não tiver exatamente 47 dígitos — nunca
+// decodifica parcialmente nem adivinha um formato diferente.
+// ------------------------------------------------------------
+export function decodificarCampoLivreDaLinhaDigitavel(linhaDigitavelBruta: string | null): string | null {
+  if (!linhaDigitavelBruta) return null
+
+  const digitos = linhaDigitavelBruta.replace(/\D/g, '')
+  if (digitos.length !== 47) return null
+
+  // Remove os 3 dígitos verificadores de bloco (posições 9, 20 e 31),
+  // mantendo só os 25 dígitos do campo livre, na ordem em que aparecem
+  return digitos.slice(4, 9) + digitos.slice(10, 20) + digitos.slice(21, 31)
+}
+
+
+// ------------------------------------------------------------
 // Helper: extrairTextoPdf
 // Wrapper da API real de pdf-parse v2 — mesma implementação de
 // parserRelatorioBB.ts (deliberadamente duplicada, cada parser

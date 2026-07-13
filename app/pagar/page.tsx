@@ -26,6 +26,7 @@ import {
   contarTitulos,
   buscarContadoresTitulos,
   buscarRosterCompleto,
+  isTituloNearVencimento,
   type ContadoresTitulosPagar,
 } from '@/lib/contasAPagarService'
 import type {
@@ -342,6 +343,16 @@ export default function ContasAPagarPage() {
     return <div style={{ minHeight: '100vh', background: '#f0f4f7' }} />
   }
 
+  // ── Banner "vence nos próximos 5 dias" — aviso visual, sem e-mail ──
+  // Reaproveita isTituloNearVencimento (já existente em
+  // contasAPagarService.ts, usado até aqui só pro estilo âmbar da
+  // linha na tabela) — filtra a lista já carregada, sem nova consulta
+  // ao banco. Diferente do banner equivalente de Contas a Receber
+  // (AlertaBanner em app/receber/page.tsx), este NÃO é clicável e não
+  // abre nenhum modal de envio de e-mail — só aviso visual, a pedido
+  // do Maycon (sessão 12/07/2026).
+  const titulosNearDue = titulos.filter(isTituloNearVencimento)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#f0f4f7', fontFamily: 'Tahoma, Geneva, sans-serif', paddingBottom: isMobile ? '70px' : 0 }}>
       {isMobile ? (
@@ -368,6 +379,30 @@ export default function ContasAPagarPage() {
           <Pill cor="#166534" bg="#dcfce7" label={`Pagos: ${contadores.pagos}`} />
           <Pill cor="#9ca3af" bg="#f3f4f6" label={`Cancelados: ${contadores.cancelados}`} />
         </div>
+
+        {titulosNearDue.length > 0 && (
+          <div
+            style={{
+              margin:       '0 0 10px',
+              padding:      '8px 14px',
+              background:   '#fff8e1',
+              border:       '1px solid #ffe082',
+              borderRadius: '5px',
+              color:        '#7a5c00',
+              fontSize:     '12px',
+              fontFamily:   'Tahoma, Geneva, sans-serif',
+              display:      'flex',
+              alignItems:   'center',
+              gap:          '8px',
+            }}
+          >
+            <i className="ti ti-bell-ringing" style={{ fontSize: '16px', flexShrink: 0 }} aria-hidden="true" />
+            <span>
+              <strong>{titulosNearDue.length} título{titulosNearDue.length !== 1 ? 's' : ''}</strong>
+              {titulosNearDue.length === 1 ? ' vence' : ' vencem'} nos próximos 5 dias
+            </span>
+          </div>
+        )}
 
         {!isMobile && (
           <ContasAPagarHeader
