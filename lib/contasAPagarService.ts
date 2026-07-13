@@ -38,6 +38,7 @@ import type {
   TipoEventoPagar,
   BeneficiarioPessoalRosterPagar,
 } from '@/types/contasAPagar'
+import type { StatusPagamentoDespesa } from '@/types/despesas'
 
 // ============================================================
 // CONSTANTES
@@ -319,6 +320,113 @@ export async function registrarEvento(
 }
 
 // ============================================================
+// sincronizarStatusDespesaDoTitulo()
+// QA fix (bug real confirmado, sessão 13/07/2026 — caso Nathalia
+// Galvão, título baixado manualmente): mesmo bug de dessincronia já
+// corrigido em motorConciliacao.ts (baixas automáticas), mas por um
+// caminho de código diferente — as 4 funções deste arquivo que
+// também alteram contas_a_pagar.status (registrarBaixaManual,
+// atualizarTitulo, cancelarTitulo, reabrirTitulo) nunca propagavam a
+// mudança pra despesas.status_pagamento / despesas_parcelas.status.
+// Duplicada deliberadamente aqui (não importada de
+// motorConciliacao.ts) — mesmo padrão de auto-contenção já usado no
+// resto do projeto — mas adaptada pro client genérico já recebido
+// por parâmetro nas funções deste arquivo, em vez de sempre
+// supabaseAdmin.
+// ============================================================
+// ============================================================
+// sincronizarStatusDespesaDoTitulo()
+// QA fix (bug real confirmado, sessão 13/07/2026 — caso Nathalia
+// Galvão, título baixado manualmente): mesmo bug de dessincronia já
+// corrigido em motorConciliacao.ts (baixas automáticas), mas por um
+// caminho de código diferente — as 4 funções deste arquivo que
+// também alteram contas_a_pagar.status (registrarBaixaManual,
+// atualizarTitulo, cancelarTitulo, reabrirTitulo) nunca propagavam a
+// mudança pra despesas.status_pagamento / despesas_parcelas.status.
+// Duplicada deliberadamente aqui (não importada de
+// motorConciliacao.ts) — mesmo padrão de auto-contenção já usado no
+// resto do projeto — mas adaptada pro client genérico já recebido
+// por parâmetro nas funções deste arquivo, em vez de sempre
+// supabaseAdmin.
+//
+// QA fix 2 (bug real confirmado, sessão 13/07/2026 — caso Gráfica
+// Galvão, R$2.089,00 em 3 parcelas): a primeira versão copiava
+// novoStatus DIRETO pra despesas.status_pagamento, assumindo 1
+// título por Despesa. Uma Despesa pode ter VÁRIAS parcelas/títulos —
+// copiar direto sobrescreve o status da Despesa inteira com o de
+// só UM título, ignorando os outros. despesas_parcelas continua
+// sendo 1:1 com o título (correto copiar direto); despesas agora é
+// SEMPRE recalculado por agregação de todos os títulos não-deletados
+// vinculados àquela despesa_id.
+// ============================================================
+async function sincronizarStatusDespesaDoTitulo(
+  tituloId: string,
+  novoStatus: StatusTituloPagar,
+  client: SupabaseClient,
+): Promise<void> {
+  const { data: titulo, error: erroTitulo } = await client
+    .from(TABELA)
+    .select('despesa_id, despesa_parcela_id')
+    .eq('id', tituloId)
+    .single()
+
+  // Sem despesa_id vinculada — nada a sincronizar, não é erro
+  if (erroTitulo || !titulo || !titulo.despesa_id) return
+
+  // Parcela é 1:1 com o título — copia direto, sem ambiguidade
+  if (titulo.despesa_parcela_id) {
+    const { error: erroParcela } = await client
+      .from('despesas_parcelas')
+      .update({ status: novoStatus })
+      .eq('id', titulo.despesa_parcela_id)
+
+    if (erroParcela) {
+      throw new Error(`Falha ao sincronizar status da parcela (${titulo.despesa_parcela_id}): ${erroParcela.message}`)
+    }
+  }
+
+  // Despesa é recalculada por agregação de TODOS os títulos ativos
+  // vinculados a ela — nunca copiada direto de um título só
+  const { data: todosTitulos, error: erroTodos } = await client
+    .from(TABELA)
+    .select('status')
+    .eq('despesa_id', titulo.despesa_id)
+    .is('deleted_at', null)
+
+  if (erroTodos) {
+    throw new Error(`Falha ao buscar títulos da Despesa (${titulo.despesa_id}) para agregação: ${erroTodos.message}`)
+  }
+  if (!todosTitulos || todosTitulos.length === 0) return
+
+  const statusAgregado = calcularStatusAgregadoDespesa(todosTitulos.map((t) => t.status as StatusTituloPagar))
+
+  const { error: erroDespesa } = await client
+    .from('despesas')
+    .update({ status_pagamento: statusAgregado })
+    .eq('id', titulo.despesa_id)
+
+  if (erroDespesa) {
+    throw new Error(`Falha ao sincronizar status_pagamento da Despesa (${titulo.despesa_id}): ${erroDespesa.message}`)
+  }
+}
+
+// ============================================================
+// calcularStatusAgregadoDespesa()
+// Helper local — dado o conjunto de status de todos os títulos
+// (contas_a_pagar) ativos vinculados a uma Despesa, decide o status
+// agregado correto pra despesas.status_pagamento. 'pago_parcial'
+// cobre tanto "1 de N títulos pago, resto em_aberto" quanto "algum
+// título está ele mesmo pago_parcial" — qualquer mistura que não
+// seja 100% pago nem 100% em_aberto é, por definição, parcial.
+// ============================================================
+function calcularStatusAgregadoDespesa(statusTitulos: StatusTituloPagar[]): StatusPagamentoDespesa {
+  if (statusTitulos.every((s) => s === 'pago')) return 'pago'
+  if (statusTitulos.every((s) => s === 'em_aberto')) return 'em_aberto'
+  if (statusTitulos.every((s) => s === 'cancelado')) return 'cancelado'
+  return 'pago_parcial'
+}
+
+// ============================================================
 // criarTitulosDePagar()
 // Cria automaticamente um título em contas_a_pagar para cada
 // despesas_parcela de uma Despesa recém-criada — espelha
@@ -506,6 +614,8 @@ export async function registrarBaixaManual(
     throw new Error(erroUpdate.message)
   }
 
+  await sincronizarStatusDespesaDoTitulo(id, novoStatus, client)
+
   const tipoEvento: TipoEventoPagar = novoStatus === 'pago' ? 'baixa_total' : 'baixa_parcial'
   await registrarEvento(
     id,
@@ -560,7 +670,10 @@ export async function atualizarTitulo(
     throw new Error(error.message)
   }
 
-  return data as ContaAPagar
+  const tituloAtualizado = data as ContaAPagar
+  await sincronizarStatusDespesaDoTitulo(tituloAtualizado.id, tituloAtualizado.status, client)
+
+  return tituloAtualizado
 }
 
 // ============================================================
@@ -580,6 +693,7 @@ export async function cancelarTitulo(id: string, client: SupabaseClient = supaba
     throw new Error(error.message)
   }
 
+  await sincronizarStatusDespesaDoTitulo(id, 'cancelado', client)
   await registrarEvento(id, 'cancelado', 'Título cancelado pelo usuário.', null, client)
 }
 
@@ -599,6 +713,7 @@ export async function reabrirTitulo(id: string, client: SupabaseClient = supabas
     throw new Error(error.message)
   }
 
+  await sincronizarStatusDespesaDoTitulo(id, 'em_aberto', client)
   await registrarEvento(id, 'reaberto', 'Título reaberto manualmente pelo usuário.', null, client)
 }
 

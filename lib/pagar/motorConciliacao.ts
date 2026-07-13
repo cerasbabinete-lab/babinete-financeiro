@@ -138,6 +138,16 @@ async function registrarEvento(
 // não tiver despesa_id vinculada (títulos sintéticos criados por
 // criarDespesaEContaAPagarAutomatica já nascem com os dois campos
 // sincronizados na criação, não passam por aqui).
+//
+// QA fix 2 (bug real confirmado, sessão 13/07/2026 — caso Gráfica
+// Galvão, R$2.089,00 em 3 parcelas): a primeira versão copiava
+// novoStatus DIRETO pra despesas.status_pagamento, assumindo 1
+// título por Despesa. Uma Despesa pode ter VÁRIAS parcelas/títulos —
+// copiar direto sobrescreve o status da Despesa inteira com o de só
+// UM título, ignorando os outros. despesas_parcelas continua sendo
+// 1:1 com o título (correto copiar direto); despesas agora é SEMPRE
+// recalculado por agregação de todos os títulos não-deletados
+// vinculados àquela despesa_id.
 // ------------------------------------------------------------
 async function sincronizarStatusDespesaDoTitulo(
   supabaseAdmin: SupabaseClient,
@@ -153,15 +163,7 @@ async function sincronizarStatusDespesaDoTitulo(
   // Sem despesa_id vinculada — nada a sincronizar, não é erro
   if (erroTitulo || !titulo || !titulo.despesa_id) return
 
-  const { error: erroDespesa } = await supabaseAdmin
-    .from('despesas')
-    .update({ status_pagamento: novoStatus })
-    .eq('id', titulo.despesa_id)
-
-  if (erroDespesa) {
-    throw new Error(`Falha ao sincronizar status_pagamento da Despesa (${titulo.despesa_id}): ${erroDespesa.message}`)
-  }
-
+  // Parcela é 1:1 com o título — copia direto, sem ambiguidade
   if (titulo.despesa_parcela_id) {
     const { error: erroParcela } = await supabaseAdmin
       .from('despesas_parcelas')
@@ -171,6 +173,35 @@ async function sincronizarStatusDespesaDoTitulo(
     if (erroParcela) {
       throw new Error(`Falha ao sincronizar status da parcela (${titulo.despesa_parcela_id}): ${erroParcela.message}`)
     }
+  }
+
+  // Despesa é recalculada por agregação de TODOS os títulos ativos
+  // vinculados a ela — nunca copiada direto de um título só
+  const { data: todosTitulos, error: erroTodos } = await supabaseAdmin
+    .from('contas_a_pagar')
+    .select('status')
+    .eq('despesa_id', titulo.despesa_id)
+    .is('deleted_at', null)
+
+  if (erroTodos) {
+    throw new Error(`Falha ao buscar títulos da Despesa (${titulo.despesa_id}) para agregação: ${erroTodos.message}`)
+  }
+  if (!todosTitulos || todosTitulos.length === 0) return
+
+  const statusList = todosTitulos.map((t) => t.status as string)
+  let statusAgregado: 'em_aberto' | 'pago_parcial' | 'pago' | 'cancelado'
+  if (statusList.every((s) => s === 'pago')) statusAgregado = 'pago'
+  else if (statusList.every((s) => s === 'em_aberto')) statusAgregado = 'em_aberto'
+  else if (statusList.every((s) => s === 'cancelado')) statusAgregado = 'cancelado'
+  else statusAgregado = 'pago_parcial'
+
+  const { error: erroDespesa } = await supabaseAdmin
+    .from('despesas')
+    .update({ status_pagamento: statusAgregado })
+    .eq('id', titulo.despesa_id)
+
+  if (erroDespesa) {
+    throw new Error(`Falha ao sincronizar status_pagamento da Despesa (${titulo.despesa_id}): ${erroDespesa.message}`)
   }
 }
 

@@ -189,9 +189,14 @@ export interface ExtensaoCategoria {
 // de fluxo de caixa, não devem ser confundidos nem unificados
 // ============================================================
 export type StatusPagamentoDespesa =
-  | 'em_aberto'   // Despesa lançada, parcela(s) ainda não paga(s)
-  | 'pago'        // Liquidada (sem workflow de baixa automatizado nesta fase — ver spec seção 8)
-  | 'cancelado'   // Soft-deleted — deleted_at preenchido
+  | 'em_aberto'    // Despesa lançada, parcela(s) ainda não paga(s)
+  | 'pago_parcial' // QA fix (sessão 13/07/2026): título vinculado em Contas a Pagar
+                    // foi parcialmente baixado (acúmulo automático ou baixa manual
+                    // parcial) — sem esse valor, sincronizarStatusDespesaDoTitulo()
+                    // (contasAPagarService.ts / motorConciliacao.ts) falha contra a
+                    // CHECK constraint do banco ao tentar propagar 'pago_parcial'
+  | 'pago'         // Liquidada (sem workflow de baixa automatizado nesta fase — ver spec seção 8)
+  | 'cancelado'    // Soft-deleted — deleted_at preenchido
 
 
 // ============================================================
@@ -534,9 +539,10 @@ export interface BeneficiarioPessoalRoster {
 // Labels legíveis para cada status — usados em badges e filtros
 // ============================================================
 export const STATUS_PAGAMENTO_LABELS: Record<StatusPagamentoDespesa, string> = {
-  em_aberto: 'Em Aberto',
-  pago:      'Pago',
-  cancelado: 'Cancelado',
+  em_aberto:    'Em Aberto',
+  pago_parcial: 'Pago Parcial',
+  pago:         'Pago',
+  cancelado:    'Cancelado',
 }
 
 
@@ -549,9 +555,10 @@ export const STATUS_PAGAMENTO_CORES: Record<StatusPagamentoDespesa, { bg: string
   // QA fix (a pedido do Maycon, sessão 12/07/2026): "Em Aberto" passa
   // a ser azul em todo o sistema (Receitas fica de fora, tela
   // diferente) — texto no tom primário do projeto (#1a6094)
-  em_aberto: { bg: '#dbeafe', text: '#1a6094' }, // azul — aguardando pagamento
-  pago:      { bg: '#dcfce7', text: '#166534' }, // verde — liquidado
-  cancelado: { bg: '#f3f4f6', text: '#9ca3af' }, // cinza — soft-deleted
+  em_aberto:    { bg: '#dbeafe', text: '#1a6094' }, // azul — aguardando pagamento
+  pago_parcial: { bg: '#fef3c7', text: '#92400e' }, // âmbar — mesmo tom de contas_a_pagar.pago_parcial
+  pago:         { bg: '#dcfce7', text: '#166534' }, // verde — liquidado
+  cancelado:    { bg: '#f3f4f6', text: '#9ca3af' }, // cinza — soft-deleted
 }
 
 
