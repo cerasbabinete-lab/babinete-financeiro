@@ -105,20 +105,22 @@ export function parsearBoletoPdf(texto: string): {
   }
 
   // ── 4. Data de Vencimento ────────────────────────────────
-  // O texto real extraído pelo pdf-parse tem o campo "Vencimento"
-  // no cabeçalho do boleto seguido diretamente da data:
-  // "Vencimento 12/08/2026" — âncora mais confiável que posição.
-  // Pode aparecer múltiplas vezes (3 vias) — todas iguais, usa a primeira.
-  const reVenc = /Vencimento\s+(\d{2})\/(\d{2})\/(\d{4})/i
+  // Padrão EXATO confirmado do pdf-parse v2 com estes boletos BB:
+  //   "R$\n12/08/2026\nR$ 857,00"
+  // A data de vencimento aparece entre dois "R$":
+  //   - primeiro R$ sem valor (campo vazio no layout)
+  //   - data de vencimento sozinha numa linha
+  //   - segundo R$ com o valor cobrado
+  const reVenc = /R\$\n(\d{2}\/\d{2}\/\d{4})\nR\$/
   const mVenc  = reVenc.exec(texto2)
   if (mVenc) {
-    const [, dd, mm, yyyy] = mVenc
+    const [dd, mm, yyyy] = mVenc[1].split('/')
     if (Number(mm) >= 1 && Number(mm) <= 12) {
       dataVencimento = `${yyyy}-${mm}-${dd}`
     }
   }
   if (!dataVencimento) {
-    erros.push({ campo: 'dataVencimento', detalhe: 'Data de vencimento não encontrada (esperado: "Vencimento DD/MM/YYYY")' })
+    erros.push({ campo: 'dataVencimento', detalhe: 'Data de vencimento não encontrada (padrão esperado: R$\\n{data}\\nR$ {valor})' })
   }
 
   // ── 5. Valor ─────────────────────────────────────────────
