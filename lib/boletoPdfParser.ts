@@ -86,52 +86,56 @@ export function parsearBoletoPdf(texto: string): {
   }
 
   // ── 3. Número do Documento ───────────────────────────────
-  // Aparece como "005431" — 6 dígitos com zero à esquerda
-  // Estratégia: buscar após "Num do Documento" ou padrão 0NNNNN
-  const reNumDoc = /(?:Num(?:ero)?\s+do\s+Documento\s*[\n\r]+|Num do Documento\s+)(\d{6})/i
-  const mNumDoc  = reNumDoc.exec(texto2)
-  if (mNumDoc) {
-    numeroDocumento = mNumDoc[1]
+  // Formato MIGRATE: "005431" (parcela única) ou "005431/1" (múltiplas)
+  // ATENÇÃO: o sistema externo gera com HÍFEN ("005430-1") mas o banco
+  // armazena com BARRA ("005430/1") — normalizar após extração.
+  // CRÍTICO: incluir o sufixo (/N ou -N) — é a chave de busca no banco.
+  const reNumDoc = /\b(0\d{5}(?:[/\-]\d+)?)\b/g
+  const numDocMatches = [...texto2.matchAll(reNumDoc)].filter(m => {
+    const idx    = m.index ?? 0
+    const antes  = texto2[idx - 1] ?? ''
+    const depois = texto2[idx + m[1].length] ?? ''
+    return antes !== '.' && depois !== '.'
+  })
+  if (numDocMatches.length > 0) {
+    // Normaliza hífen → barra para bater com o formato do banco ("005430/1")
+    numeroDocumento = numDocMatches[0][1].replace(/^(\d{6})-(\d+)$/, '$1/$2')
   } else {
-    // Fallback: procura sequência de 6 dígitos começando com 0 isolada
-    const reFb2 = /\b(0\d{5})\b/g
-    const fbArr = [...texto2.matchAll(reFb2)]
-    // Filtra valores que não são claramente parte de outro dado
-    // (ex: CEP tem 8 dígitos, CNPJ é formatado com pontos)
-    const candidatos = fbArr.filter(m => {
-      const v = m[1]
-      // Rejeita se o contexto imediato tem ponto antes/depois (CEP, CNPJ)
-      const idx = m.index ?? 0
-      const antes = texto2[idx - 1] ?? ''
-      const depois = texto2[idx + 6] ?? ''
-      return antes !== '.' && depois !== '.'
-    })
-    if (candidatos.length > 0) {
-      numeroDocumento = candidatos[0][1]
-    } else {
-      erros.push({ campo: 'numeroDocumento', detalhe: 'Número do documento não encontrado no PDF' })
-    }
+    erros.push({ campo: 'numeroDocumento', detalhe: 'Número do documento não encontrado no PDF' })
   }
 
   // ── 4. Data de Vencimento ────────────────────────────────
-  // Formato no PDF: "28/07/2026"
-  const reData = /\b(\d{2})\/(\d{2})\/(\d{4})\b/g
-  const datasEncontradas: string[] = []
-  for (const m of texto2.matchAll(reData)) {
-    const [, dd, mm, yyyy] = m
-    const n = Number(mm)
-    if (n >= 1 && n <= 12) {
-      // Converte DD/MM/YYYY → YYYY-MM-DD
-      datasEncontradas.push(`${yyyy}-${mm}-${dd}`)
+  // CRÍTICO: não pegar a data mais futura do texto inteiro —
+  // para NFs com 2 parcelas, o PDF contém as duas datas e pegaria
+  // sempre a do /2 mesmo quando o boleto é o /1.
+  // Estratégia: buscar a primeira data DD/MM/YYYY que aparece
+  // APÓS o Nosso Número no texto (que é único por boleto).
+  // Fallback: primeira data válida do texto.
+  if (nossoNumero) {
+    const posNn     = texto2.indexOf(nossoNumero)
+    const textoApos = texto2.slice(posNn)
+    const reData    = /\b(\d{2})\/(\d{2})\/(\d{4})\b/
+    const mData     = reData.exec(textoApos)
+    if (mData) {
+      const [, dd, mm, yyyy] = mData
+      if (Number(mm) >= 1 && Number(mm) <= 12) {
+        dataVencimento = `${yyyy}-${mm}-${dd}`
+      }
     }
   }
-  if (datasEncontradas.length > 0) {
-    // A data de vencimento é tipicamente a mais futura (não a de processamento)
-    // Ordena descendente e pega a mais distante
-    datasEncontradas.sort((a, b) => b.localeCompare(a))
-    dataVencimento = datasEncontradas[0]
-  } else {
-    erros.push({ campo: 'dataVencimento', detalhe: 'Data de vencimento não encontrada no PDF' })
+  if (!dataVencimento) {
+    // Fallback: primeira data válida do texto
+    const reData = /\b(\d{2})\/(\d{2})\/(\d{4})\b/g
+    for (const m of texto2.matchAll(reData)) {
+      const [, dd, mm, yyyy] = m
+      if (Number(mm) >= 1 && Number(mm) <= 12) {
+        dataVencimento = `${yyyy}-${mm}-${dd}`
+        break
+      }
+    }
+    if (!dataVencimento) {
+      erros.push({ campo: 'dataVencimento', detalhe: 'Data de vencimento não encontrada no PDF' })
+    }
   }
 
   // ── 5. Valor ─────────────────────────────────────────────
