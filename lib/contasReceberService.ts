@@ -748,7 +748,94 @@ export async function verificarHashRemessa(hash: string): Promise<string | null>
 }
 
 // ============================================================
-// registrarRemessaImportada()
+// processarBoletoPdf()
+// Recebe o texto extraído de um boleto PDF (via pdf-parse no
+// client-side) e vincula nosso_numero + linha_digitavel ao
+// título existente em contas_receber, buscando por
+// numero_documento + data_vencimento.
+// Chamado por: ContasReceberHeader.tsx e BasebarContasReceber.tsx
+// ============================================================
+export async function processarBoletoPdf(textoPdf: string): Promise<{
+  vinculado:       boolean
+  nossoNumero:     string
+  numeroDocumento: string
+  descricao:       string
+}> {
+  // Importação dinâmica para evitar bundle no servidor (pdf-parse é CJS)
+  const { parsearBoletoPdf } = await import('./boletoPdfParser')
+
+  const { resultado, erros } = parsearBoletoPdf(textoPdf)
+
+  if (!resultado) {
+    const campos = erros.map(e => `${e.campo}: ${e.detalhe}`).join(' | ')
+    throw new Error(`Não foi possível extrair dados do boleto PDF. ${campos}`)
+  }
+
+  const { nossoNumero, linhaDigitavel, numeroDocumento, dataVencimento } = resultado
+
+  // Busca o título por numero_documento + data_vencimento
+  const { data: encontrado, error: errBusca } = await supabase
+    .from(TABELA)
+    .select('id, nosso_numero')
+    .eq('numero_documento', numeroDocumento)
+    .eq('data_vencimento',  dataVencimento)
+    .is('deleted_at', null)
+    .maybeSingle()
+
+  if (errBusca) {
+    throw new Error(`Erro ao buscar título: ${errBusca.message}`)
+  }
+
+  if (!encontrado) {
+    return {
+      vinculado:       false,
+      nossoNumero,
+      numeroDocumento,
+      descricao:       `Nenhum título encontrado para ${numeroDocumento} com vencimento ${dataVencimento}. Verifique se o XML da NF-e foi importado em Receitas.`,
+    }
+  }
+
+  if (encontrado.nosso_numero) {
+    // Já tem Nosso Número — apenas atualiza a linha digitável se ainda não tiver
+    const { error: errUpd } = await supabase
+      .from(TABELA)
+      .update({ linha_digitavel: linhaDigitavel })
+      .eq('id', encontrado.id)
+      .is('linha_digitavel', null) // Só atualiza se linha_digitavel estava vazia
+
+    if (errUpd) console.warn('[contasReceberService] processarBoletoPdf linha_digitavel update:', errUpd)
+
+    return {
+      vinculado:       true,
+      nossoNumero,
+      numeroDocumento,
+      descricao:       `Título ${numeroDocumento} já possuía Nosso Número — linha digitável atualizada.`,
+    }
+  }
+
+  // Vincula nosso_numero + linha_digitavel
+  const { error: errUpd } = await supabase
+    .from(TABELA)
+    .update({ nosso_numero: nossoNumero, linha_digitavel: linhaDigitavel })
+    .eq('id', encontrado.id)
+
+  if (errUpd) {
+    throw new Error(`Erro ao vincular Nosso Número: ${errUpd.message}`)
+  }
+
+  await registrarEvento(
+    encontrado.id,
+    'nosso_numero_vinculado',
+    `Nosso Número ${nossoNumero} e linha digitável vinculados via import de boleto PDF.`,
+  )
+
+  return {
+    vinculado:       true,
+    nossoNumero,
+    numeroDocumento,
+    descricao:       `Nosso Número ${nossoNumero} vinculado ao título ${numeroDocumento}.`,
+  }
+}
 // Grava o registro do arquivo importado com contadores
 // Chamado ao final de cada import (TXT BB, REM, RET)
 // ============================================================

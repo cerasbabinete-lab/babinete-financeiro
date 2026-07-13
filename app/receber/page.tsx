@@ -28,6 +28,7 @@ import {
   processarRegistrosXls,
   gerarPreviewImportacao,
   buscarContadoresTitulos,
+  processarBoletoPdf,
   type ContadoresTitulos,
   type ItemPreviewImportacao,
 } from '@/lib/contasReceberService'
@@ -350,6 +351,28 @@ export default function ContasReceberPage() {
     }
   }
 
+  // ── Importar Boleto PDF — mobile (Basebar) ────────────────
+  async function processarImportBoletoPdf(file: File) {
+    try {
+      // Lê o PDF como ArrayBuffer e extrai texto via pdf-parse
+      const buffer = await file.arrayBuffer()
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { PDFParse } = require('pdf-parse')
+      const parser = new PDFParse()
+      const { text: textoPdf } = await parser.parse(Buffer.from(buffer))
+
+      const resultado = await processarBoletoPdf(textoPdf)
+      if (resultado.vinculado) {
+        setMsgSucesso(`Boleto ${resultado.numeroDocumento}: Nosso Número ${resultado.nossoNumero} vinculado.`)
+        carregarTitulos()
+      } else {
+        setMsgErro(resultado.descricao)
+      }
+    } catch (err: unknown) {
+      setMsgErro(err instanceof Error ? err.message : 'Erro ao importar boleto PDF')
+    }
+  }
+
   // ── Confirma e aplica a prévia de importação (RET ou XLS) — mobile ──
   async function handleConfirmarPreviewMobile() {
     if (!previewDados) return
@@ -650,6 +673,7 @@ export default function ContasReceberPage() {
         onImportarTxtBb={processarImportTxtBb}
         onImportarRem={processarImportRem}
         onImportarRet={processarImportRetorno}
+        onImportarBoletoPdf={processarImportBoletoPdf}
         onNovoLancamento={handleNovoLancamento}
         onRestaurado={carregarTitulos}
         onErro={setMsgErro}

@@ -19,15 +19,16 @@ import type { ContaReceber } from '@/types/contasReceber'
 import ExportDropdownContasReceber from './ExportDropdownContasReceber'
 
 interface BasebarContasReceberProps {
-  titulos:            ContaReceber[]
-  usuario?:           string
-  onImportarTxtBb:    (file: File) => Promise<void>  // Handler no page.tsx
-  onImportarRem:      (file: File) => Promise<void>  // Handler no page.tsx
-  onImportarRet:      (file: File) => Promise<void>  // Handler no page.tsx
-  onNovoLancamento:   () => void
-  onRestaurado:       () => void
-  onErro:             (msg: string) => void
-  onSucesso:          (msg: string) => void
+  titulos:               ContaReceber[]
+  usuario?:              string
+  onImportarTxtBb:       (file: File) => Promise<void>
+  onImportarRem:         (file: File) => Promise<void>
+  onImportarRet:         (file: File) => Promise<void>
+  onImportarBoletoPdf:   (file: File) => Promise<void>
+  onNovoLancamento:      () => void
+  onRestaurado:          () => void
+  onErro:                (msg: string) => void
+  onSucesso:             (msg: string) => void
 }
 
 export default function BasebarContasReceber({
@@ -36,6 +37,7 @@ export default function BasebarContasReceber({
   onImportarTxtBb,
   onImportarRem,
   onImportarRet,
+  onImportarBoletoPdf,
   onNovoLancamento,
   onRestaurado,
   onErro,
@@ -46,13 +48,15 @@ export default function BasebarContasReceber({
   const refTxtBb   = useRef<HTMLInputElement>(null)
   const refRem     = useRef<HTMLInputElement>(null)
   const refRet     = useRef<HTMLInputElement>(null)
+  const refBoleto  = useRef<HTMLInputElement>(null)
   const refRestaur = useRef<HTMLInputElement>(null)
 
   // ── Loading states ────────────────────────────────────────
-  const [loadingTxtBb,  setLoadingTxtBb]  = useState(false)
-  const [loadingRem,    setLoadingRem]    = useState(false)
-  const [loadingRet,    setLoadingRet]    = useState(false)
-  const [loadingBackup, setLoadingBackup] = useState(false)
+  const [loadingTxtBb,   setLoadingTxtBb]   = useState(false)
+  const [loadingRem,     setLoadingRem]     = useState(false)
+  const [loadingRet,     setLoadingRet]     = useState(false)
+  const [loadingBoleto,  setLoadingBoleto]  = useState(false)
+  const [loadingBackup,  setLoadingBackup]  = useState(false)
   const [loadingRestaur, setLoadingRestaur] = useState(false)
 
   // ── Import TXT BB ─────────────────────────────────────────
@@ -90,6 +94,19 @@ export default function BasebarContasReceber({
       await onImportarRet(file)
     } finally {
       setLoadingRet(false)
+      e.target.value = ''
+    }
+  }
+
+  // ── Import Boleto PDF ─────────────────────────────────────
+  async function handleBoleto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setLoadingBoleto(true)
+    try {
+      await onImportarBoletoPdf(file)
+    } finally {
+      setLoadingBoleto(false)
       e.target.value = ''
     }
   }
@@ -162,6 +179,12 @@ export default function BasebarContasReceber({
         <span style={labelStyle}>{loadingRet ? '...' : 'Retorno'}</span>
       </button>
 
+      {/* Boleto PDF — vincula Nosso Número + Linha Digitável */}
+      <button onClick={() => refBoleto.current?.click()} disabled={loadingBoleto} style={btnStyle} title="Importar boleto PDF — vincula Nosso Número">
+        <i className="ti ti-file-barcode" style={{ fontSize: '20px', color: '#1a6094' }} aria-hidden="true" />
+        <span style={labelStyle}>{loadingBoleto ? '...' : 'Boleto'}</span>
+      </button>
+
       {/* Backup */}
       <button onClick={handleBackup} disabled={loadingBackup} style={btnStyle}>
         <i className="ti ti-database-export" style={{ fontSize: '20px', color: '#1a6094' }} aria-hidden="true" />
@@ -189,6 +212,7 @@ export default function BasebarContasReceber({
       <input ref={refTxtBb}   type="file" accept=".txt"       style={{ display: 'none' }} onChange={handleTxtBb} />
       <input ref={refRem}     type="file" accept=".rem,.txt"  style={{ display: 'none' }} onChange={handleRem} />
       <input ref={refRet}     type="file" accept=".ret,.txt,.xls,.xlsx" style={{ display: 'none' }} onChange={handleRet} />
+      <input ref={refBoleto}  type="file" accept=".pdf"       style={{ display: 'none' }} onChange={handleBoleto} />
       <input ref={refRestaur} type="file" accept=".json"      style={{ display: 'none' }} onChange={handleRestaurar} />
 
     </footer>

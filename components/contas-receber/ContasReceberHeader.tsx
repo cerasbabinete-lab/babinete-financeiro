@@ -29,6 +29,7 @@ import {
   processarRegistrosRet,
   processarRegistrosXls,
   gerarPreviewImportacao,
+  processarBoletoPdf,
 } from '@/lib/contasReceberService'
 import type { ItemPreviewImportacao } from '@/lib/contasReceberService'
 import { parseTxtBb, calcularHashSha256 } from '@/lib/txtBbParser'
@@ -65,12 +66,14 @@ export default function ContasReceberHeader({
   const refTxtBb    = useRef<HTMLInputElement>(null)
   const refRem      = useRef<HTMLInputElement>(null)
   const refRet      = useRef<HTMLInputElement>(null)
+  const refBoleto   = useRef<HTMLInputElement>(null)
   const refRestaur  = useRef<HTMLInputElement>(null)
 
   // ── Estados de loading por operação ──────────────────────
   const [loadingTxtBb,  setLoadingTxtBb]  = useState(false)
   const [loadingRem,    setLoadingRem]    = useState(false)
   const [loadingRet,    setLoadingRet]    = useState(false) // Loading do parse + geração da prévia (antes de gravar)
+  const [loadingBoleto, setLoadingBoleto] = useState(false)
   const [loadingBackup, setLoadingBackup] = useState(false)
   const [loadingRestaur, setLoadingRestaur] = useState(false)
 
@@ -186,6 +189,44 @@ export default function ContasReceberHeader({
       onErro(err instanceof Error ? err.message : 'Erro ao processar REM')
     } finally {
       setLoadingRem(false)
+      e.target.value = ''
+    }
+  }
+
+  // ============================================================
+  // handleImportarBoletoPdf
+  // Lê um boleto PDF emitido pelo sistema externo (MIGRATE),
+  // extrai texto via pdf-parse (CJS), parseia os campos e
+  // vincula nosso_numero + linha_digitavel ao título existente.
+  // Não tem hash de deduplicação — o mesmo boleto pode ser
+  // reimportado sem problema (a segunda vez atualiza só linha_digitavel).
+  // ============================================================
+  async function handleImportarBoletoPdf(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setLoadingBoleto(true)
+    try {
+      // Lê o arquivo como ArrayBuffer para o pdf-parse
+      const buffer = await file.arrayBuffer()
+
+      // Importa pdf-parse dinamicamente (CJS — não pode ser import estático)
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { PDFParse } = require('pdf-parse')
+      const parser = new PDFParse()
+      const { text: textoPdf } = await parser.parse(Buffer.from(buffer))
+
+      const resultado = await processarBoletoPdf(textoPdf)
+
+      if (resultado.vinculado) {
+        onSucesso(`Boleto ${resultado.numeroDocumento}: Nosso Número ${resultado.nossoNumero} vinculado com sucesso.`)
+        onImportado()
+      } else {
+        onErro(resultado.descricao)
+      }
+    } catch (err: unknown) {
+      onErro(err instanceof Error ? err.message : 'Erro ao importar boleto PDF')
+    } finally {
+      setLoadingBoleto(false)
       e.target.value = ''
     }
   }
@@ -428,6 +469,17 @@ export default function ContasReceberHeader({
           {loadingRem ? 'Importando...' : 'Importar REM'}
         </button>
 
+        {/* Importar Boleto PDF — vincula Nosso Número + Linha Digitável */}
+        <button
+          onClick={() => refBoleto.current?.click()}
+          disabled={loadingBoleto}
+          title="Importar boleto PDF emitido pelo sistema — vincula Nosso Número e Linha Digitável ao título"
+          style={{ ...btnPrimary, opacity: loadingBoleto ? 0.7 : 1, cursor: loadingBoleto ? 'wait' : 'pointer' }}
+        >
+          <i className="ti ti-file-barcode" style={{ fontSize: '14px' }} aria-hidden="true" />
+          {loadingBoleto ? 'Importando...' : 'Boleto PDF'}
+        </button>
+
         {/* Importar Retorno — aceita .RET (CNAB 240) e .XLS (relatório BB), abre prévia antes de aplicar */}
         <button
           onClick={() => refRet.current?.click()}
@@ -484,6 +536,7 @@ export default function ContasReceberHeader({
       {/* ── File pickers ocultos ─────────────────────────────── */}
       <input ref={refTxtBb}   type="file" accept=".txt"            style={{ display: 'none' }} onChange={handleImportarTxtBb} />
       <input ref={refRem}     type="file" accept=".rem,.txt"       style={{ display: 'none' }} onChange={handleImportarRem} />
+      <input ref={refBoleto}  type="file" accept=".pdf"            style={{ display: 'none' }} onChange={handleImportarBoletoPdf} />
       <input ref={refRet}     type="file" accept=".ret,.txt,.xls,.xlsx" style={{ display: 'none' }} onChange={handleImportarRetorno} />
       <input ref={refRestaur} type="file" accept=".json"           style={{ display: 'none' }} onChange={handleRestaurar} />
 
