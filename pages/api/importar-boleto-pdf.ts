@@ -21,8 +21,7 @@ import { parsearBoletoPdf } from '@/lib/boletoPdfParser'
 // Desabilita o bodyParser do Next.js — lemos o stream manualmente
 export const config = { api: { bodyParser: false } }
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { PDFParse } = require('pdf-parse')
+import { PDFParse } from 'pdf-parse'
 
 function getSupabaseAdmin() {
   return createClient(
@@ -63,8 +62,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // ── Extrai texto do PDF (server-side Node.js) ─────────
-    const parser             = new PDFParse()
-    const { text: textoPdf } = await parser.parse(buffer)
+    const parser             = new PDFParse({ data: buffer })
+    let textoPdf: string
+    try {
+      const resultado = await parser.getText()
+      textoPdf        = resultado.text
+    } finally {
+      await parser.destroy()
+    }
 
     // ── Parseia os campos do boleto ───────────────────────
     const { resultado, erros } = parsearBoletoPdf(textoPdf)
