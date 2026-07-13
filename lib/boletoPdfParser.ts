@@ -105,37 +105,20 @@ export function parsearBoletoPdf(texto: string): {
   }
 
   // ── 4. Data de Vencimento ────────────────────────────────
-  // CRÍTICO: não pegar a data mais futura do texto inteiro —
-  // para NFs com 2 parcelas, o PDF contém as duas datas e pegaria
-  // sempre a do /2 mesmo quando o boleto é o /1.
-  // Estratégia: buscar a primeira data DD/MM/YYYY que aparece
-  // APÓS o Nosso Número no texto (que é único por boleto).
-  // Fallback: primeira data válida do texto.
-  if (nossoNumero) {
-    const posNn     = texto2.indexOf(nossoNumero)
-    const textoApos = texto2.slice(posNn)
-    const reData    = /\b(\d{2})\/(\d{2})\/(\d{4})\b/
-    const mData     = reData.exec(textoApos)
-    if (mData) {
-      const [, dd, mm, yyyy] = mData
-      if (Number(mm) >= 1 && Number(mm) <= 12) {
-        dataVencimento = `${yyyy}-${mm}-${dd}`
-      }
+  // O texto real extraído pelo pdf-parse tem o campo "Vencimento"
+  // no cabeçalho do boleto seguido diretamente da data:
+  // "Vencimento 12/08/2026" — âncora mais confiável que posição.
+  // Pode aparecer múltiplas vezes (3 vias) — todas iguais, usa a primeira.
+  const reVenc = /Vencimento\s+(\d{2})\/(\d{2})\/(\d{4})/i
+  const mVenc  = reVenc.exec(texto2)
+  if (mVenc) {
+    const [, dd, mm, yyyy] = mVenc
+    if (Number(mm) >= 1 && Number(mm) <= 12) {
+      dataVencimento = `${yyyy}-${mm}-${dd}`
     }
   }
   if (!dataVencimento) {
-    // Fallback: primeira data válida do texto
-    const reData = /\b(\d{2})\/(\d{2})\/(\d{4})\b/g
-    for (const m of texto2.matchAll(reData)) {
-      const [, dd, mm, yyyy] = m
-      if (Number(mm) >= 1 && Number(mm) <= 12) {
-        dataVencimento = `${yyyy}-${mm}-${dd}`
-        break
-      }
-    }
-    if (!dataVencimento) {
-      erros.push({ campo: 'dataVencimento', detalhe: 'Data de vencimento não encontrada no PDF' })
-    }
+    erros.push({ campo: 'dataVencimento', detalhe: 'Data de vencimento não encontrada (esperado: "Vencimento DD/MM/YYYY")' })
   }
 
   // ── 5. Valor ─────────────────────────────────────────────
