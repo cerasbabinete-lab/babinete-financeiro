@@ -17,7 +17,8 @@ import { useEffect, useState } from 'react'
 import { criarFornecedor, editarFornecedor, verificarDuplicidadeFornecedor } from '@/lib/fornecedoresService'
 import { getUFs, getCidades } from '@/lib/localidades'
 import WhatsAppSection from '@/components/clientes/WhatsAppSection'
-import type { Fornecedor, FornecedorInsert, ContatoWhatsApp, ModoModal } from '@/types/fornecedores'
+import type { Fornecedor, FornecedorInsert, ContatoWhatsApp, ModoModal, TipoFornecedor } from '@/types/fornecedores'
+import { TIPO_FORNECEDOR_LABELS } from '@/types/fornecedores'
 
 // ============================================================
 // Props
@@ -52,6 +53,7 @@ const FORM_INICIAL: FornecedorInsert = {
   email_contato: '',
   website: '',
   dados_bancarios: '',
+  tipo_fornecedor: null, // não classificado — mesmo default do banco (Módulo Relatórios, 2.6)
   data_nascimento: '',
   observacoes: '',
   contato_whatsapp: [],
@@ -168,6 +170,7 @@ export default function FornecedoresModal({
         email_contato: fornecedor.email_contato ?? '',
         website: fornecedor.website ?? '',
         dados_bancarios: fornecedor.dados_bancarios ?? '',
+        tipo_fornecedor: fornecedor.tipo_fornecedor ?? null,
         data_nascimento: fornecedor.data_nascimento ?? '',
         observacoes: fornecedor.observacoes ?? '',
         contato_whatsapp: fornecedor.contato_whatsapp ?? [],
@@ -197,6 +200,21 @@ export default function FornecedoresModal({
     const uf = e.target.value
     setForm(prev => ({ ...prev, uf, cidade: '' }))
     setCidades(getCidades(uf))
+  }
+
+  // ============================================================
+  // handleTipoFornecedorChange
+  // Select fechado (Módulo Relatórios, 2.6) — diferente de
+  // handleChange genérico, converte a opção vazia ('') para null
+  // explicitamente, porque o CHECK do banco (fornecedores_tipo_
+  // fornecedor_check) não aceita string vazia como valor válido
+  // ============================================================
+  function handleTipoFornecedorChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const valor = e.target.value
+    setForm(prev => ({
+      ...prev,
+      tipo_fornecedor: valor === '' ? null : (valor as TipoFornecedor),
+    }))
   }
 
   // ============================================================
@@ -412,6 +430,7 @@ export default function FornecedoresModal({
         email_contato:   normalizarEmail(form.email_contato ?? ''),  // lowercase
         website:         normalizarTexto(form.website ?? ''),
         dados_bancarios: normalizarTexto(form.dados_bancarios ?? ''),
+        tipo_fornecedor: form.tipo_fornecedor ?? null, // <select> fechado — sem string vazia a normalizar
         observacoes:     normalizarTexto(form.observacoes ?? ''),
         contato_whatsapp: form.contato_whatsapp ?? [],
         // data_nascimento: '' → null (Postgres rejeita string vazia em coluna date)
@@ -729,7 +748,7 @@ export default function FornecedoresModal({
             </div>
           </div>
 
-          {/* Row 6: Data de Nascimento — modal-only */}
+          {/* Row 6: Data de Nascimento | Tipo de Fornecedor (Módulo Relatórios, 2.6) */}
           <div style={rowStyle}>
             <div style={colStyle('180px')}>
               <label style={labelStyle}>Data de Nascimento</label>
@@ -741,6 +760,26 @@ export default function FornecedoresModal({
                 type="date"
                 style={inputStyle}
               />
+            </div>
+            <div style={colStyle('220px')}>
+              <label style={labelStyle}>Tipo de Fornecedor</label>
+              {/* Classificação usada pelo relatório "Gastos por tipo de
+                  fornecedor" — opcional, fica "Não classificado" (null)
+                  até o usuário definir manualmente */}
+              <select
+                name="tipo_fornecedor"
+                value={form.tipo_fornecedor ?? ''}
+                onChange={handleTipoFornecedorChange}
+                disabled={readOnly}
+                style={selectStyle}
+              >
+                <option value="">Não classificado</option>
+                {(Object.entries(TIPO_FORNECEDOR_LABELS) as [TipoFornecedor, string][]).map(
+                  ([valor, rotulo]) => (
+                    <option key={valor} value={valor}>{rotulo}</option>
+                  )
+                )}
+              </select>
             </div>
           </div>
 

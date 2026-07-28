@@ -34,12 +34,31 @@ import type { RegistroComprovanteTxt } from '@/types/contasAPagar'
 
 
 // ------------------------------------------------------------
-// CONSTANTE: linha usada como delimitador de início de cada novo
-// bloco de comprovante dentro do arquivo (Especificação §5, passo 2).
-// É o cabeçalho institucional fixo do sistema BB — estável, pois é
-// gerado por sistema, não digitado à mão
+// CONSTANTES: marcadores de início de bloco — um por formato de
+// arquivo suportado. O BB usa layouts diferentes conforme o canal de
+// exportação:
+//   - Pix (multi-comprovante): cabeçalho "SISBB ... SISTEMA DE
+//     INFORMACOES BANCO DO BRASIL". Espaçamento variável confirmado
+//     em 20/07/2026 (1 ou 2 espaços ao redor do hífen) — por isso é
+//     uma REGEX (\s+), não mais string literal. IMPORTANTE: esse
+//     mesmo cabeçalho também aparece no formato boleto (é um banner
+//     genérico do BB) — não serve como diferenciador de formato.
+//   - Boleto (lote de comprovantes de título): âncora "COMPROVANTE DE
+//     PAGAMENTO DE TITULOS", exclusiva desse formato — nunca aparece
+//     em comprovante Pix. Confirmado em 27/07/2026 contra arquivo
+//     real com 8 comprovantes de boleto concatenados.
 // ------------------------------------------------------------
-const MARCADOR_INICIO_BLOCO = 'SISBB  -  SISTEMA DE INFORMACOES BANCO DO BRASIL'
+const REGEX_MARCADOR_INICIO_BLOCO_PIX = /SISBB\s+-\s+SISTEMA DE INFORMACOES BANCO DO BRASIL/
+// QA fix: o cabeçalho "SISBB ... SISTEMA DE INFORMACOES..." é
+// compartilhado pelos DOIS formatos (Pix e boleto) — não serve pra
+// diferenciar. "COMPROVANTE DE PAGAMENTO DE TITULOS" só existe no
+// formato boleto, nunca em Pix — usado tanto pra detecção de formato
+// quanto pra divisão em blocos. Testado contra arquivo real de
+// 27/07/2026 (8 comprovantes): "Emissão de comprovantes" (tentativa
+// anterior) se repete por PÁGINA impressa, não por comprovante —
+// superdividia em 25 blocos. Este marcador aparece exatamente 1 vez
+// por comprovante real, batendo 8 de 8.
+const REGEX_MARCADOR_INICIO_BLOCO_BOLETO = /COMPROVANTE DE PAGAMENTO DE TITULOS/
 
 
 // ------------------------------------------------------------
@@ -76,10 +95,23 @@ function dividirEmBlocos(conteudoArquivo: string): string[] {
   // Divide o conteúdo pelo marcador, mantendo o próprio marcador como
   // prefixo de cada pedaço resultante (via lookahead), já que ele faz
   // parte do formato esperado pelos parsers de campo mais abaixo
-  const partes = conteudoNormalizado.split(new RegExp(`(?=${MARCADOR_INICIO_BLOCO})`))
+  const partes = conteudoNormalizado.split(new RegExp(`(?=${REGEX_MARCADOR_INICIO_BLOCO_PIX.source})`))
 
   // Remove pedaços vazios/só-whitespace que podem sobrar antes do
   // primeiro marcador (ex: linha em branco no topo do arquivo real)
+  return partes.map((parte) => parte.trim()).filter((parte) => parte.length > 0)
+}
+
+
+// ------------------------------------------------------------
+// Função: dividirEmBlocosBoleto
+// QA fix (27/07/2026): mesma lógica de dividirEmBlocos, mas usando o
+// marcador do formato de lote de boleto ("COMPROVANTE DE PAGAMENTO DE
+// TITULOS", que aparece exatamente 1 vez por comprovante real)
+// ------------------------------------------------------------
+function dividirEmBlocosBoleto(conteudoArquivo: string): string[] {
+  const conteudoNormalizado = conteudoArquivo.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const partes = conteudoNormalizado.split(new RegExp(`(?=${REGEX_MARCADOR_INICIO_BLOCO_BOLETO.source})`))
   return partes.map((parte) => parte.trim()).filter((parte) => parte.length > 0)
 }
 
@@ -103,6 +135,25 @@ function extrairCampo(linhasDoBloco: string[], rotulo: string): string | null {
     }
   }
   // Rótulo não encontrado neste bloco
+  return null
+}
+
+
+// ------------------------------------------------------------
+// Função: extrairCampoProximaLinha
+// QA fix (27/07/2026, formato lote-de-boleto): variação de
+// extrairCampo pro caso em que o rótulo fica sozinho numa linha e o
+// valor vem na linha SEGUINTE (ex: "BENEFICIARIO:\nMUNICIPIO DE
+// MARINGA"), diferente do padrão "rótulo: valor" na mesma linha usado
+// no formato Pix
+// ------------------------------------------------------------
+function extrairCampoProximaLinha(linhasDoBloco: string[], rotulo: string): string | null {
+  for (let i = 0; i < linhasDoBloco.length; i++) {
+    if (linhasDoBloco[i].trimStart().startsWith(rotulo)) {
+      const linhaSeguinte = linhasDoBloco[i + 1]
+      return linhaSeguinte ? linhaSeguinte.trim() : null
+    }
+  }
   return null
 }
 
@@ -172,7 +223,20 @@ function normalizarSomenteDigitos(texto: string): string {
 // nunca resolvidos aqui (este parser não faz matching contra roster/
 // fornecedores, é responsabilidade exclusiva do motor de conciliação)
 // ------------------------------------------------------------
-function resolverDocumentoIdentificado(chavePix: string | null): string | null {
+function resolverDocumentoIdentificado(chavePix: string | null, cnpjRecebedorDireto: string | null = null): string | null {
+  // QA fix (comprovante real 20/07/2026 — formato 3 de Pix, campo
+  // "CNPJ DO RECEBEDOR:"): quando esse campo existe, é o identificador
+  // mais confiável possível — vem explícito no documento, não precisa
+  // ser inferido a partir da Chave Pix (que pode ser telefone, e-mail
+  // ou chave aleatória, sem relação nenhuma com CPF/CNPJ). Checado
+  // ANTES da lógica de chave Pix.
+  if (cnpjRecebedorDireto) {
+    const digitosDireto = normalizarSomenteDigitos(cnpjRecebedorDireto)
+    if (digitosDireto.length === 11 || digitosDireto.length === 14) {
+      return digitosDireto
+    }
+  }
+
   if (!chavePix) return null
 
   const somenteDigitos = normalizarSomenteDigitos(chavePix)
@@ -294,8 +358,10 @@ function parsearBlocoDeterministico(textoBloco: string): RegistroComprovanteTxt 
   const dataPagamento = converterDataBrParaIso(dataBruta)
   if (!dataPagamento) return null // data obrigatória e inválida = falha determinística
 
-  // Extrai o nome do favorecido — campo "PAGO PARA:", extração literal
-  const nomeFavorecido = extrairCampo(linhasDoBloco, 'PAGO PARA:')
+  // Extrai o nome do favorecido — campo "PAGO PARA:" no formato
+  // original, ou "NOME DO RECEBEDOR:" num formato de comprovante Pix
+  // diferente confirmado em 20/07/2026 (mesmo banco, layout distinto)
+  const nomeFavorecido = extrairCampo(linhasDoBloco, 'PAGO PARA:') ?? extrairCampo(linhasDoBloco, 'NOME DO RECEBEDOR:')
   if (!nomeFavorecido) return null // nome obrigatório
 
   // Extrai e converte o valor — campo "VALOR:", formato "R$X.XXX,XX"
@@ -308,9 +374,15 @@ function parsearBlocoDeterministico(textoBloco: string): RegistroComprovanteTxt 
   const cpfMascarado = extrairCampo(linhasDoBloco, 'CPF:')
   const chavePix = extrairCampo(linhasDoBloco, 'CHAVE PIX:')
 
+  // QA fix (comprovante real 20/07/2026, formato 3 de Pix): campo
+  // direto "CNPJ DO RECEBEDOR:", quando presente, é repassado como
+  // sinal prioritário pra resolverDocumentoIdentificado (ver comentário lá)
+  const cnpjRecebedorDireto = extrairCampo(linhasDoBloco, 'CNPJ DO RECEBEDOR:')
+
   // Aplica a regra crítica da Especificação §5: Chave Pix numérica
-  // sem máscara > CPF mascarado (sinal auxiliar apenas)
-  const documentoIdentificado = resolverDocumentoIdentificado(chavePix)
+  // sem máscara > CPF mascarado (sinal auxiliar apenas) — agora com
+  // CNPJ do recebedor explícito tendo prioridade máxima, quando existe
+  const documentoIdentificado = resolverDocumentoIdentificado(chavePix, cnpjRecebedorDireto)
 
   // IMPORTANTE — regra não-negociável do topo da Especificação: o campo
   // "CNPJ DO PAGADOR" deste bloco NUNCA é usado para identificar quem
@@ -327,6 +399,70 @@ function parsearBlocoDeterministico(textoBloco: string): RegistroComprovanteTxt 
     chavePix,
     valor,
     documentoIdentificado,
+    nossoNumero: null, // Pix nunca tem Nosso Número — campo existe só pro formato boleto
+  }
+}
+
+
+// ------------------------------------------------------------
+// Função: parsearBlocoBoletoDeterministico
+// QA fix (27/07/2026): parsing determinístico pro formato "lote de
+// comprovantes de boleto" — cada bloco tem os campos BENEFICIARIO
+// (rótulo + nome na linha seguinte), CNPJ (mesma linha, com pontuação),
+// NOSSO NUMERO e NR.AUTENTICACAO (rótulo + valor na mesma linha, sem
+// dois-pontos, colunas de largura fixa). Confirmado contra arquivo
+// real de 27/07/2026 (8 comprovantes de boleto concatenados).
+// ------------------------------------------------------------
+function parsearBlocoBoletoDeterministico(textoBloco: string): RegistroComprovanteTxt | null {
+  const linhasDoBloco = textoBloco.split('\n')
+
+  // Único identificador de dedupe confiável neste formato — não existe
+  // campo "ID:" aqui, diferente do formato Pix
+  const autenticacaoSisbb = extrairCampo(linhasDoBloco, 'NR.AUTENTICACAO')
+  if (!autenticacaoSisbb) return null
+
+  // Data do pagamento — preferida sobre a data de vencimento, mesmo
+  // critério já usado no Relatório BB e no comprovante PDF de boleto
+  const dataBruta = extrairCampo(linhasDoBloco, 'DATA DO PAGAMENTO')
+  const dataPagamento = converterDataBrParaIso(dataBruta)
+  if (!dataPagamento) return null
+
+  // Nome do favorecido — rótulo "BENEFICIARIO:" sozinho numa linha,
+  // nome na linha seguinte (padrão diferente do Pix)
+  const nomeFavorecido = extrairCampoProximaLinha(linhasDoBloco, 'BENEFICIARIO:')
+  if (!nomeFavorecido) return null
+
+  // Valor — prioriza "VALOR COBRADO" (o que de fato saiu da conta,
+  // pode incluir juros/multa) sobre "VALOR DO DOCUMENTO"; nenhum dos
+  // dois tem prefixo "R$" neste formato, mas converterValorBrParaNumero
+  // já tolera a ausência (replace('R$','') não quebra se não existir)
+  const valorBruto = extrairCampo(linhasDoBloco, 'VALOR COBRADO') ?? extrairCampo(linhasDoBloco, 'VALOR DO DOCUMENTO')
+  const valor = converterValorBrParaNumero(valorBruto)
+  if (valor === null) return null
+
+  // CNPJ do beneficiário — primeira ocorrência do rótulo "CNPJ:" no
+  // bloco (aparece logo após o nome/nome fantasia do beneficiário,
+  // repetido depois em "BENEFICIARIO FINAL" com o mesmo valor — pegar
+  // a primeira ocorrência já basta)
+  const cnpjBeneficiario = extrairCampo(linhasDoBloco, 'CNPJ:')
+
+  // Nosso Número — igual ao já usado no Relatório BB e no comprovante
+  // PDF de boleto, é o identificador mais confiável pro Passo 2 do
+  // motor de conciliação (bate direto contra contas_a_pagar.nosso_numero,
+  // sem precisar decodificar campo livre — este formato já traz o
+  // valor curto/direto, confirmado contra título real já existente)
+  const nossoNumero = extrairCampo(linhasDoBloco, 'NOSSO NUMERO')
+
+  return {
+    id: null, // este formato não tem campo "ID:"
+    autenticacaoSisbb,
+    dataPagamento,
+    nomeFavorecido,
+    cpfMascarado: null, // não se aplica — comprovante de boleto, não Pix
+    chavePix: null, // não se aplica
+    valor,
+    documentoIdentificado: cnpjBeneficiario ? normalizarSomenteDigitos(cnpjBeneficiario) : null,
+    nossoNumero,
   }
 }
 
@@ -343,8 +479,17 @@ function parsearBlocoDeterministico(textoBloco: string): RegistroComprovanteTxt 
 export async function parseComprovanteTxt(
   conteudoArquivo: string, // conteúdo bruto do arquivo TXT, como veio do upload
 ): Promise<ResultadoParsingComprovanteTxt> {
-  // Divide o arquivo inteiro em blocos individuais de comprovante
-  const blocos = dividirEmBlocos(conteudoArquivo)
+  // QA fix (27/07/2026): "COMPROVANTE DE PAGAMENTO DE TITULOS" só
+  // existe no formato boleto — nunca aparece em comprovante Pix,
+  // então essa checagem sozinha já basta pra decidir o formato (o
+  // cabeçalho "SISBB...SISTEMA..." é compartilhado pelos dois
+  // formatos, não serve como diferenciador — ver comentário na
+  // constante REGEX_MARCADOR_INICIO_BLOCO_BOLETO)
+  const ehFormatoBoleto = REGEX_MARCADOR_INICIO_BLOCO_BOLETO.test(conteudoArquivo)
+
+  // Divide o arquivo inteiro em blocos individuais de comprovante,
+  // usando o divisor certo pro formato detectado
+  const blocos = ehFormatoBoleto ? dividirEmBlocosBoleto(conteudoArquivo) : dividirEmBlocos(conteudoArquivo)
 
   // Acumuladores do resultado final
   const registros: RegistroComprovanteTxt[] = []
@@ -354,8 +499,11 @@ export async function parseComprovanteTxt(
   // prática — não há necessidade de paralelizar e complicar o controle
   // de erro por bloco)
   for (const bloco of blocos) {
-    // Primeira tentativa: parsing determinístico via anchors textuais
-    const registroDeterministico = parsearBlocoDeterministico(bloco)
+    // Primeira tentativa: parsing determinístico via anchors textuais,
+    // usando o parser certo pro formato detectado
+    const registroDeterministico = ehFormatoBoleto
+      ? parsearBlocoBoletoDeterministico(bloco)
+      : parsearBlocoDeterministico(bloco)
 
     if (registroDeterministico) {
       // Parsing determinístico teve sucesso — usa direto, sem acionar IA
@@ -387,6 +535,7 @@ export async function parseComprovanteTxt(
         // Reaplica a mesma regra de identificação de documento sobre o
         // resultado do fallback, para manter consistência de lógica
         documentoIdentificado: resolverDocumentoIdentificado(registroViaFallback.chavePix ?? null),
+        nossoNumero: null, // schema do Gemini não pede esse campo — fallback nunca cobre o formato boleto
       })
     } else {
       // Nem o parsing determinístico nem o fallback conseguiram extrair

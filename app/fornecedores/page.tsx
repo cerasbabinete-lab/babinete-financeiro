@@ -14,8 +14,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { buscarFornecedores, contarFornecedores, excluirFornecedor } from '@/lib/fornecedoresService'
-import type { Fornecedor, FiltrosFornecedores, ModoModal } from '@/types/fornecedores'
+import { buscarFornecedores, contarFornecedores, excluirFornecedor, atualizarTipoFornecedor } from '@/lib/fornecedoresService'
+import type { Fornecedor, FiltrosFornecedores, ModoModal, TipoFornecedor } from '@/types/fornecedores'
 
 // Layout — componentes globais, reutilizados sem alteração
 import Topbar from '@/components/layout/Topbar'
@@ -138,6 +138,27 @@ export default function FornecedoresPage() {
     }
   }
 
+  // ============================================================
+  // handleAlterarTipo
+  // Classificação rápida de tipo_fornecedor via select inline
+  // (FornecedoresTabela.tsx / FornecedoresMobileList.tsx). Atualiza
+  // o registro em fornecedores[] no lugar, em vez de chamar
+  // carregarFornecedores() de novo — evita recarregar a lista inteira
+  // (e perder posição de scroll/filtro) a cada classificação, já que
+  // o objetivo é classificar os 19 fornecedores em sequência rápida
+  // ============================================================
+  async function handleAlterarTipo(fornecedor: Fornecedor, tipo: TipoFornecedor | null) {
+    try {
+      const atualizado = await atualizarTipoFornecedor(fornecedor.id, tipo)
+      setFornecedores(prev =>
+        prev.map(f => (f.id === atualizado.id ? atualizado : f))
+      )
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+      console.error('[fornecedores/page] handleAlterarTipo error:', msg)
+    }
+  }
+
   function handleFecharModal() {
     setModoModal(null)
     setFornecedorSelecionado(null)
@@ -220,6 +241,7 @@ export default function FornecedoresPage() {
               onEditar={handleEditar}
               onVisualizar={handleVisualizar}
               onExcluir={handleExcluir}
+              onAlterarTipo={handleAlterarTipo}
             />
           )}
         </main>
@@ -284,6 +306,7 @@ export default function FornecedoresPage() {
             onEditar={handleEditar}
             onVisualizar={handleVisualizar}
             onExcluir={handleExcluir}
+            onAlterarTipo={handleAlterarTipo}
           />
         )}
       </main>

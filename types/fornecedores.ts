@@ -19,6 +19,34 @@ export interface ContatoWhatsApp {
 }
 
 // ============================================================
+// TipoFornecedor
+// Classificação usada pelo relatório "Gastos por tipo de fornecedor"
+// (Módulo Relatórios, Especificacao_Modulo_Relatorios.md, Seção 2.6) —
+// espelha 1:1 o CHECK de sql/fornecedores.sql (fornecedores_tipo_
+// fornecedor_check). Union type fechado — qualquer valor novo precisa
+// ser adicionado aqui E no CHECK do banco ao mesmo tempo.
+// ============================================================
+export type TipoFornecedor =
+  | 'materia_prima_insumo' // Matéria-prima e insumo de produção
+  | 'embalagem'            // Embalagem (caixa, rótulo, lata etc.)
+  | 'servicos'             // Prestação de serviço
+  | 'outros'               // Não se encaixa nas categorias acima
+
+// ============================================================
+// TIPO_FORNECEDOR_LABELS
+// Rótulo amigável de exibição para cada valor de TipoFornecedor —
+// usado no formulário de classificação (FornecedoresModal.tsx) e no
+// relatório 2.6 (agrupamento por tipo). Mantido aqui, junto do tipo,
+// para não duplicar a lista de valores em cada tela que precisar dela.
+// ============================================================
+export const TIPO_FORNECEDOR_LABELS: Record<TipoFornecedor, string> = {
+  materia_prima_insumo: 'Matéria-prima / Insumo',
+  embalagem: 'Embalagem',
+  servicos: 'Serviços',
+  outros: 'Outros',
+}
+
+// ============================================================
 // Fornecedor
 // Representa um registro completo da tabela fornecedores
 // Sem nomelista — não existe conceito de ativo/inativo neste módulo
@@ -44,6 +72,7 @@ export interface Fornecedor {
   email_contato?: string              // E-mail do contato
   website?: string                    // Website do fornecedor — campo novo
   dados_bancarios?: string            // Dados bancários (free text) — campo novo
+  tipo_fornecedor?: TipoFornecedor | null // Classificação p/ relatório 2.6 — null até classificação manual
   data_nascimento?: string | null     // Data nascimento (CPF/pessoa física) — modal only; null quando vazio
   observacoes?: string                // Observações livres
   contato_whatsapp?: ContatoWhatsApp[] // Contatos WhatsApp Business (JSONB)

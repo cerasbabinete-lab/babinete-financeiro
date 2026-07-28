@@ -34,7 +34,12 @@ export type TipoDocumento =
 
 // ============================================================
 // CategoriaFinanceira
-// As 8 categorias financeiras fixas do módulo Despesas
+// As 9 categorias financeiras fixas do módulo Despesas (8 originais +
+// 'salario', adicionada em 14/07/2026 a pedido do Maycon — categoria
+// simples, sem extensão de dados própria, ao contrário de
+// 'contabilidade'; pode ser usada tanto em lançamentos Pessoal/Sócio
+// quanto Empresarial; reconhecida hoje só no lançamento manual, não
+// na extração por IA — decisão explícita, não pendência)
 // Determina qual extensão de categoria é aplicada à Despesa
 // ============================================================
 export type CategoriaFinanceira =
@@ -46,6 +51,7 @@ export type CategoriaFinanceira =
   | 'servicos_profissionais'
   | 'contabilidade'
   | 'plano_saude'
+  | 'salario'
 
 
 // ============================================================
@@ -595,4 +601,5 @@ export const CATEGORIA_FINANCEIRA_LABELS: Record<CategoriaFinanceira, string> = 
   servicos_profissionais:        'Serviços Profissionais',
   contabilidade:                 'Contabilidade',
   plano_saude:                   'Plano de Saúde',
+  salario:                       'Salário', // QA fix (14/07/2026): 9ª categoria, adicionada a pedido do Maycon
 }

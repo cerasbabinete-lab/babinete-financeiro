@@ -106,18 +106,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         cnpjCpf: registro.cnpjCpfFavorecido ?? null,
         valor: registro.valor,
         data: registro.dataPagamento,
-        // QA fix (sessão 12/07/2026 — bug real confirmado com o
-        // comprovante da SKY): antes gravado como `null` fixo, com um
-        // comentário incorreto ("comprovante individual não traz
-        // Nosso Número separado"). O parser JÁ extrai essa string
-        // (linhaDigitavelOuCodigoBarras — o valor bruto de 47 dígitos
-        // que aparece antes de "BENEFICIARIO:"), só nunca era repassada
-        // pro motor de conciliação. Decodifica pro campo livre (25
+        // Decodifica a linha digitável bruta pro campo livre (25
         // dígitos, mesmo formato do Relatório BB) antes de repassar —
         // ver decodificarCampoLivreDaLinhaDigitavel em
-        // parserComprovantePdf.ts. Retorna null se o valor não tiver o
-        // formato esperado (47 dígitos), caindo para os passos 3/4 do
-        // motor normalmente, sem quebrar nada.
+        // parserComprovantePdf.ts. Fix já entregue em sessão anterior
+        // (12/07/2026, caso SKY) — reaplicado aqui pra não regredir.
         nossoNumero: decodificarCampoLivreDaLinhaDigitavel(registro.linhaDigitavelOuCodigoBarras ?? null),
         origem: 'comprovante_pdf',
       }, registro)
@@ -172,7 +165,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           cnpjCpf: registro.documentoIdentificado ?? null,
           valor: registro.valor,
           data: registro.dataPagamento,
-          nossoNumero: null, // Pix nunca tem Nosso Número
+          // QA fix (27/07/2026, formato lote-de-boleto em TXT): o
+          // parser agora extrai Nosso Número quando o comprovante é
+          // de título (não Pix) — repassa pro motor poder usar o
+          // Passo 2 (match por Nosso Número), mais confiável que
+          // fornecedor+valor. Continua null em comprovante Pix.
+          nossoNumero: registro.nossoNumero ?? null,
           origem: 'comprovante_txt',
         }, registro)
 

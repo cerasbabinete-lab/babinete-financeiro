@@ -244,6 +244,23 @@ export default function ContasAPagarPage() {
     }
   }
 
+  // ── Leitura de arquivo TXT com detecção de encoding ──
+  // QA fix (27/07/2026): arquivos exportados pelo BB às vezes vêm em
+  // Windows-1252/Latin-1 (charset antigo do Windows), não UTF-8 —
+  // file.text() SEMPRE assume UTF-8 e corrompe esses arquivos
+  // silenciosamente (sem erro nenhum, só texto ilegível). Tenta UTF-8
+  // estrito primeiro (fatal: true força erro se achar sequência de
+  // bytes inválida pra UTF-8); se falhar, decodifica de novo como
+  // windows-1252 (superset de Latin-1, cobre acentuação PT-BR)
+  async function lerArquivoTextoComEncodingCorreto(file: File): Promise<string> {
+    const buffer = await file.arrayBuffer()
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(buffer)
+    } catch {
+      return new TextDecoder('windows-1252').decode(buffer)
+    }
+  }
+
   // ── Import: Comprovante (PDF ou TXT) ──
   async function handleSelecionarComprovante(file: File) {
     setImportando(true)
@@ -254,7 +271,7 @@ export default function ContasAPagarPage() {
 
       let res: Response
       if (ehTxt) {
-        const conteudoTxt = await file.text()
+        const conteudoTxt = await lerArquivoTextoComEncodingCorreto(file)
         res = await fetch('/api/pagar/importar-comprovante', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },

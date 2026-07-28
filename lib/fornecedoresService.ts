@@ -16,6 +16,7 @@ import type {
   FornecedorInsert,
   FornecedorUpdate,
   FiltrosFornecedores,
+  TipoFornecedor,
 } from '@/types/fornecedores'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
@@ -196,6 +197,36 @@ export async function editarFornecedor(fornecedor: FornecedorUpdate): Promise<Fo
 
   if (error) {
     console.error('[fornecedoresService] editarFornecedor error:', error)
+    throw new Error(error.message)
+  }
+
+  return data as Fornecedor
+}
+
+// ============================================================
+// atualizarTipoFornecedor()
+// Atualiza SOMENTE o campo tipo_fornecedor de um fornecedor — usado
+// pela classificação rápida inline na tabela/lista (FornecedoresTabela.tsx,
+// FornecedoresMobileList.tsx), suporte à classificação em massa dos 19
+// fornecedores existentes pedida pela Especificacao_Modulo_Relatorios.md,
+// Seção 3. Não passa por editarFornecedor() de propósito: evita reenviar
+// o registro inteiro só para trocar um campo, e mantém a intenção da
+// chamada explícita no nome da função.
+// Chamado por: FornecedoresTabela.tsx, FornecedoresMobileList.tsx
+// ============================================================
+export async function atualizarTipoFornecedor(
+  id: number,
+  tipoFornecedor: TipoFornecedor | null,
+): Promise<Fornecedor> {
+  const { data, error } = await supabase
+    .from(TABELA)
+    .update({ tipo_fornecedor: tipoFornecedor }) // único campo alterado
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) {
+    console.error('[fornecedoresService] atualizarTipoFornecedor error:', error)
     throw new Error(error.message)
   }
 

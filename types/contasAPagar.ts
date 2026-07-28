@@ -320,6 +320,13 @@ export interface RegistroComprovanteTxt {
   // preenchido pelo parser conforme a regra da nota crítica (§5):
   // chavePix (se CPF/CNPJ numérico sem máscara) > cpfMascarado (sinal auxiliar) > nome+valor
   documentoIdentificado?: string | null
+
+  // QA fix (27/07/2026, formato "lote de boleto" em TXT): Nosso
+  // Número do boleto, quando o comprovante é de título (não Pix) —
+  // permite o motor de conciliação usar o Passo 2 (match por Nosso
+  // Número, mais confiável que fornecedor+valor) mesmo vindo de TXT,
+  // igual já acontece com o Relatório BB. Sempre null em comprovante Pix.
+  nossoNumero?: string | null
 }
 
 
@@ -436,17 +443,20 @@ export const STATUS_LABELS_PAGAR: Record<StatusTituloPagar, string> = {
 // ============================================================
 // STATUS_CORES_PAGAR
 // Cores de badge para cada status — usadas em ContasAPagarTabela
-// e ContasAPagarMobileList. em_aberto é azul (ver STATUS_CORES de
-// types/contasReceber.ts, mesmo padrão); pago reaproveita o verde já
-// usado lá. pago_parcial usa um tom âmbar, coerente com "processo em
-// andamento, ainda não concluído" (Especificação §3.2 — não
-// introduzir cor fora da paleta do projeto)
+// e ContasAPagarMobileList. Reaproveita a paleta já usada em
+// STATUS_CORES de types/contasReceber.ts onde o significado é
+// equivalente (em_aberto → mesmo verde; pago → mesmo verde;
+// cancelado → mesmo cinza). pago_parcial usa um tom âmbar,
+// coerente com "processo em andamento, ainda não concluído"
+// (Especificação §3.2 — não introduzir cor fora da paleta do projeto)
 // ============================================================
 export const STATUS_CORES_PAGAR: Record<StatusTituloPagar, { bg: string; text: string }> = {
-  // QA fix (a pedido do Maycon, sessão 12/07/2026): "Em Aberto" passa
-  // a ser azul em todo o sistema (Receitas fica de fora, tela
-  // diferente) — como bônus, resolve a ambiguidade visual que existia
-  // aqui: em_aberto e pago usavam exatamente o mesmo verde
+  // QA fix (a pedido do Maycon): "Em Aberto" é azul em todo o sistema
+  // (Receitas fica de fora, tela diferente) — como bônus, resolve a
+  // ambiguidade visual que existia aqui: em_aberto e pago usavam
+  // exatamente o mesmo verde. Restaurado em 27/07/2026 depois de uma
+  // regressão acidental (arquivo entregue com uma versão em cache
+  // desatualizada, de antes desse fix).
   em_aberto:    { bg: '#dbeafe', text: '#1a6094' }, // azul
   pago:         { bg: '#dcfce7', text: '#166534' }, // verde — mesmo de contas_receber.pago
   pago_parcial: { bg: '#fef3c7', text: '#92400e' }, // âmbar — novo, processo em andamento

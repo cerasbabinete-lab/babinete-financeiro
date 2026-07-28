@@ -12,7 +12,8 @@
 'use client'
 
 import { useState } from 'react'
-import type { Fornecedor } from '@/types/fornecedores'
+import type { Fornecedor, TipoFornecedor } from '@/types/fornecedores'
+import { TIPO_FORNECEDOR_LABELS } from '@/types/fornecedores'
 
 // ============================================================
 // Props
@@ -22,6 +23,9 @@ interface FornecedoresMobileListProps {
   onEditar: (fornecedor: Fornecedor) => void
   onVisualizar: (fornecedor: Fornecedor) => void
   onExcluir: (fornecedor: Fornecedor) => void
+  // Classificação rápida inline (Módulo Relatórios, 2.6) — mesmo
+  // mecanismo de FornecedoresTabela.tsx, versão mobile
+  onAlterarTipo: (fornecedor: Fornecedor, tipo: TipoFornecedor | null) => void
 }
 
 // ============================================================
@@ -32,6 +36,7 @@ export default function FornecedoresMobileList({
   onEditar,
   onVisualizar,
   onExcluir,
+  onAlterarTipo,
 }: FornecedoresMobileListProps) {
 
   // id do fornecedor aguardando confirmação de exclusão (null = nenhum)
@@ -102,6 +107,26 @@ export default function FornecedoresMobileList({
                 : fornecedor.cidade || fornecedor.uf || '—'}
             </div>
 
+            {/* Tipo de Fornecedor — select inline, salva ao trocar
+                (Módulo Relatórios, 2.6) */}
+            <select
+              value={fornecedor.tipo_fornecedor ?? ''}
+              onChange={e => {
+                const valor = e.target.value
+                onAlterarTipo(fornecedor, valor === '' ? null : (valor as TipoFornecedor))
+              }}
+              onClick={e => e.stopPropagation()} // não deve disparar nenhum toque no card
+              style={selectMobileStyle}
+              aria-label={`Tipo de fornecedor: ${fornecedor.fantasia || fornecedor.razao}`}
+            >
+              <option value="">Não classificado</option>
+              {(Object.entries(TIPO_FORNECEDOR_LABELS) as [TipoFornecedor, string][]).map(
+                ([valor, rotulo]) => (
+                  <option key={valor} value={valor}>{rotulo}</option>
+                )
+              )}
+            </select>
+
           </div>
 
           {/* Botões de ação */}
@@ -166,6 +191,18 @@ export default function FornecedoresMobileList({
 // ============================================================
 // Estilos auxiliares
 // ============================================================
+const selectMobileStyle: React.CSSProperties = {
+  marginTop: '4px',
+  fontSize: '9px',
+  fontFamily: 'Tahoma, Geneva, sans-serif',
+  color: '#2c4a60',
+  padding: '3px 4px',
+  border: '1px solid #dde8f0',
+  borderRadius: '4px',
+  background: '#ffffff',
+  maxWidth: '160px',
+}
+
 const btnMobileStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',

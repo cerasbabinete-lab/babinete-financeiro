@@ -10,8 +10,23 @@
 --              app/fornecedores/page.tsx, despesas.fornecedor_id,
 --              contas_a_pagar.fornecedor_id,
 --              lib/despesas/fornecedorAutoCreate.ts (busca por
---              cnpj/cpf a cada importação — motivo do índice abaixo)
--- Revisão desta versão (consolidação, aprovada por Maycon):
+--              cnpj/cpf a cada importação — motivo do índice abaixo),
+--              lib/relatorios/gastosPorTipoFornecedor.ts (Módulo
+--              Relatórios, relatório 2.6 — consome tipo_fornecedor)
+-- Revisão desta versão (Módulo Relatórios — Especificacao_Modulo_
+-- Relatorios.md, Seção 2.6/3, aprovada por Maycon):
+--   - Adicionado tipo_fornecedor TEXT + CHECK, nullable. Fornecedores
+--     existentes ficam NULL até classificação manual (tela de
+--     Fornecedores) — relatório 2.6 trata NULL como grupo visível
+--     "Não classificado", nunca omite do total.
+--   - Nota de convenção: esta alteração foi feita EDITANDO este
+--     arquivo, não criando um sql/relatorios.sql novo — a spec do
+--     módulo Relatórios (escrita antes desta consolidação de schema)
+--     recomendava arquivo novo, mas o cabeçalho deste arquivo já
+--     supersede essa recomendação ("editar sempre que o schema
+--     mudar — nunca criar um arquivo numerado novo"). Seguindo a
+--     instrução mais recente e explícita do próprio arquivo.
+-- Revisão anterior (consolidação, aprovada por Maycon):
 --   - uf alinhado para CHAR(2) (era TEXT — inconsistência com
 --     clientes.uf, confirmado via information_schema que nenhum
 --     valor existente passa de 2 caracteres)
@@ -61,6 +76,13 @@ CREATE TABLE IF NOT EXISTS fornecedores (
 
   dados_bancarios TEXT,  -- texto livre, sem estrutura — debt conhecido, não resolvido aqui
 
+  -- Classificação usada pelo relatório "Gastos por tipo de fornecedor"
+  -- (Módulo Relatórios, 2.6) — nullable: fornecedor existente só tem
+  -- valor depois de classificação manual na tela de Fornecedores
+  tipo_fornecedor TEXT
+    CONSTRAINT fornecedores_tipo_fornecedor_check
+    CHECK (tipo_fornecedor IN ('materia_prima_insumo', 'embalagem', 'servicos', 'outros')),
+
   data_nascimento DATE,
   observacoes TEXT,
 
@@ -77,6 +99,20 @@ CREATE TABLE IF NOT EXISTS fornecedores (
 -- ── Aditivas — cobrem quem já tinha a tabela criada antes desta consolidação ──
 ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE fornecedores ALTER COLUMN contato_whatsapp SET DEFAULT '[]'::jsonb;
+
+-- tipo_fornecedor — Módulo Relatórios (2.6). ADD COLUMN é idempotente
+-- por natureza (IF NOT EXISTS); o CHECK precisa do padrão condicional
+-- via pg_constraint porque ALTER TABLE ... ADD CONSTRAINT não aceita
+-- IF NOT EXISTS diretamente em Postgres
+ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS tipo_fornecedor TEXT;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fornecedores_tipo_fornecedor_check') THEN
+    ALTER TABLE fornecedores ADD CONSTRAINT fornecedores_tipo_fornecedor_check
+      CHECK (tipo_fornecedor IN ('materia_prima_insumo', 'embalagem', 'servicos', 'outros'));
+  END IF;
+END $$;
 
 -- uf: TEXT -> CHAR(2). Seguro porque confirmado nesta sessão que
 -- nenhuma linha existente tem valor de uf com mais de 2 caracteres
@@ -100,8 +136,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS fornecedores_cpf_key ON fornecedores (cpf) WHE
 -- separado — incorporado aqui por decisão de Maycon: dado do módulo
 -- Fornecedores mora no arquivo do módulo Fornecedores, sem exceção).
 -- Gerado originalmente a partir de Fornecedores_Consolidado.csv.
--- Idempotente por razao (não por cnpj — uma das linhas tem cnpj
--- NULL, então dedupe por cnpj sozinho não cobriria esse caso).
+-- Idempotente por razao OU cnpj (corrigido nesta sessão — dedupe só
+-- por razao falhava quando a razão social no banco já estava
+-- ligeiramente diferente do texto fixo abaixo, ex: sem um "1" sobrando
+-- no final de "FENIX CERAS E PROD DERIVADOS LTDA1", provável artefato
+-- do CSV original — o script tentava inserir de novo e batia de
+-- frente no UNIQUE de cnpj). Cobre também o caso da linha com cnpj
+-- NULL, que dedupe só por cnpj não cobriria sozinho.
 -- ============================================================
 INSERT INTO fornecedores (razao, "end", num, cidade, uf, cnpj, cep, contato, fone1, fone2, website, email, dados_bancarios)
 SELECT v.razao, v."end", v.num, v.cidade, v.uf, v.cnpj, v.cep, v.contato, v.fone1, v.fone2, v.website, v.email, v.dados_bancarios
@@ -126,7 +167,11 @@ FROM (VALUES
   ('POLYKRAFT EMBALAGENS', 'RUA PIONEIRO CARLOS HOFFERER', '77', 'MARINGÁ', 'PR', '05.798.961/0001-07', NULL, 'Emerson', '44 99800-5888', NULL, NULL, 'emerson@polykraft.com.br', NULL),
   ('REDE FEMININA DE COMBATE AO CÂNCER - REGIONAL MARINGÁ', 'AVENIDA CERRO AZUL', '1979', NULL, NULL, '76.718.592/0001-43', '87010-055', NULL, '44-3028-7277', '44-9118-4982', NULL, NULL, NULL)
 ) AS v(razao, "end", num, cidade, uf, cnpj, cep, contato, fone1, fone2, website, email, dados_bancarios)
-WHERE NOT EXISTS (SELECT 1 FROM fornecedores f WHERE f.razao = v.razao);
+WHERE NOT EXISTS (
+  SELECT 1 FROM fornecedores f
+  WHERE f.razao = v.razao
+     OR (v.cnpj IS NOT NULL AND f.cnpj = v.cnpj)
+);
 
 -- Ressincroniza a sequence de id — defensivo, no-op se já estiver em dia
 SELECT setval(pg_get_serial_sequence('public.fornecedores', 'id'), MAX(id)) FROM public.fornecedores;

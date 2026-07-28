@@ -13,7 +13,8 @@
 'use client'
 
 import { useState } from 'react'
-import type { Fornecedor } from '@/types/fornecedores'
+import type { Fornecedor, TipoFornecedor } from '@/types/fornecedores'
+import { TIPO_FORNECEDOR_LABELS } from '@/types/fornecedores'
 
 // ============================================================
 // Props
@@ -23,6 +24,12 @@ interface FornecedoresTabelaProps {
   onEditar: (fornecedor: Fornecedor) => void
   onVisualizar: (fornecedor: Fornecedor) => void
   onExcluir: (fornecedor: Fornecedor) => void
+  // Classificação rápida inline (Módulo Relatórios, 2.6) — permite
+  // classificar os 19 fornecedores existentes em massa, um select por
+  // linha, sem precisar abrir o modal completo de edição. A chamada
+  // real ao serviço (atualizarTipoFornecedor) acontece no componente
+  // pai (app/fornecedores/page.tsx), que também atualiza o estado local
+  onAlterarTipo: (fornecedor: Fornecedor, tipo: TipoFornecedor | null) => void
 }
 
 // ============================================================
@@ -33,6 +40,7 @@ export default function FornecedoresTabela({
   onEditar,
   onVisualizar,
   onExcluir,
+  onAlterarTipo,
 }: FornecedoresTabelaProps) {
 
   const [hoverId, setHoverId] = useState<number | null>(null)
@@ -86,6 +94,7 @@ export default function FornecedoresTabela({
             <th style={thStyle()}>Telefone</th>
             <th style={thStyle()}>E-mail</th>
             <th style={thStyle()}>Contato</th>
+            <th style={thStyle('150px')}>Tipo</th>
             <th style={thStyle('80px', true)}>Ações</th>
           </tr>
         </thead>
@@ -94,7 +103,7 @@ export default function FornecedoresTabela({
           {fornecedores.length === 0 ? (
             <tr>
               <td
-                colSpan={9}
+                colSpan={10}
                 style={{
                   textAlign: 'center',
                   padding: '32px',
@@ -158,6 +167,27 @@ export default function FornecedoresTabela({
                   </td>
 
                   <td style={tdStyle()}>{fornecedor.contato || '—'}</td>
+
+                  {/* Tipo de Fornecedor — select inline, salva ao trocar,
+                      sem precisar abrir o modal (Módulo Relatórios, 2.6) */}
+                  <td style={{ ...tdStyle('150px'), whiteSpace: 'normal' }}>
+                    <select
+                      value={fornecedor.tipo_fornecedor ?? ''}
+                      onChange={e => {
+                        const valor = e.target.value
+                        onAlterarTipo(fornecedor, valor === '' ? null : (valor as TipoFornecedor))
+                      }}
+                      style={selectInlineStyle}
+                      aria-label={`Tipo de fornecedor: ${fornecedor.fantasia || fornecedor.razao}`}
+                    >
+                      <option value="">Não classificado</option>
+                      {(Object.entries(TIPO_FORNECEDOR_LABELS) as [TipoFornecedor, string][]).map(
+                        ([valor, rotulo]) => (
+                          <option key={valor} value={valor}>{rotulo}</option>
+                        )
+                      )}
+                    </select>
+                  </td>
 
                   {/* Ações */}
                   <td style={{ ...tdStyle('80px'), textAlign: 'center' }}>
@@ -253,6 +283,18 @@ function tdStyle(width?: string): React.CSSProperties {
     verticalAlign: 'middle',
     ...(width ? { width } : {}),
   }
+}
+
+const selectInlineStyle: React.CSSProperties = {
+  width: '100%',
+  fontSize: '10px',
+  fontFamily: 'Tahoma, Geneva, sans-serif',
+  color: '#2c4a60',
+  padding: '3px 4px',
+  border: '1px solid #dde8f0',
+  borderRadius: '4px',
+  background: '#ffffff',
+  cursor: 'pointer',
 }
 
 const btnAcaoStyle: React.CSSProperties = {
