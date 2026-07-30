@@ -6,7 +6,8 @@
 //         de contas_a_pagar e contas_receber, com aging para itens
 //         em aberto.
 // Conecta com: types/relatorios.ts (RelatorioExtratoConsolidado),
-//              pages/api/relatorios/extrato-consolidado.ts
+//              pages/api/relatorios/extrato-consolidado.ts,
+//              lib/relatorios/paginacao.ts (paginarConsulta)
 // Referência: Especificacao_Modulo_Relatorios.md, Seção 2.4
 //
 // Decisões de engenharia não detalhadas na spec (documentadas aqui,
@@ -18,7 +19,9 @@
 //     reais de cada tabela:
 //       'pago'      -> contas_receber: status IN (pago, recebido_pix_ted)
 //                      contas_a_pagar: status = pago
-//       'em_aberto' -> contas_receber: status = em_aberto
+//       'em_aberto' -> contas_receber: status IN (em_aberto,
+//                      protestado, enviado_cartorio) — ver correção
+//                      High §3.1 abaixo
 //                      contas_a_pagar: status IN (em_aberto, pago_parcial)
 //                      (pago_parcial ainda tem saldo em aberto, por
 //                      isso entra no bucket "em aberto" pra fins de aging)
@@ -31,6 +34,18 @@
 //     convencional (mostra o título inteiro, não o líquido). Calcular
 //     o saldo residual exato exigiria somar eventos por título, fora
 //     de escopo desta v1 — sinalizar se quiser esse refinamento.
+//
+// CORREÇÃO HIGH §3.1 (Handoff_Modulo_Relatorios_Audit_para_QA.md) —
+// a versão anterior classificava como "em aberto" (filtro de status
+// E cálculo de faixa de aging) só o status literal 'em_aberto'. O
+// schema real de contas_receber tem também 'protestado' e
+// 'enviado_cartorio' — recebíveis em cobrança/cartório, a categoria
+// de exposição em aberto mais grave que a empresa pode ter. Estavam
+// sendo excluídos tanto do filtro "em aberto" quanto dos totais de
+// aging (apareciam na lista "tudo", mas sem faixa e sem entrar nos
+// cartões de total por faixa). Fix: os dois pontos abaixo passam a
+// tratar ('em_aberto','protestado','enviado_cartorio') como um
+// único grupo "em aberto" para fins deste relatório.
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
@@ -42,6 +57,29 @@ import type {
   TotalPorFaixaAging,
   FaixaAging,
 } from '@/types/relatorios'
+import { paginarConsulta } from '@/lib/relatorios/paginacao'
+
+// Status de contas_receber tratados como "em aberto" para fins deste
+// relatório — usado nos dois pontos que precisam do mesmo critério
+// (filtro de busca e classificação de aging), fonte única para não
+// os dois se dessincronizarem de novo (era exatamente o bug do
+// Finding §3.1: o filtro de busca e o cálculo de aging podiam, em
+// teoria, divergir por serem duas listas hardcoded separadas)
+const STATUS_RECEBER_EM_ABERTO = ['em_aberto', 'protestado', 'enviado_cartorio'] as const
+
+interface LinhaContaReceberExtrato {
+  data_vencimento: string
+  valor: number
+  cliente_nome: string
+  status: string
+}
+
+interface LinhaContaPagarExtrato {
+  data_vencimento: string
+  valor: number
+  favorecido_nome: string
+  status: string
+}
 
 // ============================================================
 // calcularFaixaAging()
@@ -73,24 +111,24 @@ export async function gerarRelatorioExtratoConsolidado(
 
   // ── A Receber ─────────────────────────────────────────────
   if (incluirAReceber) {
-    let query = client
-      .from('contas_receber')
-      .select('data_vencimento, valor, cliente_nome, status')
-      .gte('data_vencimento', filtros.dataInicial)
-      .lte('data_vencimento', filtros.dataFinal)
-      .neq('status', 'cancelado')
+    const linhasReceber = await paginarConsulta<LinhaContaReceberExtrato>((inicio, fim) => {
+      let query = client
+        .from('contas_receber')
+        .select('data_vencimento, valor, cliente_nome, status')
+        .gte('data_vencimento', filtros.dataInicial)
+        .lte('data_vencimento', filtros.dataFinal)
+        .neq('status', 'cancelado')
 
-    if (filtros.status === 'pago') query = query.in('status', ['pago', 'recebido_pix_ted'])
-    if (filtros.status === 'em_aberto') query = query.eq('status', 'em_aberto')
+      if (filtros.status === 'pago') query = query.in('status', ['pago', 'recebido_pix_ted'])
+      // Correção High §3.1 — inclui protestado/enviado_cartorio no
+      // grupo "em aberto", não só o status literal 'em_aberto'
+      if (filtros.status === 'em_aberto') query = query.in('status', [...STATUS_RECEBER_EM_ABERTO])
 
-    const { data, error } = await query
-    if (error) {
-      console.error('[relatorios/extratoConsolidado] erro ao buscar contas_receber:', error)
-      throw new Error(error.message)
-    }
+      return query.range(inicio, fim)
+    })
 
-    for (const t of data ?? []) {
-      const emAberto = t.status === 'em_aberto'
+    for (const t of linhasReceber) {
+      const emAberto = (STATUS_RECEBER_EM_ABERTO as readonly string[]).includes(t.status)
       itens.push({
         dataVencimento: t.data_vencimento,
         favorecidoOuCliente: t.cliente_nome,
@@ -104,23 +142,21 @@ export async function gerarRelatorioExtratoConsolidado(
 
   // ── A Pagar ───────────────────────────────────────────────
   if (incluirAPagar) {
-    let query = client
-      .from('contas_a_pagar')
-      .select('data_vencimento, valor, favorecido_nome, status')
-      .gte('data_vencimento', filtros.dataInicial)
-      .lte('data_vencimento', filtros.dataFinal)
-      .neq('status', 'cancelado')
+    const linhasPagar = await paginarConsulta<LinhaContaPagarExtrato>((inicio, fim) => {
+      let query = client
+        .from('contas_a_pagar')
+        .select('data_vencimento, valor, favorecido_nome, status')
+        .gte('data_vencimento', filtros.dataInicial)
+        .lte('data_vencimento', filtros.dataFinal)
+        .neq('status', 'cancelado')
 
-    if (filtros.status === 'pago') query = query.eq('status', 'pago')
-    if (filtros.status === 'em_aberto') query = query.in('status', ['em_aberto', 'pago_parcial'])
+      if (filtros.status === 'pago') query = query.eq('status', 'pago')
+      if (filtros.status === 'em_aberto') query = query.in('status', ['em_aberto', 'pago_parcial'])
 
-    const { data, error } = await query
-    if (error) {
-      console.error('[relatorios/extratoConsolidado] erro ao buscar contas_a_pagar:', error)
-      throw new Error(error.message)
-    }
+      return query.range(inicio, fim)
+    })
 
-    for (const t of data ?? []) {
+    for (const t of linhasPagar) {
       const emAberto = t.status === 'em_aberto' || t.status === 'pago_parcial'
       itens.push({
         dataVencimento: t.data_vencimento,

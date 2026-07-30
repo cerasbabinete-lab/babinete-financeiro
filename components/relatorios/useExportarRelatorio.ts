@@ -45,16 +45,26 @@ export function useExportarRelatorio(endpoint: string) {
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
 
+      // Correção Medium §4.1 (Handoff_Modulo_Relatorios_Audit_para_QA.md)
+      // — window.open() chamado depois de 2 awaits (getSession +
+      // fetch) pode ser tratado pelo navegador como pop-up não
+      // solicitado e bloqueado silenciosamente: o clique acontece,
+      // o request funciona, mas nada abre e nenhum erro aparece pro
+      // usuário. Fix: mesmo padrão de link-âncora já usado no branch
+      // xlsx abaixo, que é tolerante a isso — só troca download por
+      // target='_blank' pra abrir em nova aba em vez de baixar.
+      const a = document.createElement('a')
+      a.href = url
       if (formato === 'pdf') {
-        window.open(url, '_blank')
+        a.target = '_blank'
+        a.rel = 'noopener'
       } else {
-        const a = document.createElement('a')
-        a.href = url
         a.download = `${nomeArquivo}.xlsx`
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
       }
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+
       setTimeout(() => URL.revokeObjectURL(url), 10000)
     } catch (err: unknown) {
       setErroExportacao(err instanceof Error ? err.message : 'Erro ao exportar relatório')

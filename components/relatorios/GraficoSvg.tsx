@@ -23,6 +23,7 @@
 'use client'
 
 import type { DadosGrafico } from '@/types/relatorios'
+import { MARGEM_LINHA_BARRAS, MARGEM_BARRAS_AGRUPADAS, MARGEM_PARETO } from '@/lib/relatorios/graficoLayout'
 
 // ============================================================
 // Paleta do módulo — mantém o total de cores usadas no módulo
@@ -121,7 +122,7 @@ function GraficoLinhaOuBarras({
 }) {
   if (pontos.length === 0) return <SemDados largura={largura} altura={altura} />
 
-  const MARGEM = { topo: 16, direita: 16, baixo: 34, esquerda: 16 }
+  const MARGEM = MARGEM_LINHA_BARRAS
   const areaLargura = largura - MARGEM.esquerda - MARGEM.direita
   const areaAltura = altura - MARGEM.topo - MARGEM.baixo
 
@@ -216,7 +217,7 @@ function GraficoBarrasAgrupadas({
 }) {
   if (pontos.length === 0) return <SemDados largura={largura} altura={altura} />
 
-  const MARGEM = { topo: 30, direita: 16, baixo: 34, esquerda: 16 }
+  const MARGEM = MARGEM_BARRAS_AGRUPADAS
   const areaLargura = largura - MARGEM.esquerda - MARGEM.direita
   const areaAltura = altura - MARGEM.topo - MARGEM.baixo
 
@@ -275,7 +276,7 @@ function GraficoPareto({
 }) {
   if (pontos.length === 0) return <SemDados largura={largura} altura={altura} />
 
-  const MARGEM = { topo: 16, direita: 36, baixo: 34, esquerda: 16 }
+  const MARGEM = MARGEM_PARETO
   const areaLargura = largura - MARGEM.esquerda - MARGEM.direita
   const areaAltura = altura - MARGEM.topo - MARGEM.baixo
 
@@ -363,10 +364,24 @@ function GraficoPizza({
     return [cx + raio * Math.cos(rad), cy + raio * Math.sin(rad)]
   }
 
+  // Correção High §3.2 (Handoff_Modulo_Relatorios_Audit_para_QA.md) —
+  // quando só existe 1 categoria com valor > 0 (100% do total), o
+  // ângulo final da fatia (-90 + 360 = 270°) cai no MESMO ponto do
+  // ângulo inicial (-90°), já que seno/cosseno são periódicos em
+  // 360°. O <path> gerado nesse caso é degenerado (início = fim) e
+  // não desenha nada — "Gastos por tipo de fornecedor" filtrado a 1
+  // mês ou a 1 tipo específico cai nesse caso com frequência. Fix:
+  // desenha um círculo cheio, não um path — nada de "quase 360°"
+  // por epsilon, que deixaria uma fresta e reintroduziria o mesmo
+  // bug em outro ângulo se a precisão de ponto flutuante mudar.
+  const categoriasComValor = pontos.filter(p => p.valor > 0)
+
   return (
     <g>
       {total === 0 ? (
         <SemDados largura={largura} altura={altura} />
+      ) : categoriasComValor.length === 1 ? (
+        <circle cx={cx} cy={cy} r={raio} fill={PALETA_PIZZA[0]} stroke="#ffffff" strokeWidth={1} />
       ) : (
         pontos.map((p, i) => {
           const fatiaAngulo = total === 0 ? 0 : (p.valor / total) * 360

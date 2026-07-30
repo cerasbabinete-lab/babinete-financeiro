@@ -20,6 +20,8 @@
 import { supabase } from '@/lib/supabase'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { FaturamentoMes, RelatorioFaturamento, FiltroIntervaloDatas } from '@/types/relatorios'
+import { limiteSuperiorIntervalo } from '@/lib/relatorios/formatadores'
+import { paginarConsulta, dividirEmLotes } from '@/lib/relatorios/paginacao'
 
 const TABELA = 'receitas'
 
@@ -34,6 +36,18 @@ interface LinhaReceitaAgregacao {
   cliente_nome: string | null
 }
 
+// Linha da consulta de HISTÓRICO (passo 2) — não seleciona id nem
+// valor_nf (não são necessários pra achar a primeira compra), por
+// isso é um tipo mais estreito que LinhaReceitaAgregacao, não o
+// mesmo tipo. Usar LinhaReceitaAgregacao aqui seria incorreto — o
+// objeto retornado de fato não teria essas duas propriedades
+interface LinhaHistoricoCliente {
+  data_emissao: string
+  cliente_id: number | null
+  cliente_cpf_cnpj: string | null
+  cliente_nome: string | null
+}
+
 // ============================================================
 // chaveCliente()
 // Identidade do cliente para fins de "novo x recorrente". Usa
@@ -43,7 +57,7 @@ interface LinhaReceitaAgregacao {
 // sql/receitas_contas_receber.sql). Documentado aqui porque é uma
 // decisão de robustez, não uma regra vinda da spec.
 // ============================================================
-function chaveCliente(r: LinhaReceitaAgregacao): string {
+function chaveCliente(r: Pick<LinhaReceitaAgregacao, 'cliente_id' | 'cliente_cpf_cnpj' | 'cliente_nome'>): string {
   if (r.cliente_id !== null) return `id:${r.cliente_id}`
   if (r.cliente_cpf_cnpj) return `doc:${r.cliente_cpf_cnpj}`
   return `nome:${r.cliente_nome ?? 'desconhecido'}`
@@ -64,19 +78,18 @@ export async function gerarRelatorioFaturamento(
   client: SupabaseClient = supabase,
 ): Promise<RelatorioFaturamento> {
   // ── 1. Receitas dentro do período filtrado ──────────────────
-  const { data: receitasPeriodo, error: erroPeriodo } = await client
-    .from(TABELA)
-    .select('id, data_emissao, valor_nf, cliente_id, cliente_cpf_cnpj, cliente_nome')
-    .gte('data_emissao', filtros.dataInicial)
-    .lte('data_emissao', filtros.dataFinal + 'T23:59:59')
-    .order('data_emissao', { ascending: true })
-
-  if (erroPeriodo) {
-    console.error('[relatorios/faturamento] erro ao buscar receitas do período:', erroPeriodo)
-    throw new Error(erroPeriodo.message)
-  }
-
-  const linhas = (receitasPeriodo ?? []) as LinhaReceitaAgregacao[]
+  // Paginado (Finding Critical §2.2 — sem .range(), PostgREST corta
+  // silenciosamente em 1000 linhas, sem erro visível) e com limite
+  // superior de fuso explícito (Finding §6.4)
+  const linhas = await paginarConsulta<LinhaReceitaAgregacao>((inicio, fim) =>
+    client
+      .from(TABELA)
+      .select('id, data_emissao, valor_nf, cliente_id, cliente_cpf_cnpj, cliente_nome')
+      .gte('data_emissao', filtros.dataInicial)
+      .lte('data_emissao', limiteSuperiorIntervalo(filtros.dataFinal))
+      .order('data_emissao', { ascending: true })
+      .range(inicio, fim),
+  )
 
   // ── 2. Primeira compra histórica de cada cliente que aparece no
   // período — precisa olhar TODO o histórico (Seção 2.1: "menor
@@ -90,21 +103,27 @@ export async function gerarRelatorioFaturamento(
 
   const primeiraComprapPorChave = new Map<string, string>() // chaveCliente -> menor data_emissao (histórico completo)
 
-  if (idsClientesNoPeriodo.length > 0) {
-    const { data: historico, error: erroHistorico } = await client
-      .from(TABELA)
-      .select('data_emissao, cliente_id, cliente_cpf_cnpj, cliente_nome')
-      .in('cliente_id', idsClientesNoPeriodo)
-      .order('data_emissao', { ascending: true })
+  // Em lotes de IN (dividirEmLotes) porque o número de clientes
+  // distintos que aparecem no período cresce junto com o volume do
+  // negócio — uma cláusula IN não deve crescer sem limite — e cada
+  // lote paginado (Finding Critical §2.2) porque o histórico
+  // completo de um cliente antigo pode sozinho passar de 1000 NF-e
+  // ao longo dos anos (sistema é perpétuo, por natureza do projeto)
+  for (const lote of dividirEmLotes(idsClientesNoPeriodo)) {
+    if (lote.length === 0) continue
 
-    if (erroHistorico) {
-      console.error('[relatorios/faturamento] erro ao buscar histórico de clientes:', erroHistorico)
-      throw new Error(erroHistorico.message)
-    }
+    const historicoLote = await paginarConsulta<LinhaHistoricoCliente>((inicio, fim) =>
+      client
+        .from(TABELA)
+        .select('data_emissao, cliente_id, cliente_cpf_cnpj, cliente_nome')
+        .in('cliente_id', lote)
+        .order('data_emissao', { ascending: true })
+        .range(inicio, fim),
+    )
 
     // Como veio ordenado ascendente, o primeiro registro de cada
     // chave que encontramos já é o mais antigo — não precisa de Math.min
-    for (const r of (historico ?? []) as LinhaReceitaAgregacao[]) {
+    for (const r of historicoLote) {
       const chave = chaveCliente(r)
       if (!primeiraComprapPorChave.has(chave)) {
         primeiraComprapPorChave.set(chave, r.data_emissao)
@@ -138,6 +157,18 @@ export async function gerarRelatorioFaturamento(
     clientesRecorrentes: Set<string>
   }>()
 
+  // CORREÇÃO Medium §4.3 (Handoff_Modulo_Relatorios_Audit_para_QA.md)
+  // — Set separado, com escopo no INTERVALO INTEIRO (não por mês),
+  // pra "clientes recorrentes" do totalizador ser contagem de
+  // cabeças distintas, não soma de ocorrências mensais (um cliente
+  // que comprou em 3 meses do intervalo não deve contar 3x). Decisão
+  // confirmada por Maycon: contagem única. Os Sets por mês
+  // (grupo.clientesRecorrentes, dentro de mesesMap) continuam
+  // existindo do jeito que estavam — são legitimamente "quantos
+  // recorrentes NAQUELE mês", não têm o bug, o problema era só a
+  // SOMA deles no totalizador do intervalo.
+  const clientesRecorrentesIntervalo = new Set<string>()
+
   for (const r of linhas) {
     const mes = mesDaData(r.data_emissao)
     if (!mesesMap.has(mes)) {
@@ -151,8 +182,12 @@ export async function gerarRelatorioFaturamento(
     const primeiraCompra = primeiraComprapPorChave.get(chave)
     const ehPrimeiraCompraNesteMes = primeiraCompra ? mesDaData(primeiraCompra) === mes : false
 
-    if (ehPrimeiraCompraNesteMes) grupo.clientesNovos.add(chave)
-    else grupo.clientesRecorrentes.add(chave)
+    if (ehPrimeiraCompraNesteMes) {
+      grupo.clientesNovos.add(chave)
+    } else {
+      grupo.clientesRecorrentes.add(chave)
+      clientesRecorrentesIntervalo.add(chave)
+    }
   }
 
   const meses: FaturamentoMes[] = Array.from(mesesMap.entries())
@@ -170,7 +205,11 @@ export async function gerarRelatorioFaturamento(
   const receitaBrutaTotal = meses.reduce((s, m) => s + m.receitaBruta, 0)
   const quantidadeNotasTotal = meses.reduce((s, m) => s + m.quantidadeNotas, 0)
   const clientesNovosTotal = meses.reduce((s, m) => s + m.clientesNovos, 0)
-  const clientesRecorrentesTotal = meses.reduce((s, m) => s + m.clientesRecorrentes, 0)
+  // Fix §4.3 — contagem distinta (Set.size), não soma de ocorrências
+  // mensais. clientesNovosTotal acima continua sendo soma porque
+  // "novo" só pode acontecer 1x na vida do cliente — não tem o
+  // mesmo risco de dupla contagem que "recorrente" tinha.
+  const clientesRecorrentesTotal = clientesRecorrentesIntervalo.size
 
   return {
     periodo: filtros,

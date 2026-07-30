@@ -6,7 +6,8 @@
 //         beneficiário" (2.3) — despesas com origem_tipo =
 //         'pessoal_socio', agrupadas por beneficiário.
 // Conecta com: types/relatorios.ts (RelatorioRetiradas),
-//              pages/api/relatorios/retiradas.ts
+//              pages/api/relatorios/retiradas.ts,
+//              lib/relatorios/paginacao.ts (paginarConsulta)
 // Referência: Especificacao_Modulo_Relatorios.md, Seção 2.3
 //
 // Nota sobre o filtro de data: a spec pede documento_data_emissao
@@ -17,7 +18,15 @@
 // em JS (não dá pra expressar "COALESCE(a,b) BETWEEN x AND y"
 // direto no query builder do supabase-js sem RPC) — aceitável pelo
 // volume deste relatório especificamente: lançamentos pessoais de
-// sócio/prestador MEI, não a tabela despesas inteira.
+// sócio/prestador MEI, não a tabela despesas inteira (diferente de
+// gastosPorTipoFornecedor.ts, que usa a MESMA técnica sobre a
+// tabela despesas inteira — ver Finding Medium §4.4 nesse arquivo).
+//
+// CORREÇÃO Critical §2.2 (Handoff_Modulo_Relatorios_Audit_para_QA.md)
+// — as duas consultas deste arquivo agora paginam via
+// paginarConsulta(), mesmo sem filtro de data no banco (a paginação
+// é sobre TODAS as linhas devolvidas por .eq('origem_tipo', ...),
+// que sem ela também estariam sujeitas ao teto de 1000 do PostgREST).
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
@@ -29,6 +38,8 @@ import type {
   SubtipoRetirada,
   FiltroIntervaloDatas,
 } from '@/types/relatorios'
+import { paginarConsulta } from '@/lib/relatorios/paginacao'
+import { dataDentroDoIntervalo } from '@/lib/relatorios/formatadores'
 
 interface LinhaDespesaPessoal {
   documento_data_emissao: string | null
@@ -47,19 +58,17 @@ interface LinhaDespesaPessoal {
 // (senão o filtro nunca poderia "adicionar" alguém à visão atual)
 // ============================================================
 export async function buscarNomesBeneficiarios(client: SupabaseClient = supabase): Promise<string[]> {
-  const { data, error } = await client
-    .from('beneficiarios_pessoais')
-    .select('nome')
-    .order('nome', { ascending: true })
-
-  if (error) {
-    console.error('[relatorios/retiradas] erro ao buscar roster de beneficiários:', error)
-    throw new Error(error.message)
-  }
+  const linhas = await paginarConsulta<{ nome: string }>((inicio, fim) =>
+    client
+      .from('beneficiarios_pessoais')
+      .select('nome')
+      .order('nome', { ascending: true })
+      .range(inicio, fim),
+  )
 
   // Maycon tem 2 linhas no roster (CPF e CNPJ) com o mesmo nome —
   // Set remove a duplicata visual no filtro
-  return Array.from(new Set((data ?? []).map(r => r.nome)))
+  return Array.from(new Set(linhas.map(r => r.nome)))
 }
 
 // ============================================================
@@ -69,26 +78,23 @@ export async function gerarRelatorioRetiradas(
   filtros: FiltroIntervaloDatas & { beneficiarioFiltro?: string },
   client: SupabaseClient = supabase,
 ): Promise<RelatorioRetiradas> {
-  let query = client
-    .from('despesas')
-    .select('documento_data_emissao, created_at, origem_beneficiario_nome, extensao_categoria, valor_total, status_pagamento')
-    .eq('origem_tipo', 'pessoal_socio')
-    .is('deleted_at', null)
+  const linhas = await paginarConsulta<LinhaDespesaPessoal>((inicio, fim) => {
+    let query = client
+      .from('despesas')
+      .select('documento_data_emissao, created_at, origem_beneficiario_nome, extensao_categoria, valor_total, status_pagamento')
+      .eq('origem_tipo', 'pessoal_socio')
+      .is('deleted_at', null)
 
-  if (filtros.beneficiarioFiltro) {
-    query = query.eq('origem_beneficiario_nome', filtros.beneficiarioFiltro)
-  }
+    if (filtros.beneficiarioFiltro) {
+      query = query.eq('origem_beneficiario_nome', filtros.beneficiarioFiltro)
+    }
 
-  const { data, error } = await query
-  if (error) {
-    console.error('[relatorios/retiradas] erro ao buscar despesas pessoais:', error)
-    throw new Error(error.message)
-  }
+    return query.range(inicio, fim)
+  })
 
-  const fimIntervalo = filtros.dataFinal + 'T23:59:59'
-  const linhasNoIntervalo = ((data ?? []) as LinhaDespesaPessoal[]).filter(d => {
+  const linhasNoIntervalo = linhas.filter(d => {
     const dataEfetiva = d.documento_data_emissao ?? d.created_at
-    return dataEfetiva >= filtros.dataInicial && dataEfetiva <= fimIntervalo
+    return dataDentroDoIntervalo(dataEfetiva, filtros.dataInicial, filtros.dataFinal)
   })
 
   const grupos = new Map<string, LancamentoRetirada[]>()

@@ -184,6 +184,19 @@ export function desenharTabela(
     doc.y = y + ALTURA_CABECALHO
   }
 
+  // Correção Low §6.2 (Handoff_Modulo_Relatorios_Audit_para_QA.md) —
+  // antes, o cabeçalho da tabela era desenhado incondicionalmente
+  // aqui, sem checar se doc.y já estava perto do fim da página (a
+  // checagem só existia dentro do loop de linhas, abaixo). Não é
+  // reprodutível com os 6 relatórios atuais (cartões + gráfico têm
+  // altura fixa, nunca empurram doc.y perto do limite antes da
+  // tabela começar), mas é uma lacuna real para um relatório futuro
+  // com mais cartões ou gráfico mais alto. Mesma guarda do loop,
+  // reaplicada aqui antes do primeiro cabeçalho.
+  if (doc.y + ALTURA_CABECALHO > ALTURA_PAGINA_A4 - MARGEM.bottom) {
+    doc.addPage()
+    doc.y = MARGEM.top
+  }
   desenharCabecalhoTabela()
 
   if (linhas.length === 0) {

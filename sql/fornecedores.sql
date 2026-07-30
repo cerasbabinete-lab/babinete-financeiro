@@ -163,7 +163,7 @@ FROM (VALUES
   ('AUTOMACAO MARINGA - W BRASIL ETIQUETAS LTDA', 'R. Manuel Prudêncio de Brito', '130', 'LINS', 'SP', '11.506.178/0001-25', NULL, 'Silvana/Gabriely Maria', '44-3029-1556', NULL, 'https://automacaomaringa.com.br/', 'silvanaautomacaomaringa.com.br; gabriely@automacaomaringa.com.br', NULL),
   ('ISOGAMA INDUSTRIA QUIMICA LTDA', 'ROD BR 376 KM 622', '22175', 'CURITIBA', 'PR', '80.228.893/0001-66', '83090-360', 'IVANA MARIANE TSUCHIYA', '41-2426-4153', '41-99269-5583', 'https://isogama.com/', 'ivana.tsuchiya@isogama.com', NULL),
   ('SYMA INFORMATICA', 'AV. JOAO PAULINO VIEIRA FILHO', '625', 'MARINGA', 'PR', '04.912.543/0001-36', '87020-015', 'SARYTA', '44-4009-9090', NULL, 'https://www.syma.com.br/', 'saryta@syma.com.br', NULL),
-  ('EMBALAGENS MARINGA LTDA', 'Rua Joubert de Carvalho', '958', 'MARINGA', 'PR', '80.596.604/0001', '87013-200', NULL, '44-3031-3535', '44-99930-9898', 'https://www.embalagensmaringa.com.br/', NULL, NULL),
+  ('EMBALAGENS MARINGA LTDA', 'Rua Joubert de Carvalho', '958', 'MARINGA', 'PR', '80.596.604/0001-81', '87013-200', NULL, '44-3031-3535', '44-99930-9898', 'https://www.embalagensmaringa.com.br/', NULL, NULL),
   ('POLYKRAFT EMBALAGENS', 'RUA PIONEIRO CARLOS HOFFERER', '77', 'MARINGÁ', 'PR', '05.798.961/0001-07', NULL, 'Emerson', '44 99800-5888', NULL, NULL, 'emerson@polykraft.com.br', NULL),
   ('REDE FEMININA DE COMBATE AO CÂNCER - REGIONAL MARINGÁ', 'AVENIDA CERRO AZUL', '1979', NULL, NULL, '76.718.592/0001-43', '87010-055', NULL, '44-3028-7277', '44-9118-4982', NULL, NULL, NULL)
 ) AS v(razao, "end", num, cidade, uf, cnpj, cep, contato, fone1, fone2, website, email, dados_bancarios)

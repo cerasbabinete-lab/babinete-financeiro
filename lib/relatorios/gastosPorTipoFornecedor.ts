@@ -9,7 +9,8 @@
 //         omitido do total).
 // Conecta com: types/relatorios.ts (RelatorioGastosPorTipoFornecedor),
 //              pages/api/relatorios/gastos-por-tipo-fornecedor.ts,
-//              sql/fornecedores.sql (tipo_fornecedor, Fase 0 deste build)
+//              sql/fornecedores.sql (tipo_fornecedor, Fase 0 deste build),
+//              lib/relatorios/paginacao.ts (paginarConsulta, dividirEmLotes)
 // Referência: Especificacao_Modulo_Relatorios.md, Seção 2.6
 //
 // Decisões confirmadas por Maycon nesta sessão:
@@ -18,6 +19,36 @@
 //   - Filtro de data sobre despesas.documento_data_emissao, com
 //     fallback created_at quando nula — mesmo padrão já usado no
 //     relatório de Retiradas (2.3), mesma tabela de origem
+//
+// CORREÇÃO Critical §2.2 (Handoff_Modulo_Relatorios_Audit_para_QA.md)
+// — as consultas paginam agora via paginarConsulta()/dividirEmLotes().
+// CORREÇÃO §6.4 — limite superior de intervalo com fuso explícito
+// (limiteSuperiorIntervalo()) na consulta (B) abaixo, que filtra
+// created_at (TIMESTAMPTZ) diretamente no banco — deixou de ser
+// comparação em JS depois do fix §4.4 logo abaixo.
+//
+// CORREÇÃO Medium §4.4 — a consulta de despesas antes carregava a
+// TABELA INTEIRA (sem filtro de data no banco) e filtrava em JS.
+// Fix: 2 consultas complementares, cada uma já filtrada no banco:
+//   (A) documento_data_emissao dentro do intervalo — cobre o caso
+//       normal, onde a coluna está preenchida
+//   (B) documento_data_emissao IS NULL, created_at dentro do
+//       intervalo — cobre o fallback, sem depender de filtrar em JS
+// A auditoria pedia para "confirmar com Maycon o quão comum é
+// documento_data_emissao NULL antes de decidir a estratégia" — mas
+// concluiu que a resposta é a mesma nos dois cenários (raro ou
+// comum): "the correct fix is two queries... not a single unfiltered
+// fetch, and not a JS-only filter as it stands today." Por isso este
+// fix não depende de uma decisão de negócio do Maycon, foi aplicado
+// direto — é estritamente melhor que o estado anterior nos dois casos.
+//
+// CORREÇÃO Medium §4.5 — origem_tipo agora É filtrado
+// (.neq('origem_tipo', 'pessoal_socio') nas duas consultas abaixo).
+// Decisão confirmada por Maycon: retiradas pessoais de sócio/
+// prestador MEI saem deste relatório — já têm relatório próprio
+// (2.3 Retiradas), e misturar contaminaria a leitura de gasto
+// operacional real por tipo de fornecedor, que é o propósito deste
+// relatório especificamente.
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
@@ -29,6 +60,8 @@ import type {
   TipoFornecedorOuNaoClassificado,
   FiltroIntervaloDatas,
 } from '@/types/relatorios'
+import { paginarConsulta, dividirEmLotes } from '@/lib/relatorios/paginacao'
+import { limiteSuperiorIntervalo } from '@/lib/relatorios/formatadores'
 
 const NAO_CLASSIFICADO: TipoFornecedorOuNaoClassificado = 'nao_classificado'
 
@@ -46,44 +79,59 @@ export async function gerarRelatorioGastosPorTipoFornecedor(
   filtros: FiltroIntervaloDatas & { tipoFiltro?: TipoFornecedorOuNaoClassificado },
   client: SupabaseClient = supabase,
 ): Promise<RelatorioGastosPorTipoFornecedor> {
-  // ── 1. Despesas empresariais, não soft-deleted ──────────────
-  // (origem_tipo não é filtrado aqui de propósito — este relatório
-  // é sobre gasto total por tipo de fornecedor, inclui tanto
-  // despesas empresariais quanto pessoal_socio; a spec não exclui
-  // nenhuma categoria de origem_tipo neste relatório especificamente)
-  const { data, error } = await client
-    .from('despesas')
-    .select('fornecedor_id, valor_total, documento_data_emissao, created_at')
-    .is('deleted_at', null)
+  // ── 1. Despesas EMPRESARIAIS, não soft-deleted ──────────────
+  // (origem_tipo='pessoal_socio' excluído — Fix §4.5, ver cabeçalho
+  // do arquivo. Retiradas pessoais têm relatório próprio, Seção 2.3)
+  //
+  // (A) documento_data_emissao dentro do intervalo — filtro no banco
+  const comDataEmissao = await paginarConsulta<LinhaDespesa>((inicio, fim) =>
+    client
+      .from('despesas')
+      .select('fornecedor_id, valor_total, documento_data_emissao, created_at')
+      .is('deleted_at', null)
+      .neq('origem_tipo', 'pessoal_socio')
+      .gte('documento_data_emissao', filtros.dataInicial)
+      .lte('documento_data_emissao', filtros.dataFinal)
+      .range(inicio, fim),
+  )
 
-  if (error) {
-    console.error('[relatorios/gastosPorTipoFornecedor] erro ao buscar despesas:', error)
-    throw new Error(error.message)
-  }
+  // (B) documento_data_emissao NULL, fallback por created_at —
+  // também filtrado no banco, não mais em JS sobre a tabela inteira
+  const semDataEmissao = await paginarConsulta<LinhaDespesa>((inicio, fim) =>
+    client
+      .from('despesas')
+      .select('fornecedor_id, valor_total, documento_data_emissao, created_at')
+      .is('deleted_at', null)
+      .neq('origem_tipo', 'pessoal_socio')
+      .is('documento_data_emissao', null)
+      .gte('created_at', filtros.dataInicial)
+      .lte('created_at', limiteSuperiorIntervalo(filtros.dataFinal))
+      .range(inicio, fim),
+  )
 
-  const fimIntervalo = filtros.dataFinal + 'T23:59:59'
-  const linhasNoIntervalo = ((data ?? []) as LinhaDespesa[]).filter(d => {
-    const dataEfetiva = d.documento_data_emissao ?? d.created_at
-    return dataEfetiva >= filtros.dataInicial && dataEfetiva <= fimIntervalo
-  })
+  // As duas consultas são mutuamente exclusivas por construção
+  // (uma exige documento_data_emissao preenchido, a outra exige NULL)
+  // — concatenar não duplica nenhuma linha
+  const linhasNoIntervalo = [...comDataEmissao, ...semDataEmissao]
 
   // ── 2. Busca tipo_fornecedor só dos fornecedores que aparecem
   // no período filtrado (evita puxar a tabela fornecedores inteira) ──
   const idsFornecedores = Array.from(new Set(linhasNoIntervalo.map(d => d.fornecedor_id)))
   const mapaTipo = new Map<number, TipoFornecedorOuNaoClassificado>()
 
-  if (idsFornecedores.length > 0) {
-    const { data: fornecedores, error: erroFornecedores } = await client
-      .from('fornecedores')
-      .select('id, tipo_fornecedor')
-      .in('id', idsFornecedores)
-
-    if (erroFornecedores) {
-      console.error('[relatorios/gastosPorTipoFornecedor] erro ao buscar fornecedores:', erroFornecedores)
-      throw new Error(erroFornecedores.message)
-    }
-
-    for (const f of fornecedores ?? []) {
+  // Em lotes (dividirEmLotes) e paginado (paginarConsulta) pelos
+  // mesmos motivos já aplicados nos outros arquivos deste módulo —
+  // o número de fornecedores distintos cresce com o negócio
+  for (const lote of dividirEmLotes(idsFornecedores)) {
+    if (lote.length === 0) continue
+    const fornecedoresDoLote = await paginarConsulta<{ id: number; tipo_fornecedor: string | null }>((inicio, fim) =>
+      client
+        .from('fornecedores')
+        .select('id, tipo_fornecedor')
+        .in('id', lote)
+        .range(inicio, fim),
+    )
+    for (const f of fornecedoresDoLote) {
       mapaTipo.set(f.id, (f.tipo_fornecedor ?? NAO_CLASSIFICADO) as TipoFornecedorOuNaoClassificado)
     }
   }

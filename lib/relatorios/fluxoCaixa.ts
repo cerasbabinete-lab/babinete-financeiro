@@ -4,17 +4,19 @@
 // Módulo: Relatórios
 // Função: Calcula o relatório "Fluxo de caixa realizado" (2.2) —
 //         regime de caixa, Entradas (contas_receber liquidados) x
-//         Saídas (contas_a_pagar liquidados) no intervalo, por
-//         data_baixa.
+//         Saídas (eventos de baixa de contas_a_pagar) no intervalo.
 // Conecta com: types/relatorios.ts (RelatorioFluxoCaixa),
-//              pages/api/relatorios/fluxo-caixa.ts
+//              pages/api/relatorios/fluxo-caixa.ts,
+//              lib/relatorios/paginacao.ts (paginarConsulta,
+//              dividirEmLotes), lib/relatorios/formatadores.ts
+//              (limiteSuperiorIntervalo)
 // Referência: Especificacao_Modulo_Relatorios.md, Seção 2.2
 //
 // CORREÇÃO IMPORTANTE em relação ao texto literal da spec: a Seção
 // 2.2 pede status IN ('pago','pago_parcial') e soma de valor_pago
 // de contas_receber_eventos para os dois lados (entradas e saídas),
-// espelhando 1:1 a lógica de Contas a Pagar. Conferido nesta sessão
-// contra o schema REAL (sql/receitas_contas_receber.sql):
+// espelhando 1:1 a lógica de Contas a Pagar. Conferido contra o
+// schema REAL (sql/receitas_contas_receber.sql):
 //   - contas_receber.status NÃO TEM 'pago_parcial' — o CHECK real é
 //     ('em_aberto','pago','recebido_pix_ted','protestado',
 //     'enviado_cartorio','cancelado'). 'pago' e 'recebido_pix_ted'
@@ -25,14 +27,51 @@
 //     retirada de sócio/prestador MEI — não existe do lado cliente).
 // Por isso a lógica abaixo é ASSIMÉTRICA de propósito:
 //   - Entradas: soma direta de `valor` (não existe parcial neste lado)
-//   - Saídas: soma de `valor` quando 'pago', soma de `valor_pago` dos
-//     eventos quando 'pago_parcial' — aqui sim, igual à spec
+//   - Saídas: orientada a EVENTO, não a status/data_baixa do título
+//     (ver bloco de correção abaixo)
+//
+// CORREÇÃO CRÍTICA #1 (Handoff_Modulo_Relatorios_Audit_para_QA.md,
+// Finding Critical §2.1) — a versão anterior filtrava
+// `contas_a_pagar` por `data_baixa` do título (que reflete só o
+// ÚLTIMO evento de baixa) e só consultava o histórico de eventos
+// para títulos que ainda estivessem, NO MOMENTO da consulta, com
+// status='pago_parcial'. Um título pago em duas parcelas em meses
+// diferentes (ex: R$500 em junho, R$500 em agosto — mecanismo real
+// de `regra_conciliacao_pagar='acumulo_ate_valor_integral'`, usado
+// nas notas MEI do Maycon) acabava tendo o pagamento de junho
+// INVISÍVEL em qualquer relatório: quando o título vira 'pago' em
+// agosto, seu único `data_baixa` é agosto, e a consulta de junho
+// nem o traz de volta — o evento de junho nunca é consultado.
+//
+// FIX: o lado Saídas agora é 100% orientado a evento — consulta
+// direta em `contas_a_pagar_eventos` (tipo IN baixa_parcial /
+// baixa_total, valor_pago IS NOT NULL, created_at no intervalo) é a
+// ÚNICA fonte de verdade. Cada evento vira exatamente 1 lançamento,
+// usando a data do PRÓPRIO evento (created_at), nunca a data_baixa
+// ou o status atual do título. O título só é consultado de volta
+// (por id, em lotes) para obter o favorecido_nome de exibição.
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { LancamentoFluxoCaixa, RelatorioFluxoCaixa, FiltroIntervaloDatas } from '@/types/relatorios'
-import { formatarMesBR } from '@/lib/relatorios/formatadores'
+import { formatarMesBR, limiteSuperiorIntervalo } from '@/lib/relatorios/formatadores'
+import { paginarConsulta, dividirEmLotes } from '@/lib/relatorios/paginacao'
+
+// Linha mínima usada do lado Entradas
+interface LinhaContaReceber {
+  data_baixa: string
+  valor: number
+  cliente_nome: string | null
+}
+
+// Linha mínima usada do lado Saídas — vem de contas_a_pagar_eventos,
+// não mais de contas_a_pagar diretamente (ver correção no cabeçalho)
+interface LinhaEventoPagar {
+  titulo_id: string
+  valor_pago: number
+  created_at: string
+}
 
 // ============================================================
 // gerarRelatorioFluxoCaixa()
@@ -44,19 +83,19 @@ export async function gerarRelatorioFluxoCaixa(
   const lancamentos: LancamentoFluxoCaixa[] = []
 
   // ── ENTRADAS — contas_receber liquidados, soma direta de valor ──
-  const { data: titulosReceber, error: erroReceber } = await client
-    .from('contas_receber')
-    .select('data_baixa, valor, cliente_nome')
-    .in('status', ['pago', 'recebido_pix_ted'])
-    .gte('data_baixa', filtros.dataInicial)
-    .lte('data_baixa', filtros.dataFinal)
+  // (paginado — Finding Critical §2.2: sem .range(), PostgREST corta
+  // silenciosamente em 1000 linhas)
+  const titulosReceber = await paginarConsulta<LinhaContaReceber>((inicio, fim) =>
+    client
+      .from('contas_receber')
+      .select('data_baixa, valor, cliente_nome')
+      .in('status', ['pago', 'recebido_pix_ted'])
+      .gte('data_baixa', filtros.dataInicial)
+      .lte('data_baixa', filtros.dataFinal)
+      .range(inicio, fim),
+  )
 
-  if (erroReceber) {
-    console.error('[relatorios/fluxoCaixa] erro ao buscar contas_receber:', erroReceber)
-    throw new Error(erroReceber.message)
-  }
-
-  for (const t of titulosReceber ?? []) {
+  for (const t of titulosReceber) {
     lancamentos.push({
       data: t.data_baixa,
       descricao: t.cliente_nome ?? '—',
@@ -65,64 +104,48 @@ export async function gerarRelatorioFluxoCaixa(
     })
   }
 
-  // ── SAÍDAS — contas_a_pagar liquidados ──────────────────────
-  const { data: titulosPagar, error: erroPagar } = await client
-    .from('contas_a_pagar')
-    .select('id, data_baixa, valor, status, favorecido_nome')
-    .in('status', ['pago', 'pago_parcial'])
-    .gte('data_baixa', filtros.dataInicial)
-    .lte('data_baixa', filtros.dataFinal)
-
-  if (erroPagar) {
-    console.error('[relatorios/fluxoCaixa] erro ao buscar contas_a_pagar:', erroPagar)
-    throw new Error(erroPagar.message)
-  }
-
-  const titulosPagos = (titulosPagar ?? []).filter(t => t.status === 'pago')
-  const titulosParciais = (titulosPagar ?? []).filter(t => t.status === 'pago_parcial')
-
-  for (const t of titulosPagos) {
-    lancamentos.push({
-      data: t.data_baixa!,
-      descricao: t.favorecido_nome,
-      entrada: 0,
-      saida: Number(t.valor) || 0,
-    })
-  }
-
-  // Para os pago_parcial, soma só os eventos de baixa DENTRO do
-  // intervalo (não o valor total do título) — Seção 2.2
-  if (titulosParciais.length > 0) {
-    const idsParciais = titulosParciais.map(t => t.id)
-    const { data: eventos, error: erroEventos } = await client
+  // ── SAÍDAS — orientado a evento, não a status/data_baixa do
+  // título (correção crítica, ver cabeçalho do arquivo) ──────────
+  const eventosPagar = await paginarConsulta<LinhaEventoPagar>((inicio, fim) =>
+    client
       .from('contas_a_pagar_eventos')
       .select('titulo_id, valor_pago, created_at')
-      .in('titulo_id', idsParciais)
+      .in('tipo', ['baixa_parcial', 'baixa_total'])
       .not('valor_pago', 'is', null)
       .gte('created_at', filtros.dataInicial)
-      .lte('created_at', filtros.dataFinal + 'T23:59:59')
+      .lte('created_at', limiteSuperiorIntervalo(filtros.dataFinal))
+      .range(inicio, fim),
+  )
 
-    if (erroEventos) {
-      console.error('[relatorios/fluxoCaixa] erro ao buscar contas_a_pagar_eventos:', erroEventos)
-      throw new Error(erroEventos.message)
-    }
+  // Busca favorecido_nome dos títulos referenciados pelos eventos
+  // encontrados — só para exibição, nunca para decidir valor/data.
+  // Em lotes (dividirEmLotes) porque o conjunto de titulo_id únicos
+  // cresce com o histórico e uma cláusula IN não deve crescer sem
+  // limite (Finding Critical §2.2, mesmo espírito aplicado aqui)
+  const idsTitulosUnicos = Array.from(new Set(eventosPagar.map(ev => ev.titulo_id)))
+  const mapaFavorecido = new Map<string, string>()
 
-    const mapaFavorecido = new Map(titulosParciais.map(t => [t.id, t.favorecido_nome]))
-    const somaPorTitulo = new Map<string, number>()
-    for (const ev of eventos ?? []) {
-      somaPorTitulo.set(ev.titulo_id, (somaPorTitulo.get(ev.titulo_id) ?? 0) + (Number(ev.valor_pago) || 0))
+  for (const lote of dividirEmLotes(idsTitulosUnicos)) {
+    if (lote.length === 0) continue
+    const titulos = await paginarConsulta<{ id: string; favorecido_nome: string }>((inicio, fim) =>
+      client
+        .from('contas_a_pagar')
+        .select('id, favorecido_nome')
+        .in('id', lote)
+        .range(inicio, fim),
+    )
+    for (const t of titulos) {
+      mapaFavorecido.set(t.id, t.favorecido_nome)
     }
+  }
 
-    for (const t of titulosParciais) {
-      const somaEventos = somaPorTitulo.get(t.id) ?? 0
-      if (somaEventos === 0) continue // nenhum evento de baixa deste título caiu neste intervalo
-      lancamentos.push({
-        data: t.data_baixa!, // data do último evento conhecido do título, usada só como ordenação
-        descricao: mapaFavorecido.get(t.id) ?? '—',
-        entrada: 0,
-        saida: somaEventos,
-      })
-    }
+  for (const ev of eventosPagar) {
+    lancamentos.push({
+      data: ev.created_at,
+      descricao: mapaFavorecido.get(ev.titulo_id) ?? '—',
+      entrada: 0,
+      saida: Number(ev.valor_pago) || 0,
+    })
   }
 
   lancamentos.sort((a, b) => a.data.localeCompare(b.data))

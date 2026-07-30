@@ -29,6 +29,46 @@ import DisclaimerRodape from '@/components/relatorios/DisclaimerRodape'
 import { useExportarRelatorio } from '@/components/relatorios/useExportarRelatorio'
 import { CartaoResumoUi, BarraFiltroExportar, FaixaErro, estilosRelatorio } from '@/components/relatorios/RelatorioUiComum'
 
+// ============================================================
+// RotuloStatus
+// Correção High §3.1 (Handoff_Modulo_Relatorios_Audit_para_QA.md) —
+// 'protestado' e 'enviado_cartorio' agora entram no grupo "em
+// aberto" (fix em lib/relatorios/extratoConsolidado.ts). O ponto
+// desse fix é justamente FAZER essa exposição mais grave se
+// destacar, não só somar no total — por isso os dois recebem aqui
+// um selo visual diferenciado (fundo de alerta), em vez de aparecer
+// como texto plano igual aos demais status.
+// ============================================================
+const STATUS_LABELS: Record<string, string> = {
+  em_aberto: 'Em aberto',
+  pago: 'Pago',
+  recebido_pix_ted: 'Recebido (Pix/TED)',
+  pago_parcial: 'Pago parcial',
+  protestado: 'Protestado',
+  enviado_cartorio: 'Enviado a cartório',
+  cancelado: 'Cancelado',
+}
+
+const STATUS_ALERTA = new Set(['protestado', 'enviado_cartorio'])
+
+function RotuloStatus({ status }: { status: string }) {
+  const emAlerta = STATUS_ALERTA.has(status)
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        padding: emAlerta ? '2px 8px' : undefined,
+        borderRadius: emAlerta ? '10px' : undefined,
+        background: emAlerta ? '#fde8e8' : undefined,
+        color: emAlerta ? '#a12727' : undefined,
+        fontWeight: emAlerta ? 700 : 400,
+      }}
+    >
+      {STATUS_LABELS[status] ?? status}
+    </span>
+  )
+}
+
 function datasPadrao(): { dataInicial: string; dataFinal: string } {
   const hoje = new Date()
   const dataFinal = hoje.toISOString().slice(0, 10)
@@ -155,7 +195,7 @@ export default function ExtratoConsolidadoRelatorio() {
                         <td style={estilosRelatorio.td}>{item.lado === 'a_pagar' ? 'A pagar' : 'A receber'}</td>
                         <td style={{ ...estilosRelatorio.td, textAlign: 'right' }}>{formatarMoeda(item.valor)}</td>
                         <td style={estilosRelatorio.td}>{item.faixa ? FAIXA_AGING_LABELS[item.faixa] : '—'}</td>
-                        <td style={estilosRelatorio.td}>{item.status}</td>
+                        <td style={estilosRelatorio.td}><RotuloStatus status={item.status} /></td>
                       </tr>
                     ))
                   )}

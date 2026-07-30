@@ -104,16 +104,26 @@ export default function FaturamentoRelatorio() {
       const url = URL.createObjectURL(blob)
       const nomeArquivo = `faturamento_${filtrosAplicados.dataInicial}_a_${filtrosAplicados.dataFinal}.${formato}`
 
+      // Correção Medium §4.1 (Handoff_Modulo_Relatorios_Audit_para_QA.md)
+      // — mesmo fix aplicado em components/relatorios/
+      // useExportarRelatorio.ts: window.open() depois de 2 awaits
+      // pode ser bloqueado como pop-up pelo navegador, sem erro
+      // visível. Precisou ser corrigido aqui TAMBÉM porque
+      // Faturamento tem sua própria cópia inline da lógica de
+      // exportação (não usa o hook compartilhado — ver Handoff do
+      // Builder, Seção 5.5).
+      const a = document.createElement('a')
+      a.href = url
       if (formato === 'pdf') {
-        window.open(url, '_blank')
+        a.target = '_blank'
+        a.rel = 'noopener'
       } else {
-        const a = document.createElement('a')
-        a.href = url
         a.download = nomeArquivo
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
       }
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+
       setTimeout(() => URL.revokeObjectURL(url), 10000)
     } catch (err: unknown) {
       setErro(err instanceof Error ? err.message : 'Erro ao exportar relatório')

@@ -145,7 +145,7 @@ export default function CurvaAbcRelatorio() {
               </thead>
               <tbody>
                 {relatorio.itens.length === 0 ? (
-                  <tr><td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#5a84a6' }}>Nenhum item no período selecionado.</td></tr>
+                  <tr><td colSpan={relatorio.dimensao === 'fornecedores' ? 6 : 5} style={{ padding: '24px', textAlign: 'center', color: '#5a84a6' }}>Nenhum item no período selecionado.</td></tr>
                 ) : (
                   relatorio.itens.map((item, i) => (
                     <Fragment key={item.nome + i}>
