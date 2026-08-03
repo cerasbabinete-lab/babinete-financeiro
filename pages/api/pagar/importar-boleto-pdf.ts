@@ -41,6 +41,24 @@ function getSupabaseAdmin() {
   )
 }
 
+// ------------------------------------------------------------
+// Função: formatarComoCnpjOuCpf
+// QA fix (bug real confirmado — boleto ISOGAMA, vencimento 28/08/2026,
+// valor 731,50): o CNPJ extraído do PDF vem só em dígitos, mas
+// favorecido_cnpj_cpf é guardado FORMATADO com pontuação
+// ("80.228.893/0001-66") — buscar só pelos dígitos puros via ILIKE
+// nunca bate contra um valor formatado (a pontuação quebra a
+// contiguidade da substring). Mesmo padrão de raw-digit + formatado
+// já usado em rosterConciliacaoPagar.ts e motorConciliacao.ts —
+// faltava aqui, causava a query inteira retornar vazia mesmo com
+// valor e vencimento corretos.
+// ------------------------------------------------------------
+function formatarComoCnpjOuCpf(digitos: string): string | null {
+  if (digitos.length === 14) return digitos.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+  if (digitos.length === 11) return digitos.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+  return null
+}
+
 // ── Lê o body da request como Buffer ────────────────────────
 function lerBodyBuffer(req: NextApiRequest): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -105,8 +123,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (cnpjCpfFornecedor) {
       // Filtro extra quando o parser conseguiu achar o CNPJ/CPF no
       // texto — reduz risco de ambiguidade se dois fornecedores
-      // diferentes tiverem, por coincidência, o mesmo valor+vencimento
-      query = query.or(`favorecido_cnpj_cpf.ilike.%${cnpjCpfFornecedor}%`)
+      // diferentes tiverem, por coincidência, o mesmo valor+vencimento.
+      // Busca as DUAS variantes (dígitos puros + formatada), já que o
+      // banco guarda formatado (ver nota do QA fix acima)
+      const formatado = formatarComoCnpjOuCpf(cnpjCpfFornecedor)
+      const partesOr = [`favorecido_cnpj_cpf.ilike.%${cnpjCpfFornecedor}%`]
+      if (formatado) partesOr.push(`favorecido_cnpj_cpf.ilike.%${formatado}%`)
+      query = query.or(partesOr.join(','))
     }
 
     const { data: candidatos, error: errBusca } = await query
