@@ -32,6 +32,13 @@ interface ContasAPagarModalProps {
 
 export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar, onSalvar, onBaixar, onCancelar, onReabrir }: ContasAPagarModalProps) {
   const [observacoes, setObservacoes] = useState('')
+  // Nosso Número e Linha Digitável editáveis — pedido do usuário,
+  // complementa o novo fluxo de "Importar Boleto" (que preenche
+  // esses campos automaticamente, mas o usuário também precisa poder
+  // corrigir/preencher manualmente quando o import não achar o título
+  // certo, ou quando o boleto não estiver disponível em PDF)
+  const [nossoNumero, setNossoNumero] = useState('')
+  const [linhaDigitavel, setLinhaDigitavel] = useState('')
   const [mostrarBaixa, setMostrarBaixa] = useState(false)
   const [formaBaixa, setFormaBaixa] = useState<FormaBaixaPagar>('pix')
   const [valorBaixa, setValorBaixa] = useState<number>(0)
@@ -40,6 +47,8 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
 
   useEffect(() => {
     setObservacoes(titulo?.observacoes ?? '')
+    setNossoNumero(titulo?.nosso_numero ?? '')
+    setLinhaDigitavel(titulo?.linha_digitavel ?? '')
     setMostrarBaixa(!!abrirEmBaixa)
     setValorBaixa(titulo ? titulo.valor : 0)
     setErro(null)
@@ -54,7 +63,12 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
     setSalvando(true)
     setErro(null)
     try {
-      await onSalvar({ ...titulo!, observacoes })
+      await onSalvar({
+        ...titulo!,
+        observacoes,
+        nosso_numero: nossoNumero.trim() || null,
+        linha_digitavel: linhaDigitavel.trim() || null,
+      })
     } catch (err: unknown) {
       setErro(err instanceof Error ? err.message : 'Erro ao salvar')
     } finally {
@@ -95,7 +109,32 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
           <div><span style={label}>Favorecido</span><div style={valor}>{titulo.favorecido_nome}</div></div>
           <div><span style={label}>CNPJ / CPF</span><div style={valor}>{formatarCnpjCpf(titulo.favorecido_cnpj_cpf)}</div></div>
           <div><span style={label}>Nº Documento</span><div style={valor}>{titulo.numero_documento ?? '—'}</div></div>
-          <div><span style={label}>Nosso Número</span><div style={{ ...valor, fontFamily: 'Courier New, monospace' }}>{titulo.nosso_numero ?? '—'}</div></div>
+          <div>
+            <span style={label}>Nosso Número</span>
+            {somenteLeitura ? (
+              <div style={{ ...valor, fontFamily: 'Courier New, monospace' }}>{titulo.nosso_numero ?? '—'}</div>
+            ) : (
+              <input
+                value={nossoNumero}
+                onChange={(e) => setNossoNumero(e.target.value)}
+                placeholder="—"
+                style={{ ...inputStyle, fontFamily: 'Courier New, monospace', marginBottom: '12px' }}
+              />
+            )}
+          </div>
+          <div>
+            <span style={label}>Linha Digitável</span>
+            {somenteLeitura ? (
+              <div style={{ ...valor, fontFamily: 'Courier New, monospace' }}>{titulo.linha_digitavel ?? '—'}</div>
+            ) : (
+              <input
+                value={linhaDigitavel}
+                onChange={(e) => setLinhaDigitavel(e.target.value)}
+                placeholder="—"
+                style={{ ...inputStyle, fontFamily: 'Courier New, monospace', marginBottom: '12px' }}
+              />
+            )}
+          </div>
           <div><span style={label}>Vencimento</span><div style={valor}>{formatarDataBR(titulo.data_vencimento)}</div></div>
           <div><span style={label}>Valor</span><div style={{ ...valor, fontWeight: 700, color: '#1a6094' }}>{formatarMoeda(titulo.valor)}</div></div>
           <div><span style={label}>Status</span><div style={valor}>{STATUS_LABELS_PAGAR[titulo.status]}</div></div>

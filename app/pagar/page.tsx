@@ -168,7 +168,12 @@ export default function ContasAPagarPage() {
     const res = await fetch('/api/pagar/atualizar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ id: titulo.id, observacoes: titulo.observacoes }),
+      body: JSON.stringify({
+        id: titulo.id,
+        observacoes: titulo.observacoes,
+        nosso_numero: titulo.nosso_numero,
+        linha_digitavel: titulo.linha_digitavel,
+      }),
     })
     if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.erro ?? 'Erro ao salvar') }
     setMsgSucesso('Título atualizado.')
@@ -303,6 +308,41 @@ export default function ContasAPagarPage() {
     }
   }
 
+  // ── Import: Boleto PDF de fornecedor (vincula Nosso Número + Linha
+  // Digitável a um título já em aberto) — pedido explícito do
+  // usuário: "mesmo procedimento de Importar Boleto, exatamente como
+  // funciona em Contas a Receber". Mesmo padrão de upload de lá:
+  // body BINÁRIO PURO (Content-Type: application/pdf), sem base64/
+  // JSON como os outros 2 imports deste módulo — porque a rota
+  // desliga o bodyParser do Next e lê o stream manualmente, mesmo
+  // jeito que pages/api/importar-boleto-pdf.ts (Receber) já faz.
+  async function handleSelecionarBoleto(file: File) {
+    setImportando(true)
+    setMsgErro(null)
+    try {
+      const token = await obterToken()
+      const res = await fetch('/api/pagar/importar-boleto-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/pdf', 'Authorization': `Bearer ${token}` },
+        body: file,
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.erro ?? 'Erro ao importar boleto PDF')
+
+      if (json.vinculado) {
+        setMsgSucesso(json.descricao)
+      } else {
+        setMsgErro(json.descricao ?? 'Boleto não vinculado a nenhum título.')
+      }
+    } catch (err: unknown) {
+      setMsgErro(err instanceof Error ? err.message : 'Erro ao importar boleto PDF')
+    } finally {
+      setImportando(false)
+      carregarTitulos()
+    }
+  }
+
   // ── Processa o resumo comum aos dois fluxos de import ──
   function processarResumoImportacao(resumo: ResumoImportacaoPagar) {
     const pendentes = resumo.detalhes
@@ -427,6 +467,7 @@ export default function ContasAPagarPage() {
             importando={importando}
             onSelecionarRelatorio={handleSelecionarRelatorio}
             onSelecionarComprovante={handleSelecionarComprovante}
+            onSelecionarBoleto={handleSelecionarBoleto}
             onAbrirRoster={handleAbrirRoster}
           />
         )}
@@ -447,6 +488,7 @@ export default function ContasAPagarPage() {
           importando={importando}
           onSelecionarRelatorio={handleSelecionarRelatorio}
           onSelecionarComprovante={handleSelecionarComprovante}
+          onSelecionarBoleto={handleSelecionarBoleto}
           onAbrirRoster={handleAbrirRoster}
         />
       )}

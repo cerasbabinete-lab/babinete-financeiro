@@ -21,6 +21,7 @@ interface ContasAPagarHeaderProps {
   importando:          boolean
   onSelecionarRelatorio:  (file: File) => void
   onSelecionarComprovante: (file: File) => void
+  onSelecionarBoleto:   (file: File) => void
   onAbrirRoster:        () => void
 }
 
@@ -29,10 +30,12 @@ export default function ContasAPagarHeader({
   importando,
   onSelecionarRelatorio,
   onSelecionarComprovante,
+  onSelecionarBoleto,
   onAbrirRoster,
 }: ContasAPagarHeaderProps) {
   const inputRelatorioRef  = useRef<HTMLInputElement>(null)
   const inputComprovanteRef = useRef<HTMLInputElement>(null)
+  const inputBoletoRef = useRef<HTMLInputElement>(null)
 
   const btnStyle: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: '6px',
@@ -60,6 +63,15 @@ export default function ContasAPagarHeader({
         </button>
         <input ref={inputComprovanteRef} type="file" accept="application/pdf,text/plain" style={{ display: 'none' }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onSelecionarComprovante(f); e.target.value = '' }} />
+
+        {/* Importar Boleto — vincula Nosso Número + Linha Digitável a
+            um título já lançado, mesmo procedimento de
+            ContasReceberHeader.tsx (body binário puro, não base64) */}
+        <button disabled={importando} onClick={() => inputBoletoRef.current?.click()} style={btnStyle}>
+          <i className="ti ti-barcode" /> Importar Boleto
+        </button>
+        <input ref={inputBoletoRef} type="file" accept="application/pdf" style={{ display: 'none' }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) onSelecionarBoleto(f); e.target.value = '' }} />
 
         <button onClick={onAbrirRoster} title="Manutenção do roster de beneficiários" style={{ ...btnStyle, padding: '8px 10px' }}>
           <i className="ti ti-users-group" />

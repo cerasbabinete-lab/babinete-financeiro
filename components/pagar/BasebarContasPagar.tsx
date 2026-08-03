@@ -20,12 +20,14 @@ interface BasebarContasPagarProps {
   importando:              boolean
   onSelecionarRelatorio:   (file: File) => void
   onSelecionarComprovante: (file: File) => void
+  onSelecionarBoleto:      (file: File) => void
   onAbrirRoster:           () => void
 }
 
-export default function BasebarContasPagar({ importando, onSelecionarRelatorio, onSelecionarComprovante, onAbrirRoster }: BasebarContasPagarProps) {
+export default function BasebarContasPagar({ importando, onSelecionarRelatorio, onSelecionarComprovante, onSelecionarBoleto, onAbrirRoster }: BasebarContasPagarProps) {
   const inputRelatorioRef   = useRef<HTMLInputElement>(null)
   const inputComprovanteRef = useRef<HTMLInputElement>(null)
+  const inputBoletoRef      = useRef<HTMLInputElement>(null)
 
   const itemStyle: React.CSSProperties = {
     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
@@ -48,6 +50,13 @@ export default function BasebarContasPagar({ importando, onSelecionarRelatorio, 
       </button>
       <input ref={inputComprovanteRef} type="file" accept="application/pdf,text/plain" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onSelecionarComprovante(f); e.target.value = '' }} />
+
+      <button disabled={importando} onClick={() => inputBoletoRef.current?.click()} style={itemStyle}>
+        <i className="ti ti-barcode" style={{ fontSize: '20px' }} />
+        Boleto
+      </button>
+      <input ref={inputBoletoRef} type="file" accept="application/pdf" style={{ display: 'none' }}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onSelecionarBoleto(f); e.target.value = '' }} />
 
       <button onClick={onAbrirRoster} style={itemStyle}>
         <i className="ti ti-users-group" style={{ fontSize: '20px' }} />
