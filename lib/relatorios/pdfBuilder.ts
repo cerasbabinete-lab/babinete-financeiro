@@ -231,6 +231,41 @@ export function desenharTabela(
 }
 
 // ============================================================
+// desenharAvisoDestacado()
+// Bloco de aviso ADICIONAL ao disclaimer padrão (que só vai no
+// rodapé via finalizarComRodape) — para avisos específicos de UM
+// relatório que precisam ficar em destaque perto do conteúdo a que
+// se referem, não escondidos no rodapé em fonte reduzida. Primeiro
+// uso: Seção 2.7 (Receita x Despesa), aviso de que "Resultado" não
+// é apuração contábil de lucro — chamado pela rota de API logo após
+// desenharCartoesResumo(), antes do gráfico. Genérico o suficiente
+// pra qualquer relatório futuro que precise do mesmo recurso.
+// ============================================================
+export function desenharAvisoDestacado(doc: PDFKit.PDFDocument, texto: string) {
+  const PADDING = 8
+  // Calcula a altura do bloco antes de desenhar o fundo — o PDFKit
+  // não tem "medir texto sem desenhar" direto, mas doc.heightOfString
+  // faz exatamente isso, respeitando a largura que o texto vai usar
+  const larguraTexto = LARGURA_UTIL - PADDING * 2
+  doc.font('Helvetica-Oblique').fontSize(8)
+  const alturaTexto = doc.heightOfString(texto, { width: larguraTexto })
+  const alturaBloco = alturaTexto + PADDING * 2
+
+  const y = doc.y
+  // Fundo âmbar suave — deliberadamente diferente de COR_ZEBRA (usada
+  // nos cartões de resumo) pra não parecer "mais um cartão", e sim um
+  // aviso — mesma lógica visual de FaixaErro na tela (cor distinta
+  // de alerta), só que em tom neutro de atenção, não de erro
+  doc.rect(MARGEM.left, y, LARGURA_UTIL, alturaBloco).fill('#fdf6e8')
+  doc.strokeColor('#e8d5a3').lineWidth(1).rect(MARGEM.left, y, LARGURA_UTIL, alturaBloco).stroke()
+
+  doc.font('Helvetica-Oblique').fontSize(8).fillColor('#7a5c1e')
+     .text(texto, MARGEM.left + PADDING, y + PADDING, { width: larguraTexto })
+
+  doc.y = y + alturaBloco + 12
+}
+
+// ============================================================
 // finalizarComRodape()
 // Percorre TODAS as páginas já desenhadas (bufferedPageRange —
 // só funciona porque o doc foi criado com bufferPages: true) e

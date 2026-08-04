@@ -45,11 +45,22 @@ export function gerarBufferExcel(opcoes: {
   periodoDescricao: string
   colunas: ColunaExcel[]
   linhas: Record<string, string | number>[]
+  // avisoExtra — aviso ADICIONAL ao DISCLAIMER_RELATORIOS padrão
+  // (que sempre vai por último, ver bloco final da função), para
+  // relatórios com um aviso específico próprio (ex: Seção 2.7,
+  // AVISO_RECEITA_DESPESA). Opcional — omitido, não aparece nenhuma
+  // linha extra. Espelha desenharAvisoDestacado() do pdfBuilder.ts,
+  // mesmo conteúdo, mesma fonte única de verdade (o chamador passa
+  // a MESMA constante de types/relatorios.ts nos dois lugares)
+  avisoExtra?: string
 }): Buffer {
   const aoa: (string | number)[][] = []
 
   aoa.push([opcoes.tituloRelatorio])
   aoa.push([`Período: ${opcoes.periodoDescricao}`])
+  if (opcoes.avisoExtra) {
+    aoa.push([opcoes.avisoExtra])
+  }
   aoa.push([]) // linha em branco separando o cabeçalho informativo da tabela
 
   const linhaCabecalhoIndex = aoa.length
@@ -68,14 +79,22 @@ export function gerarBufferExcel(opcoes: {
   // Largura de coluna — usa a sugerida por coluna ou 20 como padrão
   ws['!cols'] = opcoes.colunas.map(c => ({ wch: c.larguraCaracteres ?? 20 }))
 
-  // Mescla a linha de título e a linha do disclaimer por toda a
+  // Mescla a linha de título, a linha de período, a linha de aviso
+  // extra (quando presente) e a linha do disclaimer por toda a
   // largura da tabela, pra não ficarem espremidas na coluna A
   const ultimaColuna = Math.max(opcoes.colunas.length - 1, 0)
-  ws['!merges'] = [
+  const merges = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: ultimaColuna } },
     { s: { r: 1, c: 0 }, e: { r: 1, c: ultimaColuna } },
     { s: { r: linhaDisclaimerIndex, c: 0 }, e: { r: linhaDisclaimerIndex, c: ultimaColuna } },
   ]
+  if (opcoes.avisoExtra) {
+    // Linha 2 só existe como aviso extra quando opcoes.avisoExtra foi
+    // passado (ver bloco de montagem do aoa acima) — mesma posição
+    // sempre que presente, por isso o índice fixo 2 aqui é seguro
+    merges.push({ s: { r: 2, c: 0 }, e: { r: 2, c: ultimaColuna } })
+  }
+  ws['!merges'] = merges
 
   // Marca o cabeçalho de colunas em negrito, quando o writer
   // suportar estilo básico de célula (SheetJS community edition

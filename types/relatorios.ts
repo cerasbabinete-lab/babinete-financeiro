@@ -61,6 +61,7 @@ export type RelatorioSlug =
   | 'extrato-consolidado'
   | 'curva-abc'
   | 'gastos-por-tipo-fornecedor'
+  | 'receita-despesa'
 
 // ============================================================
 // RelatorioCardInfo
@@ -333,4 +334,48 @@ export interface RelatorioGastosPorTipoFornecedor {
   porTipoPorMes: GastoPorTipoFornecedorMes[] // visão mensal — usada no gráfico de barras
   totalGeral: number
   grafico: DadosGrafico // tipo: 'pizza' (visão período) ou 'barras' (visão mensal) — Seção 1.5
+}
+
+// ============================================================
+// ────────────────────────────────────────────────────────────
+// 2.7 — RECEITA X DESPESA (BRUTA E LÍQUIDA) POR PERÍODO
+// ────────────────────────────────────────────────────────────
+// ============================================================
+
+// AVISO_RECEITA_DESPESA — aviso obrigatório ESPECÍFICO deste
+// relatório (Seção 2.7), adicional ao DISCLAIMER_RELATORIOS padrão
+// (Seção 1.1) — exibido em destaque próximo às colunas "Resultado",
+// não no rodapé. Existe especificamente para impedir que "Resultado
+// Líquido" seja lido como lucro contábil de verdade. Fonte única de
+// verdade — tela (AvisoDestaque em RelatorioUiComum.tsx), PDF
+// (desenharAvisoDestacado em pdfBuilder.ts) e Excel (parâmetro
+// avisoExtra de gerarBufferExcel em excelBuilder.ts) importam esta
+// constante, nunca reescrevem o texto localmente — mesmo princípio
+// já usado para DISCLAIMER_RELATORIOS acima.
+export const AVISO_RECEITA_DESPESA =
+  'Resultado aqui é a diferença aritmética entre receita e despesa lançadas no período. ' +
+  'Não é apuração de lucro líquido contábil, não desconta tributos e não segue regime de competência formal.'
+
+export interface ReceitaDespesaMes {
+  mes: string // 'YYYY-MM'
+  receitaBruta: number
+  receitaLiquida: number
+  despesaBruta: number
+  despesaLiquida: number
+  resultadoBruto: number
+  resultadoLiquido: number
+}
+
+export interface RelatorioReceitaDespesa {
+  periodo: FiltroIntervaloDatas
+  meses: ReceitaDespesaMes[]
+  totalizador: {
+    receitaBruta: number
+    receitaLiquida: number
+    despesaBruta: number
+    despesaLiquida: number
+    resultadoBruto: number
+    resultadoLiquido: number
+  }
+  grafico: DadosGrafico // tipo: 'barras_agrupadas' — Receita x Despesa por mês
 }

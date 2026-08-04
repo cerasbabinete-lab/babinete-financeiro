@@ -113,6 +113,24 @@ export function FaixaErro({ mensagem }: { mensagem: string }) {
 }
 
 // ============================================================
+// AvisoDestaque — versão de TELA de desenharAvisoDestacado()
+// (lib/relatorios/pdfBuilder.ts) e do parâmetro avisoExtra de
+// gerarBufferExcel() (lib/relatorios/excelBuilder.ts). Cor âmbar de
+// atenção, deliberadamente diferente de FaixaErro (que é vermelho de
+// erro) — este componente não indica que algo deu errado, indica um
+// aviso de leitura sobre um dado que está correto mas pode ser mal
+// interpretado (primeiro uso: Seção 2.7, AVISO_RECEITA_DESPESA).
+// Genérico — qualquer relatório futuro pode reaproveitar.
+// ============================================================
+export function AvisoDestaque({ mensagem }: { mensagem: string }) {
+  return (
+    <div style={{ padding: '10px 12px', background: '#fdf6e8', border: '1px solid #e8d5a3', borderRadius: '6px', color: '#7a5c1e', fontSize: '11px', fontStyle: 'italic', marginBottom: '16px' }}>
+      {mensagem}
+    </div>
+  )
+}
+
+// ============================================================
 // Estilos compartilhados
 // ============================================================
 export const estilosRelatorio = {

@@ -22,8 +22,9 @@ import { useRouter } from 'next/navigation'
 import type { RelatorioCardInfo } from '@/types/relatorios'
 
 // ============================================================
-// CARDS — conteúdo estático dos 6 relatórios da v1. A ordem aqui
-// é a ordem de exibição na grade, mesma ordem da Seção 2 da spec
+// CARDS — conteúdo estático dos 7 relatórios da v1 (6 originais +
+// 2.7, adicionado nesta sessão). A ordem aqui é a ordem de exibição
+// na grade, mesma ordem da Seção 2 da spec
 // ============================================================
 const CARDS: RelatorioCardInfo[] = [
   {
@@ -62,6 +63,12 @@ const CARDS: RelatorioCardInfo[] = [
     titulo: 'Gastos por tipo de fornecedor',
     descricaoCurta: 'Total de gastos agrupado por classificação de fornecedor (matéria-prima, embalagem, serviços etc.).',
     icone: 'category',
+  },
+  {
+    slug: 'receita-despesa',
+    titulo: 'Receita x Despesa (Bruta e Líquida)',
+    descricaoCurta: 'Comparativo mensal de receita e despesa, em valores brutos e líquidos, com resultado do período.',
+    icone: 'chart-bar',
   },
 ]
 
