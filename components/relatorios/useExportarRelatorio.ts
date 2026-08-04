@@ -45,22 +45,25 @@ export function useExportarRelatorio(endpoint: string) {
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
 
-      // Correção Medium §4.1 (Handoff_Modulo_Relatorios_Audit_para_QA.md)
-      // — window.open() chamado depois de 2 awaits (getSession +
-      // fetch) pode ser tratado pelo navegador como pop-up não
-      // solicitado e bloqueado silenciosamente: o clique acontece,
-      // o request funciona, mas nada abre e nenhum erro aparece pro
-      // usuário. Fix: mesmo padrão de link-âncora já usado no branch
-      // xlsx abaixo, que é tolerante a isso — só troca download por
-      // target='_blank' pra abrir em nova aba em vez de baixar.
+      // Correção Medium §4.1 original (Handoff_Modulo_Relatorios_Audit_
+      // para_QA.md) — window.open() chamado depois de 2 awaits
+      // (getSession + fetch) pode ser tratado pelo navegador como
+      // pop-up não solicitado e bloqueado silenciosamente. Fix: link-
+      // âncora criado e clicado via JS, que os navegadores tratam
+      // como navegação disparada por gesto do usuário, não pop-up —
+      // essa técnica (não a escolha de target vs download) é o que
+      // evita o bloqueio.
+      // AJUSTE pós-entrega (revisão do Maycon, relatório 2.7) — antes,
+      // o PDF usava target='_blank' (abria em nova aba) e só o Excel
+      // usava download (baixava direto). Maycon pediu que o PDF
+      // também baixe direto, como o Excel — os dois formatos agora
+      // usam o mesmo caminho (a.download), sem diferença de
+      // comportamento entre eles. Afeta os 7 relatórios do módulo
+      // (hook compartilhado), não só este.
+      const extensao = formato === 'pdf' ? 'pdf' : 'xlsx'
       const a = document.createElement('a')
       a.href = url
-      if (formato === 'pdf') {
-        a.target = '_blank'
-        a.rel = 'noopener'
-      } else {
-        a.download = `${nomeArquivo}.xlsx`
-      }
+      a.download = `${nomeArquivo}.${extensao}`
       document.body.appendChild(a)
       a.click()
       a.remove()

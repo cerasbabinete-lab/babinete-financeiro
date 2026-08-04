@@ -18,16 +18,20 @@
 // ============================================================
 
 // ============================================================
-// DISCLAIMER_RELATORIOS
-// Texto fixo obrigatório (Seção 1.1) — NÃO editável pelo usuário,
-// idêntico em tela e nas duas exportações (PDF/Excel). Fonte
-// única de verdade: qualquer componente/gerador de export importa
-// esta constante, nunca reescreve o texto localmente.
+// DISCLAIMER_RELATORIOS — REMOVIDO a pedido do Maycon (sessão de
+// revisão pós-entrega do relatório 2.7). Texto fixo que existia por
+// força da Seção 1.1 da spec ("disclaimer obrigatório", idêntico em
+// tela e nas duas exportações) foi removido de types/relatorios.ts,
+// lib/relatorios/pdfBuilder.ts (rodapé de PDF),
+// lib/relatorios/excelBuilder.ts (última linha do Excel) e
+// components/relatorios/DisclaimerRodape.tsx (tela) — os 3 únicos
+// consumidores (confirmado por grep no módulo inteiro antes da
+// remoção). Afeta os 7 relatórios do módulo, não só o 2.7, por ser
+// infraestrutura compartilhada. O componente DisclaimerRodape.tsx
+// foi mantido como no-op (não removido dos 7 componentes de tela que
+// o importam) para minimizar o raio de alteração — se o disclaimer
+// precisar voltar no futuro, é reativar num único lugar.
 // ============================================================
-export const DISCLAIMER_RELATORIOS =
-  'Relatório gerencial gerado a partir dos lançamentos do sistema Ceras Babinete — ' +
-  'Gestão Financeira. Não constitui documento contábil ou fiscal oficial. A contabilidade ' +
-  'oficial da empresa é de responsabilidade da Organização Contábil Armelin.'
 
 // ============================================================
 // FormatoExportacao
@@ -343,15 +347,17 @@ export interface RelatorioGastosPorTipoFornecedor {
 // ============================================================
 
 // AVISO_RECEITA_DESPESA — aviso obrigatório ESPECÍFICO deste
-// relatório (Seção 2.7), adicional ao DISCLAIMER_RELATORIOS padrão
-// (Seção 1.1) — exibido em destaque próximo às colunas "Resultado",
-// não no rodapé. Existe especificamente para impedir que "Resultado
-// Líquido" seja lido como lucro contábil de verdade. Fonte única de
-// verdade — tela (AvisoDestaque em RelatorioUiComum.tsx), PDF
-// (desenharAvisoDestacado em pdfBuilder.ts) e Excel (parâmetro
+// relatório (Seção 2.7), exibido em destaque próximo às colunas
+// "Resultado", não no rodapé. Existe especificamente para impedir
+// que "Resultado Líquido" seja lido como lucro contábil de verdade.
+// Continua em uso mesmo após a remoção do disclaimer padrão
+// (DISCLAIMER_RELATORIOS, removido a pedido do Maycon — ver nota
+// acima) — são textos diferentes, com propósitos diferentes; a
+// remoção pedida foi só do disclaimer genérico do rodapé. Fonte
+// única de verdade — tela (AvisoDestaque em RelatorioUiComum.tsx),
+// PDF (desenharAvisoDestacado em pdfBuilder.ts) e Excel (parâmetro
 // avisoExtra de gerarBufferExcel em excelBuilder.ts) importam esta
-// constante, nunca reescrevem o texto localmente — mesmo princípio
-// já usado para DISCLAIMER_RELATORIOS acima.
+// constante, nunca reescrevem o texto localmente.
 export const AVISO_RECEITA_DESPESA =
   'Resultado aqui é a diferença aritmética entre receita e despesa lançadas no período. ' +
   'Não é apuração de lucro líquido contábil, não desconta tributos e não segue regime de competência formal.'

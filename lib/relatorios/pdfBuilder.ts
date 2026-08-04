@@ -13,8 +13,7 @@
 // Conecta com: pages/api/relatorios/*.ts (cada rota chama
 //              criarDocumentoRelatorio() e as demais funções, depois
 //              faz doc.pipe(res), mesmo padrão de pages/api/danfe.ts),
-//              lib/relatorios/pdfGrafico.ts (desenharGrafico),
-//              types/relatorios.ts (DISCLAIMER_RELATORIOS)
+//              lib/relatorios/pdfGrafico.ts (desenharGrafico)
 // Referência: Especificacao_Modulo_Relatorios.md, Seção 1.1
 //             (disclaimer obrigatório) e Seção 5.1 (layout do
 //             documento exportado, aprovado por exemplo renderizado
@@ -25,7 +24,6 @@
 import PDFDocument from 'pdfkit'
 import fs from 'fs'
 import path from 'path'
-import { DISCLAIMER_RELATORIOS } from '@/types/relatorios'
 
 // ============================================================
 // Constantes de layout — paleta e medidas
@@ -118,7 +116,26 @@ function desenharCabecalho(doc: PDFKit.PDFDocument, opcoes: { tituloRelatorio: s
 // ============================================================
 // CartaoResumo / desenharCartoesResumo()
 // Linha única de cartões, largura igual, fundo levemente
-// destacado, valor em destaque tipográfico (Seção 5.1)
+// destacado, valor em destaque tipográfico (Seção 5.1).
+//
+// CORREÇÃO pós-entrega (relatório 2.7, 2ª rodada) — a 1ª correção
+// só encolhia a fonte do VALOR. Com 6 cartões numa linha (mais que
+// qualquer relatório anterior), o RÓTULO "Resultado Líquido" também
+// não cabia em 1 linha a 8pt fixo e quebrava — como a posição do
+// valor era um offset fixo (y+22), a 2ª linha do rótulo quebrado
+// caía em cima do valor. Fix completo: mede a largura real de
+// rótulo E valor (doc.widthOfString) e encolhe os dois
+// independentemente até caberem em 1 linha (piso 6pt pro rótulo,
+// 8pt pro valor) — e a posição do valor agora é calculada a partir
+// da ALTURA REAL do rótulo já escolhido (doc.heightOfString), não
+// mais um offset fixo. Isso elimina sobreposição mesmo no caso
+// extremo em que um rótulo futuro não coubesse nem no piso de fonte
+// (aí ele quebra em 2 linhas normalmente, e o valor desce a altura
+// certa pra não sobrepor — não é assumido, é medido). Não muda o
+// visual dos relatórios existentes: nos casos onde tudo já cabia em
+// 8pt/13pt, o resultado é pixel-a-pixel equivalente ao anterior
+// (diferença de fração de ponto por arredondamento de heightOfString,
+// imperceptível).
 // ============================================================
 export interface CartaoResumo {
   rotulo: string
@@ -130,16 +147,53 @@ export function desenharCartoesResumo(doc: PDFKit.PDFDocument, cartoes: CartaoRe
 
   const gap = 10
   const larguraCartao = (LARGURA_UTIL - gap * (cartoes.length - 1)) / cartoes.length
-  const alturaCartao = 46
+  const PADDING_INTERNO = 8
+  const larguraDisponivel = larguraCartao - PADDING_INTERNO * 2
   const y = doc.y
+
+  const ROTULO_FONTE_MAX = 8
+  const ROTULO_FONTE_MIN = 6
+  const VALOR_FONTE_MAX = 13
+  const VALOR_FONTE_MIN = 8
+
+  // Maior tamanho de fonte (dentro de [min,max]) que faz o texto
+  // caber em 1 linha na largura disponível. Se nem no piso couber,
+  // retorna o piso mesmo assim — doc.text() com width quebra sozinho,
+  // e a altura real (não assumida) é medida à parte logo abaixo
+  function tamanhoQueCabeEm1Linha(texto: string, fonte: string, max: number, min: number): number {
+    doc.font(fonte)
+    for (let tamanho = max; tamanho > min; tamanho--) {
+      doc.fontSize(tamanho)
+      if (doc.widthOfString(texto) <= larguraDisponivel) return tamanho
+    }
+    return min
+  }
+
+  // Pré-calcula fonte e altura real de cada rótulo ANTES de desenhar
+  // qualquer cartão — todos os cartões da linha compartilham a mesma
+  // altura e o mesmo offset de valor, então o pior caso entre eles
+  // (rótulo mais alto) decide os dois pra linha inteira
+  const infoRotulos = cartoes.map(cartao => {
+    const tamanho = tamanhoQueCabeEm1Linha(cartao.rotulo, 'Helvetica', ROTULO_FONTE_MAX, ROTULO_FONTE_MIN)
+    doc.font('Helvetica').fontSize(tamanho)
+    const altura = doc.heightOfString(cartao.rotulo, { width: larguraDisponivel })
+    return { tamanho, altura }
+  })
+
+  const alturaRotuloMax = Math.max(...infoRotulos.map(r => r.altura))
+  const yOffsetValor = 8 + alturaRotuloMax + 4
+  const alturaCartao = Math.max(46, yOffsetValor + 22)
 
   cartoes.forEach((cartao, i) => {
     const x = MARGEM.left + i * (larguraCartao + gap)
     doc.rect(x, y, larguraCartao, alturaCartao).fill(COR_ZEBRA)
-    doc.font('Helvetica').fontSize(8).fillColor(COR_TEXTO_CLARO)
-       .text(cartao.rotulo, x + 8, y + 8, { width: larguraCartao - 16 })
-    doc.font('Helvetica-Bold').fontSize(13).fillColor(COR_PRIMARIA)
-       .text(cartao.valor, x + 8, y + 22, { width: larguraCartao - 16 })
+
+    doc.font('Helvetica').fontSize(infoRotulos[i].tamanho).fillColor(COR_TEXTO_CLARO)
+       .text(cartao.rotulo, x + PADDING_INTERNO, y + 8, { width: larguraDisponivel })
+
+    const tamanhoValor = tamanhoQueCabeEm1Linha(cartao.valor, 'Helvetica-Bold', VALOR_FONTE_MAX, VALOR_FONTE_MIN)
+    doc.font('Helvetica-Bold').fontSize(tamanhoValor).fillColor(COR_PRIMARIA)
+       .text(cartao.valor, x + PADDING_INTERNO, y + yOffsetValor, { width: larguraDisponivel })
   })
 
   doc.y = y + alturaCartao + 16
@@ -170,15 +224,50 @@ export function desenharTabela(
   const somaProporcoes = colunas.reduce((s, c) => s + c.larguraProporcional, 0)
   const larguras = colunas.map(c => (c.larguraProporcional / somaProporcoes) * LARGURA_UTIL)
   const ALTURA_LINHA = 18
-  const ALTURA_CABECALHO = 20
+  const PADDING_CELULA = 6
+
+  // CORREÇÃO pós-entrega (relatório 2.7, 3ª rodada) — mesmo bug de
+  // "texto não cabe, quebra linha, próxima peça sobrepõe" das duas
+  // correções anteriores (cartões de resumo), só que aqui é o
+  // CABEÇALHO da tabela: com 7 colunas estreitas, "Resultado
+  // Líquido" a 8pt bold (69,8pt) não cabia nos 64pt disponíveis da
+  // coluna, quebrava em 2 linhas, e como ALTURA_CABECALHO era um
+  // valor fixo (20pt), a 2ª linha vazava pra cima da primeira linha
+  // de dados da tabela. As duas correções anteriores só tocaram
+  // desenharCartoesResumo() — esta função (desenharTabela) tinha o
+  // mesmo problema, sem fix, o que é exatamente o que apareceu no
+  // teste seguinte. Fix: mesmo princípio de shrink-to-fit + altura
+  // medida (não assumida) já usado nos cartões, aplicado aqui no
+  // cabeçalho — calculado 1x antes do primeiro desenho, reaproveitado
+  // em toda repetição de cabeçalho nas páginas seguintes.
+  const FONTE_CABECALHO_MAX = 8
+  const FONTE_CABECALHO_MIN = 6
+
+  function tamanhoFonteCabecalhoQueCabe(texto: string, larguraDisponivel: number): number {
+    doc.font('Helvetica-Bold')
+    for (let tamanho = FONTE_CABECALHO_MAX; tamanho > FONTE_CABECALHO_MIN; tamanho--) {
+      doc.fontSize(tamanho)
+      if (doc.widthOfString(texto) <= larguraDisponivel) return tamanho
+    }
+    return FONTE_CABECALHO_MIN
+  }
+
+  const infoCabecalho = colunas.map((col, i) => {
+    const larguraDisponivel = larguras[i] - PADDING_CELULA * 2
+    const tamanho = tamanhoFonteCabecalhoQueCabe(col.rotulo, larguraDisponivel)
+    doc.font('Helvetica-Bold').fontSize(tamanho)
+    const altura = doc.heightOfString(col.rotulo, { width: larguraDisponivel })
+    return { tamanho, altura }
+  })
+  const ALTURA_CABECALHO = Math.max(20, Math.max(...infoCabecalho.map(c => c.altura)) + PADDING_CELULA * 2)
 
   function desenharCabecalhoTabela() {
     const y = doc.y
     doc.rect(MARGEM.left, y, LARGURA_UTIL, ALTURA_CABECALHO).fill(COR_PRIMARIA)
     let x = MARGEM.left
     colunas.forEach((col, i) => {
-      doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff')
-         .text(col.rotulo, x + 6, y + 6, { width: larguras[i] - 12, align: col.alinhamento ?? 'left' })
+      doc.font('Helvetica-Bold').fontSize(infoCabecalho[i].tamanho).fillColor('#ffffff')
+         .text(col.rotulo, x + PADDING_CELULA, y + PADDING_CELULA, { width: larguras[i] - PADDING_CELULA * 2, align: col.alinhamento ?? 'left' })
       x += larguras[i]
     })
     doc.y = y + ALTURA_CABECALHO
@@ -269,11 +358,37 @@ export function desenharAvisoDestacado(doc: PDFKit.PDFDocument, texto: string) {
 // finalizarComRodape()
 // Percorre TODAS as páginas já desenhadas (bufferedPageRange —
 // só funciona porque o doc foi criado com bufferPages: true) e
-// escreve o disclaimer fixo + numeração em cada uma, inclusive a
-// primeira (Seção 5.1: "não só na última"). Deve ser a ÚLTIMA
-// chamada antes de doc.end()/pipe — depois dela não é seguro
-// desenhar mais conteúdo de página (o PDFKit já fechou a régua
-// de buffer ao trocar de página pela última vez aqui dentro)
+// escreve a numeração em cada uma, inclusive a primeira (Seção
+// 5.1: "não só na última"). Deve ser a ÚLTIMA chamada antes de
+// doc.end()/pipe — depois dela não é seguro desenhar mais conteúdo
+// de página (o PDFKit já fechou a régua de buffer ao trocar de
+// página pela última vez aqui dentro).
+// Não desenha mais o disclaimer fixo (DISCLAIMER_RELATORIOS,
+// removido a pedido do Maycon — ver nota em types/relatorios.ts) —
+// mantém a linha separadora e a numeração de página, só o texto foi
+// removido.
+//
+// CORREÇÃO CRÍTICA pós-entrega (relatório 2.7, 4ª rodada) — bug do
+// PDFKit em si, não introduzido por nenhuma das 3 correções
+// anteriores, e provavelmente presente nos 6 relatórios antigos
+// também (silencioso — só aparece gerando um PDF de verdade e
+// olhando o número de páginas, nunca foi verificado). yLinha
+// (792,89pt) fica DE PROPÓSITO abaixo da área de conteúdo (maxY =
+// altura - MARGEM.bottom = 786,89pt) — é assim que um rodapé
+// funciona, vive na margem. Só que o PDFKit, ao chamar doc.text()
+// com uma coordenada Y além do maxY calculado a partir de
+// page.margins.bottom, interpreta isso como "não cabe mais nesta
+// página" e insere uma página EXTRA em branco automaticamente antes
+// de desenhar — o texto do rodapé cai nessa página nova, não na
+// página de conteúdo pretendida. Confirmado isoladamente com um
+// PDFKit puro, fora de qualquer código deste projeto (não é bug de
+// lógica nossa, é comportamento documentado do PDFKit). Fix padrão
+// da comunidade PDFKit: zera page.margins.bottom só durante o
+// desenho do texto do rodapé (então maxY vira a altura inteira da
+// página, o Y do rodapé passa a caber) e restaura o valor original
+// logo em seguida — sem isso, TODO PDF exportado por este módulo
+// ganha uma página em branco extra ao final, com a numeração de
+// página não aparecendo em nenhuma página de conteúdo real.
 // ============================================================
 export function finalizarComRodape(doc: PDFKit.PDFDocument) {
   const paginas = doc.bufferedPageRange()
@@ -285,11 +400,13 @@ export function finalizarComRodape(doc: PDFKit.PDFDocument) {
     doc.strokeColor(COR_GRADE).lineWidth(0.8)
        .moveTo(MARGEM.left, yLinha).lineTo(MARGEM.left + LARGURA_UTIL, yLinha).stroke()
 
-    doc.font('Helvetica').fontSize(6.5).fillColor(COR_TEXTO_CLARO)
-       .text(DISCLAIMER_RELATORIOS, MARGEM.left, yLinha + 6, { width: LARGURA_UTIL - 70 })
-
+    // Ver bloco de correção crítica acima — sem isso, esta chamada de
+    // texto sozinha já provoca uma página em branco extra
+    const margemInferiorOriginal = doc.page.margins.bottom
+    doc.page.margins.bottom = 0
     doc.font('Helvetica').fontSize(7).fillColor(COR_TEXTO_CLARO)
        .text(`Página ${i + 1} de ${paginas.count}`, MARGEM.left + LARGURA_UTIL - 70, yLinha + 6, { width: 70, align: 'right' })
+    doc.page.margins.bottom = margemInferiorOriginal
   }
 }
 

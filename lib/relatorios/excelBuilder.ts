@@ -11,17 +11,17 @@
 //         (lib/relatorios/pdfBuilder.ts), sem depender de disco.
 // Conecta com: pages/api/relatorios/*.ts (cada rota, quando
 //              ?formato=xlsx, chama gerarBufferExcel() e envia o
-//              buffer como resposta), types/relatorios.ts
-//              (DISCLAIMER_RELATORIOS)
+//              buffer como resposta)
 // Referência: Especificacao_Modulo_Relatorios.md, Seção 1.2
 //             ("Excel é peça nova — Builder deve avaliar biblioteca
 //             compatível já presente no stack" -> xlsx/SheetJS
-//             já instalado, reaproveitado sem dependência nova) e
-//             Seção 1.1 (disclaimer também na exportação Excel)
+//             já instalado, reaproveitado sem dependência nova).
+//             O disclaimer padrão que a Seção 1.1 pedia aqui foi
+//             removido a pedido do Maycon — ver nota em
+//             types/relatorios.ts
 // ============================================================
 
 import * as XLSX from 'xlsx'
-import { DISCLAIMER_RELATORIOS } from '@/types/relatorios'
 
 // ============================================================
 // ColunaExcel
@@ -35,8 +35,8 @@ export interface ColunaExcel {
 // ============================================================
 // gerarBufferExcel()
 // Monta uma planilha única: título + período (linhas informativas),
-// linha em branco, cabeçalho de colunas, linhas de dado, linha em
-// branco, disclaimer fixo (Seção 1.1) — mesma ordem de informação
+// aviso extra do relatório (quando presente), linha em branco,
+// cabeçalho de colunas, linhas de dado — mesma ordem de informação
 // do PDF (Seção 5.1), só que em formato de planilha
 // ============================================================
 export function gerarBufferExcel(opcoes: {
@@ -45,9 +45,7 @@ export function gerarBufferExcel(opcoes: {
   periodoDescricao: string
   colunas: ColunaExcel[]
   linhas: Record<string, string | number>[]
-  // avisoExtra — aviso ADICIONAL ao DISCLAIMER_RELATORIOS padrão
-  // (que sempre vai por último, ver bloco final da função), para
-  // relatórios com um aviso específico próprio (ex: Seção 2.7,
+  // avisoExtra — aviso específico do relatório (ex: Seção 2.7,
   // AVISO_RECEITA_DESPESA). Opcional — omitido, não aparece nenhuma
   // linha extra. Espelha desenharAvisoDestacado() do pdfBuilder.ts,
   // mesmo conteúdo, mesma fonte única de verdade (o chamador passa
@@ -70,23 +68,20 @@ export function gerarBufferExcel(opcoes: {
     aoa.push(opcoes.colunas.map(c => linha[c.chave] ?? ''))
   })
 
-  aoa.push([]) // linha em branco antes do disclaimer
-  const linhaDisclaimerIndex = aoa.length
-  aoa.push([DISCLAIMER_RELATORIOS])
-
   const ws = XLSX.utils.aoa_to_sheet(aoa)
 
   // Largura de coluna — usa a sugerida por coluna ou 20 como padrão
   ws['!cols'] = opcoes.colunas.map(c => ({ wch: c.larguraCaracteres ?? 20 }))
 
-  // Mescla a linha de título, a linha de período, a linha de aviso
-  // extra (quando presente) e a linha do disclaimer por toda a
-  // largura da tabela, pra não ficarem espremidas na coluna A
+  // Mescla a linha de título, a linha de período e a linha de aviso
+  // extra (quando presente) por toda a largura da tabela, pra não
+  // ficarem espremidas na coluna A. A linha de disclaimer padrão que
+  // existia aqui (DISCLAIMER_RELATORIOS) foi removida a pedido do
+  // Maycon — ver nota em types/relatorios.ts
   const ultimaColuna = Math.max(opcoes.colunas.length - 1, 0)
   const merges = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: ultimaColuna } },
     { s: { r: 1, c: 0 }, e: { r: 1, c: ultimaColuna } },
-    { s: { r: linhaDisclaimerIndex, c: 0 }, e: { r: linhaDisclaimerIndex, c: ultimaColuna } },
   ]
   if (opcoes.avisoExtra) {
     // Linha 2 só existe como aviso extra quando opcoes.avisoExtra foi
