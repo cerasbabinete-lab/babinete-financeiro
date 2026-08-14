@@ -39,6 +39,13 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
   // certo, ou quando o boleto não estiver disponível em PDF)
   const [nossoNumero, setNossoNumero] = useState('')
   const [linhaDigitavel, setLinhaDigitavel] = useState('')
+  // QA fix (14/08/2026, a pedido do Maycon): status editável manualmente
+  // no modal — mesmo padrão já usado em ContasReceberModal.tsx. 'cancelado'
+  // fica de fora do dropdown de propósito: selecioná-lo aqui setaria
+  // status='cancelado' sem o soft-delete (deleted_at), quebrando
+  // contadores/listagem — cancelamento continua exclusivo do botão
+  // dedicado "Cancelar Título" (onCancelar, que seta deleted_at corretamente)
+  const [statusEdit, setStatusEdit] = useState<ContaAPagar['status']>('em_aberto')
   const [mostrarBaixa, setMostrarBaixa] = useState(false)
   const [formaBaixa, setFormaBaixa] = useState<FormaBaixaPagar>('pix')
   const [valorBaixa, setValorBaixa] = useState<number>(0)
@@ -49,6 +56,7 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
     setObservacoes(titulo?.observacoes ?? '')
     setNossoNumero(titulo?.nosso_numero ?? '')
     setLinhaDigitavel(titulo?.linha_digitavel ?? '')
+    setStatusEdit(titulo?.status ?? 'em_aberto')
     setMostrarBaixa(!!abrirEmBaixa)
     setValorBaixa(titulo ? titulo.valor : 0)
     setErro(null)
@@ -68,6 +76,7 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
         observacoes,
         nosso_numero: nossoNumero.trim() || null,
         linha_digitavel: linhaDigitavel.trim() || null,
+        status: statusEdit,
       })
     } catch (err: unknown) {
       setErro(err instanceof Error ? err.message : 'Erro ao salvar')
@@ -137,7 +146,24 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
           </div>
           <div><span style={label}>Vencimento</span><div style={valor}>{formatarDataBR(titulo.data_vencimento)}</div></div>
           <div><span style={label}>Valor</span><div style={{ ...valor, fontWeight: 700, color: '#1a6094' }}>{formatarMoeda(titulo.valor)}</div></div>
-          <div><span style={label}>Status</span><div style={valor}>{STATUS_LABELS_PAGAR[titulo.status]}</div></div>
+          <div>
+            <span style={label}>Status</span>
+            {somenteLeitura ? (
+              <div style={valor}>{STATUS_LABELS_PAGAR[titulo.status]}</div>
+            ) : (
+              <select
+                value={statusEdit}
+                onChange={(e) => setStatusEdit(e.target.value as ContaAPagar['status'])}
+                style={{ ...inputStyle, marginBottom: '12px', fontWeight: 700, color: '#1a6094', cursor: 'pointer' }}
+              >
+                {(Object.keys(STATUS_LABELS_PAGAR) as ContaAPagar['status'][])
+                  .filter((s) => s !== 'cancelado')
+                  .map((s) => (
+                    <option key={s} value={s}>{STATUS_LABELS_PAGAR[s]}</option>
+                  ))}
+              </select>
+            )}
+          </div>
           <div><span style={label}>Data Baixa</span><div style={valor}>{titulo.data_baixa ? formatarDataBR(titulo.data_baixa) : '—'}</div></div>
         </div>
 

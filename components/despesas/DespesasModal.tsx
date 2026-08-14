@@ -29,7 +29,7 @@ import type {
   CategoriaFinanceira,
   OrigemDespesaTipo,
 } from '@/types/despesas'
-import { CATEGORIA_FINANCEIRA_LABELS, ORIGEM_TIPO_LABELS } from '@/types/despesas'
+import { CATEGORIA_FINANCEIRA_LABELS, ORIGEM_TIPO_LABELS, STATUS_PAGAMENTO_LABELS } from '@/types/despesas'
 import { buscarFornecedorPorDocumento, formatarCnpjCpf, formatarMoeda } from '@/lib/despesasService'
 
 // ------------------------------------------------------------
@@ -112,6 +112,16 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
   const [parcelas, setParcelas] = useState<ParcelaForm[]>([parcelaVazia(1)])
   const [extensaoCategoria, setExtensaoCategoria] = useState<Despesa['extensao_categoria']>({})
   const [origemEntrada, setOrigemEntrada] = useState<Despesa['origem_entrada']>('manual')
+  // QA fix (14/08/2026, a pedido do Maycon): status editável manualmente
+  // no modal, em modo 'editar' — mesmo padrão de ContasReceberModal.tsx.
+  // Antes o handleSalvar gravava 'em_aberto' fixo mesmo em edição,
+  // resetando o status de qualquer despesa já paga/parcial toda vez que
+  // o usuário editasse qualquer outro campo e salvasse — bug real,
+  // corrigido junto. 'cancelado' fica de fora do dropdown: não existe
+  // fluxo de soft-delete dedicado neste modal (diferente de Contas a
+  // Pagar/Receber), então setar 'cancelado' aqui deixaria deleted_at
+  // dessincronizado — fora do escopo deste pedido.
+  const [statusPagamento, setStatusPagamento] = useState<Despesa['status_pagamento']>('em_aberto')
 
   // ── Indicadores exclusivos do modo 'revisar' ──
   const [duplicadoBloqueado, setDuplicadoBloqueado] = useState(false)
@@ -185,6 +195,7 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
       setParcelas((despesa.parcelas ?? []).filter((p) => !p.deleted_at).map((p) => ({ ...p })))
       setExtensaoCategoria(despesa.extensao_categoria)
       setOrigemEntrada(despesa.origem_entrada)
+      setStatusPagamento(despesa.status_pagamento)
       // QA fix (achados #12/#13): despesa recém-carregada — classificação
       // já gravada está em dia, nenhuma edição manual ainda ocorreu nesta sessão
       setClassificacaoDesatualizadaPorEdicao(false)
@@ -293,7 +304,7 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
         valor_desconto: 0,
         valor_juros_multa: 0,
         valor_total: valorTotalNum,
-        status_pagamento: 'em_aberto',
+        status_pagamento: statusPagamento,
         extensao_categoria: extensaoCategoria,
         origem_entrada: origemEntrada,
         deleted_at: null,
@@ -453,7 +464,7 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
           </div>
 
           {/* Categoria / Documento / Valor */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isEditar ? '1.3fr 1fr 1fr 1fr 1fr' : '1.5fr 1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
             <div>
               <label style={labelStyle}>Categoria Financeira</label>
               <select
@@ -472,6 +483,24 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
                 ))}
               </select>
             </div>
+            {isEditar && (
+              <div>
+                <label style={labelStyle}>Status</label>
+                <select
+                  style={{ ...inputStyle, fontWeight: 700, color: '#1a6094', cursor: 'pointer' }}
+                  value={statusPagamento}
+                  onChange={(e) => setStatusPagamento(e.target.value as Despesa['status_pagamento'])}
+                >
+                  {/* 'cancelado' fica de fora — sem fluxo de soft-delete dedicado
+                      neste modal, setar aqui deixaria deleted_at dessincronizado */}
+                  {(Object.keys(STATUS_PAGAMENTO_LABELS) as Despesa['status_pagamento'][])
+                    .filter((s) => s !== 'cancelado')
+                    .map((s) => (
+                      <option key={s} value={s}>{STATUS_PAGAMENTO_LABELS[s]}</option>
+                    ))}
+                </select>
+              </div>
+            )}
             <div>
               <label style={labelStyle}>Nº Documento</label>
               <input style={inputStyle} value={documentoNumero} onChange={(e) => setDocumentoNumero(e.target.value)} />

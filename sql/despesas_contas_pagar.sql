@@ -11,12 +11,30 @@
 -- Substitui: 04_despesas_contas_pagar.sql,
 --            05_migration_contas_a_pagar_idempotente.sql,
 --            06_backfill_titulos_contas_a_pagar.sql,
---            07_fix_roster_cpf_ausente.sql
+--            07_fix_roster_cpf_ausente.sql,
+--            08_correcao_retroativa_sync_e_duplicidades.sql
 -- Conecta com: types/despesas.ts, types/contasAPagar.ts,
 --              lib/despesas/*.ts, lib/pagar/*.ts,
 --              lib/despesasService.ts, lib/contasAPagarService.ts,
 --              pages/api/despesas/*.ts, pages/api/pagar/*.ts
--- Revisão desta versão (consolidação, aprovada por Maycon):
+-- Revisão desta versão (fusão, aprovada por Maycon, 14/08/2026):
+--   - QA fix: 4 constraints atualizadas pra DROP+ADD incondicional
+--     (não mais "IF NOT EXISTS ... WHERE conname" — esse padrão só
+--     checa o NOME da constraint, não a definição; ficou provado na
+--     prática que isso deixa a constraint desatualizada presa depois
+--     de qualquer extensão de enum feita direto no banco em produção):
+--       - despesas_categoria_financeira_check: + 'salario'
+--       - despesas_status_pagamento_check: + 'pago_parcial'
+--       - despesas_parcelas_status_check: + 'pago_parcial'
+--       - contas_a_pagar_eventos_tipo_check: + 'correcao_retroativa'
+--   - Removida a seção "CORREÇÃO PONTUAL — Excedente do pagamento da
+--     Sheli" (R$498,21): esse valor foi substituído duas vezes desde
+--     então (R$1.798,21, depois absorvido na consolidação do salário
+--     pra R$6.000,00) — mantê-la rodaria dado errado num banco novo.
+--     Correções de dado pontuais e já superadas não pertencem ao
+--     schema permanente; só a mudança estrutural (constraints acima)
+--     tem valor duradouro e foi preservada.
+-- Revisão anterior (consolidação):
 --   - Índice em TODA coluna de foreign key deste módulo (mesmo
 --     achado sistêmico dos outros 3 módulos — Postgres não cria
 --     índice automático do lado que aponta pra uma FK)
@@ -24,14 +42,10 @@
 --     categoria_financeira, origem_tipo, origem_classificacao_status,
 --     status_pagamento, origem_entrada, despesas_parcelas.status e
 --     beneficiarios_pessoais.vinculo — nenhum tinha trava antes.
---     Valores confirmados em types/despesas.ts, anexado por Maycon.
 --   - UNIQUE parcial + índice em beneficiarios_pessoais.cpf/cnpj —
 --     consultados a cada pagamento pelo motor de conciliação
 --   - Backfill dos títulos retroativos (era 06) incorporado como
 --     bloco permanente idempotente, não mais arquivo separado
---   - Correção retroativa do excedente da Sheli (R$498,21, pagamento
---     de 10/07/2026) incorporada como bloco permanente idempotente —
---     não é mais tratada como exceção pontual fora do schema
 -- ============================================================
 
 
@@ -96,14 +110,17 @@ BEGIN
       CHECK (tipo_documento IN ('boleto', 'guia_tributo', 'nota_fiscal', 'recibo', 'fatura_concessionaria', 'holerite'));
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'despesas_categoria_financeira_check') THEN
-    ALTER TABLE despesas ADD CONSTRAINT despesas_categoria_financeira_check
-      CHECK (categoria_financeira IN (
-        'aluguel', 'tributos_estadual_municipal', 'concessionarias_utilidades',
-        'transporte_frete', 'compra_mercadoria_insumo', 'servicos_profissionais',
-        'contabilidade', 'plano_saude'
-      ));
-  END IF;
+  -- QA fix (14/08/2026): trocado de "IF NOT EXISTS...conname" pra
+  -- DROP+ADD incondicional — o padrão anterior só checava o NOME da
+  -- constraint, não a definição, deixando 'salario' fora mesmo depois
+  -- de ter sido adicionada direto no banco em produção
+  ALTER TABLE despesas DROP CONSTRAINT IF EXISTS despesas_categoria_financeira_check;
+  ALTER TABLE despesas ADD CONSTRAINT despesas_categoria_financeira_check
+    CHECK (categoria_financeira IN (
+      'aluguel', 'tributos_estadual_municipal', 'concessionarias_utilidades',
+      'transporte_frete', 'compra_mercadoria_insumo', 'servicos_profissionais',
+      'contabilidade', 'plano_saude', 'salario'
+    ));
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'despesas_origem_tipo_check') THEN
     ALTER TABLE despesas ADD CONSTRAINT despesas_origem_tipo_check
@@ -115,10 +132,10 @@ BEGIN
       CHECK (origem_classificacao_status IN ('auto_classificado', 'revisao_manual'));
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'despesas_status_pagamento_check') THEN
-    ALTER TABLE despesas ADD CONSTRAINT despesas_status_pagamento_check
-      CHECK (status_pagamento IN ('em_aberto', 'pago', 'cancelado'));
-  END IF;
+  -- QA fix (14/08/2026): mesmo motivo acima — + 'pago_parcial'
+  ALTER TABLE despesas DROP CONSTRAINT IF EXISTS despesas_status_pagamento_check;
+  ALTER TABLE despesas ADD CONSTRAINT despesas_status_pagamento_check
+    CHECK (status_pagamento IN ('em_aberto', 'pago_parcial', 'pago', 'cancelado'));
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'despesas_origem_entrada_check') THEN
     ALTER TABLE despesas ADD CONSTRAINT despesas_origem_entrada_check
@@ -159,10 +176,10 @@ BEGIN
       FOREIGN KEY (despesa_id) REFERENCES despesas (id);
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'despesas_parcelas_status_check') THEN
-    ALTER TABLE despesas_parcelas ADD CONSTRAINT despesas_parcelas_status_check
-      CHECK (status IN ('em_aberto', 'pago', 'cancelado'));
-  END IF;
+  -- QA fix (14/08/2026): mesmo motivo acima — + 'pago_parcial'
+  ALTER TABLE despesas_parcelas DROP CONSTRAINT IF EXISTS despesas_parcelas_status_check;
+  ALTER TABLE despesas_parcelas ADD CONSTRAINT despesas_parcelas_status_check
+    CHECK (status IN ('em_aberto', 'pago_parcial', 'pago', 'cancelado'));
 END $$;
 
 CREATE INDEX IF NOT EXISTS despesas_parcelas_despesa_id_idx ON despesas_parcelas (despesa_id);
@@ -314,13 +331,17 @@ CREATE TABLE IF NOT EXISTS contas_a_pagar_eventos (
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'contas_a_pagar_eventos_tipo_check') THEN
-    ALTER TABLE contas_a_pagar_eventos ADD CONSTRAINT contas_a_pagar_eventos_tipo_check
-      CHECK (tipo IN (
-        'criado', 'nosso_numero_vinculado', 'baixa_parcial', 'baixa_total',
-        'baixa_manual', 'despesa_complementar_criada', 'cancelado', 'reaberto'
-      ));
-  END IF;
+  -- QA fix (14/08/2026): mesmo motivo acima — + 'correcao_retroativa'
+  -- (necessário pra estornar numericamente um evento errado sem violar
+  -- a regra de nunca apagar histórico — contas_a_pagar_eventos é
+  -- apenas-INSERT por desenho)
+  ALTER TABLE contas_a_pagar_eventos DROP CONSTRAINT IF EXISTS contas_a_pagar_eventos_tipo_check;
+  ALTER TABLE contas_a_pagar_eventos ADD CONSTRAINT contas_a_pagar_eventos_tipo_check
+    CHECK (tipo IN (
+      'criado', 'nosso_numero_vinculado', 'baixa_parcial', 'baixa_total',
+      'baixa_manual', 'despesa_complementar_criada', 'cancelado', 'reaberto',
+      'correcao_retroativa'
+    ));
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'contas_a_pagar_eventos_titulo_id_fkey') THEN
     ALTER TABLE contas_a_pagar_eventos ADD CONSTRAINT contas_a_pagar_eventos_titulo_id_fkey
@@ -460,95 +481,6 @@ SELECT id, 'criado', 'Título criado retroativamente (backfill) — Despesa já 
 FROM novos_titulos;
 
 
--- ============================================================
--- CORREÇÃO PONTUAL — Excedente do pagamento da Sheli (Pix 10/07/2026)
--- Contexto: pagamento de R$3.000,00 deveria ter sido identificado
--- automaticamente pelo motor de conciliação (roster,
--- holerite_com_abatimento) e gerado baixa total do título original
--- (R$2.501,79) + Despesa complementar do excedente (R$498,21). Não
--- aconteceu porque o CPF da Sheli estava ausente no roster no
--- momento do pagamento (corrigido no seed acima). Idempotente:
--- guardado por NOT EXISTS na despesa complementar já criada — não
--- duplica se este arquivo rodar de novo.
--- ============================================================
-
-DO $$
-DECLARE
-  v_titulo_original_id UUID;
-  v_despesa_id UUID;
-  v_parcela_id UUID;
-  v_titulo_complementar_id UUID;
-  v_valor_excedente NUMERIC := 498.21;
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM despesas
-    WHERE origem_criterios_batidos @> ARRAY['correcao_retroativa_manual']
-      AND favorecido_cnpj_cpf = '080.817.879-25'
-      AND valor_total = v_valor_excedente
-  ) THEN
-    RETURN; -- já aplicada, não duplica
-  END IF;
-
-  SELECT id INTO v_titulo_original_id
-  FROM contas_a_pagar
-  WHERE favorecido_cnpj_cpf ILIKE '%08081787925%'
-    AND status = 'pago'
-    AND deleted_at IS NULL
-  ORDER BY data_baixa DESC
-  LIMIT 1;
-
-  IF v_titulo_original_id IS NULL THEN
-    RAISE NOTICE 'Título original da Sheli não encontrado — correção do excedente não aplicada, revisar manualmente.';
-    RETURN;
-  END IF;
-
-  INSERT INTO despesas (
-    tipo_documento, categoria_financeira, favorecido_nome, favorecido_cnpj_cpf,
-    fornecedor_id, fornecedor_auto_criado, origem_tipo, origem_beneficiario_nome,
-    origem_beneficiario_cpf, origem_beneficiario_vinculo, origem_classificacao_status,
-    origem_criterios_batidos, documento_data_emissao, valor_original, valor_total,
-    status_pagamento, extensao_categoria, origem_entrada
-  ) VALUES (
-    'holerite', 'contabilidade', 'Sheli de Almeida Aquotti', '080.817.879-25',
-    35, false, 'pessoal_socio', 'Sheli de Almeida Aquotti',
-    '080.817.879-25', 'socio', 'auto_classificado',
-    ARRAY['correcao_retroativa_manual'], '2026-07-10', v_valor_excedente, v_valor_excedente,
-    'pago',
-    jsonb_build_object('contabilidade', jsonb_build_object(
-      'subtipo', 'folha_pro_labore', 'composicaoTributos', NULL,
-      'funcionario', NULL, 'rubricas', NULL, 'itensHonorarios', NULL
-    )),
-    'motor_conciliacao_pagar'
-  ) RETURNING id INTO v_despesa_id;
-
-  INSERT INTO despesas_parcelas (
-    despesa_id, numero_parcela, total_parcelas, valor, data_vencimento,
-    pode_gerar_segunda_via, status
-  ) VALUES (
-    v_despesa_id, 1, 1, v_valor_excedente, '2026-07-10', false, 'pago'
-  ) RETURNING id INTO v_parcela_id;
-
-  INSERT INTO contas_a_pagar (
-    despesa_parcela_id, despesa_id, fornecedor_id, data_vencimento,
-    valor, status, data_baixa, forma_baixa, favorecido_nome,
-    favorecido_cnpj_cpf, observacoes
-  ) VALUES (
-    v_parcela_id, v_despesa_id, 35, '2026-07-10',
-    v_valor_excedente, 'pago', '2026-07-10', 'acumulo_automatico', 'Sheli de Almeida Aquotti',
-    '080.817.879-25',
-    'Despesa complementar retroativa — excedente do Pix de 10/07/2026 (R$3.000,00 pago vs R$2.501,79 do título original), corrigido manualmente após identificar que o roster estava com CPF ausente no momento do pagamento.'
-  ) RETURNING id INTO v_titulo_complementar_id;
-
-  INSERT INTO contas_a_pagar_eventos (titulo_id, tipo, descricao, valor_pago)
-  VALUES (v_titulo_complementar_id, 'criado', 'Título complementar criado retroativamente para registrar o excedente do pagamento de 10/07/2026.', NULL);
-
-  INSERT INTO contas_a_pagar_eventos (titulo_id, tipo, descricao, valor_pago)
-  VALUES (v_titulo_complementar_id, 'baixa_total', 'Baixa retroativa — valor já havia sido efetivamente pago no Pix de 10/07/2026, junto com o título original.', v_valor_excedente);
-
-  INSERT INTO contas_a_pagar_eventos (titulo_id, tipo, descricao, valor_pago)
-  VALUES (v_titulo_original_id, 'despesa_complementar_criada',
-    'Excedente de ' || v_valor_excedente || ' identificado retroativamente — gerou a Despesa complementar / título ' || v_titulo_complementar_id || '.',
-    NULL);
-
-  RAISE NOTICE 'Correção do excedente da Sheli aplicada: Despesa % / título %.', v_despesa_id, v_titulo_complementar_id;
-END $$;
+-- (Seção "CORREÇÃO PONTUAL — Excedente do pagamento da Sheli" removida
+-- em 14/08/2026 — o valor de R$498,21 foi substituído duas vezes desde
+-- então, ver nota no cabeçalho do arquivo)
