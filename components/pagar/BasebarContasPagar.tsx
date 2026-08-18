@@ -46,7 +46,7 @@ export default function BasebarContasPagar({ importando, onSelecionarRelatorio, 
 
       <button disabled={importando} onClick={() => inputComprovanteRef.current?.click()} style={itemStyle}>
         <i className="ti ti-receipt" style={{ fontSize: '20px' }} />
-        Comprovante
+        Comprovante (TXT)
       </button>
       <input ref={inputComprovanteRef} type="file" accept="application/pdf,text/plain" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onSelecionarComprovante(f); e.target.value = '' }} />

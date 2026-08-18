@@ -110,6 +110,17 @@ export default function ContasAPagarTabela({ titulos, onVisualizar, onEditar, on
             )
           })}
         </tbody>
+        {titulos.length > 0 && (
+          <tfoot>
+            <tr style={{ background: '#f0f4f7', borderTop: '2px solid #dde8f0', fontWeight: 700 }}>
+              <td colSpan={6} style={{ ...tdStyle(), textAlign: 'right', color: '#5a6b7a' }}>Total</td>
+              <td style={{ ...tdStyle(true), color: '#1a6094' }}>
+                {formatarMoeda(titulos.reduce((soma, t) => soma + t.valor, 0))}
+              </td>
+              <td colSpan={2} style={tdStyle()} />
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   )

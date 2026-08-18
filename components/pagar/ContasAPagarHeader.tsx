@@ -59,7 +59,7 @@ export default function ContasAPagarHeader({
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onSelecionarRelatorio(f); e.target.value = '' }} />
 
         <button disabled={importando} onClick={() => inputComprovanteRef.current?.click()} style={btnStyle}>
-          <i className="ti ti-receipt" /> Importar Comprovante
+          <i className="ti ti-receipt" /> Importar Comprovante (TXT)
         </button>
         <input ref={inputComprovanteRef} type="file" accept="application/pdf,text/plain" style={{ display: 'none' }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onSelecionarComprovante(f); e.target.value = '' }} />

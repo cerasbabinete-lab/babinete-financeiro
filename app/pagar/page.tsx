@@ -23,6 +23,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import {
   buscarTitulos,
+  buscarTitulosPendentesAnteriores,
   contarTitulos,
   buscarContadoresTitulos,
   buscarRosterCompleto,
@@ -59,6 +60,49 @@ function filtrosVazios(): FiltrosContasAPagar {
   return { busca: '', vencimentoDe: '', vencimentoAte: '', status: '' }
 }
 
+// ============================================================
+// Helpers de mês — QA fix (14/08/2026, a pedido do Maycon):
+// reorganização da listagem por mês de vencimento, com pendências de
+// meses anteriores fixas no topo quando o mês atual está selecionado
+// ============================================================
+
+// YYYY-MM do mês corrente, no fuso local (não UTC — evita virar o mês
+// errado perto da meia-noite, mesmo cuidado já usado em limiteSuperiorIntervalo)
+function mesAtualStr(): string {
+  const hoje = new Date()
+  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`
+}
+
+// Primeiro e último dia (YYYY-MM-DD) de um mês "YYYY-MM"
+function calcularFaixaDoMes(mesStr: string): { inicio: string; fim: string } {
+  const [ano, mes] = mesStr.split('-').map(Number)
+  const inicio = `${ano}-${String(mes).padStart(2, '0')}-01`
+  const ultimoDia = new Date(ano, mes, 0).getDate() // dia 0 do mês seguinte = último dia deste mês
+  const fim = `${ano}-${String(mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`
+  return { inicio, fim }
+}
+
+const LABELS_MES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+function formatarLabelMes(mesStr: string): string {
+  const [ano, mes] = mesStr.split('-').map(Number)
+  return `${LABELS_MES[mes - 1]}/${ano}`
+}
+
+// Gera a lista de meses do dropdown — 18 meses pra trás e 12 pra
+// frente a partir de hoje. Faixa fixa (não descoberta via query no
+// banco) — simples e cobre folgadamente o histórico do sistema, que
+// começou a ser usado em produção em meados de 2026.
+function gerarOpcoesDeMes(): string[] {
+  const hoje = new Date()
+  const opcoes: string[] = []
+  for (let i = -18; i <= 12; i++) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1)
+    opcoes.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+  }
+  return opcoes
+}
+
 export default function ContasAPagarPage() {
   const router = useRouter()
 
@@ -74,6 +118,11 @@ export default function ContasAPagarPage() {
 
   // ── Filtros ──
   const [filtros, setFiltros] = useState<FiltrosContasAPagar>(filtrosVazios)
+
+  // ── Mês selecionado (QA fix 14/08/2026) ──
+  const [mesSelecionado, setMesSelecionado] = useState<string>(mesAtualStr())
+  const [titulosPendentesAnteriores, setTitulosPendentesAnteriores] = useState<ContaAPagar[]>([])
+  const [carregandoPendentes, setCarregandoPendentes] = useState(false)
 
   // ── Modal principal ──
   const [modoModal, setModoModal] = useState<ModoModalPagar>(null)
@@ -140,6 +189,37 @@ export default function ContasAPagarPage() {
 
   useEffect(() => { if (!authCarregando) carregarTitulos() }, [authCarregando, carregarTitulos])
 
+  // ── Mês selecionado — sincroniza a faixa de vencimento do filtro
+  // sempre que o mês trocar, preservando busca/status já digitados
+  // (QA fix 14/08/2026) ──
+  useEffect(() => {
+    const { inicio, fim } = calcularFaixaDoMes(mesSelecionado)
+    setFiltros((f) => ({ ...f, vencimentoDe: inicio, vencimentoAte: fim }))
+  }, [mesSelecionado])
+
+  // ── Pendências de meses anteriores — só busca quando o mês
+  // selecionado é o mês atual; nos demais meses a seção fica vazia e
+  // escondida (QA fix 14/08/2026) ──
+  const carregarPendentesAnteriores = useCallback(async () => {
+    if (mesSelecionado !== mesAtualStr()) {
+      setTitulosPendentesAnteriores([])
+      return
+    }
+    setCarregandoPendentes(true)
+    try {
+      const { inicio } = calcularFaixaDoMes(mesSelecionado)
+      const lista = await buscarTitulosPendentesAnteriores(inicio)
+      if (!mountedRef.current) return
+      setTitulosPendentesAnteriores(lista)
+    } catch (err: unknown) {
+      console.error('[ContasAPagarPage] carregarPendentesAnteriores error:', err)
+    } finally {
+      if (mountedRef.current) setCarregandoPendentes(false)
+    }
+  }, [mesSelecionado])
+
+  useEffect(() => { if (!authCarregando) carregarPendentesAnteriores() }, [authCarregando, carregarPendentesAnteriores])
+
   useEffect(() => {
     if (!msgSucesso) return
     const t = setTimeout(() => { if (mountedRef.current) setMsgSucesso(null) }, 5000)
@@ -179,6 +259,7 @@ export default function ContasAPagarPage() {
     setMsgSucesso('Título atualizado.')
     handleFecharModal()
     carregarTitulos()
+    carregarPendentesAnteriores()
   }
 
   async function handleBaixarManual(id: string, formaBaixa: FormaBaixaPagar, valorBaixa: number) {
@@ -191,6 +272,7 @@ export default function ContasAPagarPage() {
     if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.erro ?? 'Erro ao registrar baixa') }
     setMsgSucesso('Baixa registrada.')
     carregarTitulos()
+    carregarPendentesAnteriores()
   }
 
   async function handleCancelar(id: string) {
@@ -204,6 +286,7 @@ export default function ContasAPagarPage() {
     setMsgSucesso('Título cancelado.')
     handleFecharModal()
     carregarTitulos()
+    carregarPendentesAnteriores()
   }
 
   async function handleReabrir(id: string) {
@@ -217,6 +300,7 @@ export default function ContasAPagarPage() {
     setMsgSucesso('Título reaberto.')
     handleFecharModal()
     carregarTitulos()
+    carregarPendentesAnteriores()
   }
 
   // ── Import: Relatório BB ──
@@ -246,6 +330,7 @@ export default function ContasAPagarPage() {
     } finally {
       setImportando(false)
       carregarTitulos()
+      carregarPendentesAnteriores()
     }
   }
 
@@ -305,6 +390,7 @@ export default function ContasAPagarPage() {
     } finally {
       setImportando(false)
       carregarTitulos()
+      carregarPendentesAnteriores()
     }
   }
 
@@ -340,6 +426,7 @@ export default function ContasAPagarPage() {
     } finally {
       setImportando(false)
       carregarTitulos()
+      carregarPendentesAnteriores()
     }
   }
 
@@ -371,6 +458,7 @@ export default function ContasAPagarPage() {
     setItensPendentes([])
     setMsgSucesso('Conciliação confirmada.')
     carregarTitulos()
+    carregarPendentesAnteriores()
   }
 
   // ── Roster ──
@@ -461,6 +549,26 @@ export default function ContasAPagarPage() {
           </div>
         )}
 
+        {/* ── Seletor de mês (QA fix 14/08/2026, a pedido do Maycon) ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+          <label style={{ fontSize: '11px', color: '#5a6b7a', fontWeight: 600 }}>Mês:</label>
+          <select
+            value={mesSelecionado}
+            onChange={(e) => setMesSelecionado(e.target.value)}
+            style={{
+              border: '1px solid #dde8f0', borderRadius: '6px', padding: '6px 10px',
+              fontSize: '12px', fontFamily: 'Tahoma, Geneva, sans-serif', color: '#1a1a1a',
+              background: '#ffffff', cursor: 'pointer',
+            }}
+          >
+            {gerarOpcoesDeMes().map((m) => (
+              <option key={m} value={m}>
+                {formatarLabelMes(m)}{m === mesAtualStr() ? ' (mês atual)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {!isMobile && (
           <ContasAPagarHeader
             totalTitulos={total}
@@ -473,6 +581,31 @@ export default function ContasAPagarPage() {
         )}
 
         <ContasAPagarFiltros filtros={filtros} onChange={setFiltros} />
+
+        {/* ── Pendências de meses anteriores — só quando o mês
+            selecionado é o atual (QA fix 14/08/2026) ── */}
+        {mesSelecionado === mesAtualStr() && !carregandoPendentes && titulosPendentesAnteriores.length > 0 && (
+          <div style={{ marginBottom: '18px' }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px',
+              fontSize: '12px', fontWeight: 700, color: '#b45309',
+            }}>
+              <i className="ti ti-alert-triangle" style={{ fontSize: '14px' }} aria-hidden="true" />
+              Pendências de meses anteriores ({titulosPendentesAnteriores.length})
+            </div>
+            {isMobile ? (
+              <ContasAPagarMobileList titulos={titulosPendentesAnteriores} onVisualizar={handleVisualizar} onEditar={handleEditar} onCancelar={(t) => handleCancelar(t.id)} onBaixar={handleBaixarClick} />
+            ) : (
+              <ContasAPagarTabela titulos={titulosPendentesAnteriores} onVisualizar={handleVisualizar} onEditar={handleEditar} onCancelar={(t) => handleCancelar(t.id)} onBaixar={handleBaixarClick} />
+            )}
+          </div>
+        )}
+
+        {mesSelecionado === mesAtualStr() && titulosPendentesAnteriores.length > 0 && (
+          <div style={{ fontSize: '12px', fontWeight: 700, color: '#1a6094', marginBottom: '6px' }}>
+            Títulos de {formatarLabelMes(mesSelecionado)}
+          </div>
+        )}
 
         {carregando ? (
           <div style={{ padding: '32px', textAlign: 'center', color: '#5a84a6', fontSize: '12px' }}>Carregando títulos...</div>

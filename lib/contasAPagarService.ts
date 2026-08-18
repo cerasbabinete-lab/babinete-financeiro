@@ -123,6 +123,35 @@ export async function buscarTitulos(filtros: FiltrosContasAPagar): Promise<Conta
 }
 
 // ============================================================
+// buscarTitulosPendentesAnteriores()
+// QA fix (14/08/2026, a pedido do Maycon): retorna títulos em_aberto
+// (inclui atrasados) com vencimento ANTES da data informada — usado
+// pela seção fixa de "pendências de meses anteriores" na tela, exibida
+// só quando o usuário está vendo o mês atual. Reaproveita os mesmos
+// campos de buscarTitulos (mesmo join de eventos), só muda o filtro.
+// Chamado por: app/pagar/page.tsx, apenas quando mesSelecionado === mês atual
+// ============================================================
+export async function buscarTitulosPendentesAnteriores(antesDe: string): Promise<ContaAPagar[]> {
+  const { data, error } = await supabase
+    .from(TABELA)
+    .select(`
+      *,
+      eventos:contas_a_pagar_eventos(*)
+    `)
+    .eq('status', 'em_aberto')
+    .is('deleted_at', null)
+    .lt('data_vencimento', antesDe)
+    .order('data_vencimento', { ascending: true })
+
+  if (error) {
+    console.error('[contasAPagarService] buscarTitulosPendentesAnteriores error:', error)
+    throw new Error(error.message)
+  }
+
+  return (data as ContaAPagar[]) ?? []
+}
+
+// ============================================================
 // contarTitulos()
 // Total de títulos ativos (deleted_at IS NULL) — exibido no header
 // ============================================================

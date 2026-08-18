@@ -150,6 +150,31 @@ export default function ContasReceberMobileList({
             </div>
           )
         })}
+
+        {/* ── Rodapé: total dos valores visíveis ── */}
+        {(() => {
+          const totalValor = titulos
+            .filter(t => t.deleted_at === null)
+            .reduce((acc, t) => acc + (t.valor ?? 0), 0)
+          return (
+            <div style={{
+              display:        'flex',
+              justifyContent: 'space-between',
+              alignItems:     'center',
+              padding:        '10px 16px',
+              borderTop:      '2px solid #c4d8eb',
+              background:     '#f0f4f7',
+              fontFamily:     'Tahoma, Geneva, sans-serif',
+            }}>
+              <span style={{ fontSize: '11px', color: '#5a84a6', fontWeight: 600 }}>
+                Total ({titulos.filter(t => t.deleted_at === null).length} títulos)
+              </span>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: '#1a6094' }}>
+                {formatarMoeda(totalValor)}
+              </span>
+            </div>
+          )
+        })()}
       </div>
 
       {/* ── Bottom-sheet de ações ── */}

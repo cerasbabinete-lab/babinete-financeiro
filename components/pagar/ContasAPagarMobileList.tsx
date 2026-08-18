@@ -79,6 +79,19 @@ export default function ContasAPagarMobileList({ titulos, onVisualizar, onEditar
           </div>
         )
       })}
+
+      {/* QA fix (14/08/2026, a pedido do Maycon): total da coluna
+          Valor, mesmo padrão do rodapé (tfoot) da tabela desktop */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '12px', marginTop: '4px', background: '#f0f4f7',
+        border: '1px solid #dde8f0', borderRadius: '8px',
+      }}>
+        <span style={{ fontSize: '12px', fontWeight: 700, color: '#5a6b7a' }}>Total</span>
+        <span style={{ fontSize: '15px', fontWeight: 700, color: '#1a6094' }}>
+          {formatarMoeda(titulos.reduce((soma, t) => soma + t.valor, 0))}
+        </span>
+      </div>
     </div>
   )
 }

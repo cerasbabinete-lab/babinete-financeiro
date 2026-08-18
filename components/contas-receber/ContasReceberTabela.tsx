@@ -334,6 +334,34 @@ export default function ContasReceberTabela({
             })
           )}
         </tbody>
+
+        {/* ── Rodapé: total dos valores visíveis ── */}
+        {titulos.length > 0 && (() => {
+          const totalValor = titulos
+            .filter(t => t.deleted_at === null) // Exclui cancelados do total
+            .reduce((acc, t) => acc + (t.valor ?? 0), 0)
+          return (
+            <tfoot>
+              <tr>
+                {/* Células vazias para alinhar com as colunas anteriores à coluna Valor */}
+                <td colSpan={8} style={{ padding: '6px 8px', borderTop: '2px solid #c4d8eb' }} />
+                <td style={{
+                  padding:    '6px 8px',
+                  borderTop:  '2px solid #c4d8eb',
+                  textAlign:  'right',
+                  fontWeight: 700,
+                  fontSize:   '12px',
+                  color:      '#1a6094',
+                  whiteSpace: 'nowrap',
+                  fontFamily: 'Tahoma, Geneva, sans-serif',
+                }}>
+                  {formatarMoeda(totalValor)}
+                </td>
+                <td colSpan={2} style={{ padding: '6px 8px', borderTop: '2px solid #c4d8eb' }} />
+              </tr>
+            </tfoot>
+          )
+        })()}
       </table>
     </div>
   )
