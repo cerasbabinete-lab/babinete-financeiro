@@ -82,11 +82,32 @@ function calcularFaixaDoMes(mesStr: string): { inicio: string; fim: string } {
   return { inicio, fim }
 }
 
-const LABELS_MES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+const NOMES_MESES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+]
 
-function formatarLabelMes(mesStr: string): string {
+function formatarLabelMesExtenso(mesStr: string): string {
   const [ano, mes] = mesStr.split('-').map(Number)
-  return `${LABELS_MES[mes - 1]}/${ano}`
+  return `${NOMES_MESES[mes - 1]} ${ano}`
+}
+
+// Desloca um mês "YYYY-MM" por N meses (positivo ou negativo) —
+// usado pelas setas ◀▶ do seletor
+function deslocarMes(mesStr: string, deslocamento: number): string {
+  const [ano, mes] = mesStr.split('-').map(Number)
+  const d = new Date(ano, mes - 1 + deslocamento, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+// Mesmo token visual de btnSetaStyle em ContasReceberFiltros.tsx —
+// Contas a Pagar não tem o modo "Período Livre" (só um seletor de
+// mês), então aqui as setas nunca ficam desabilitadas
+const btnSetaMesStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  width: '26px', height: '28px', background: '#ffffff',
+  border: '1px solid #dde8f0', borderRadius: '4px',
+  cursor: 'pointer', color: '#3a6080', fontSize: '13px',
 }
 
 // Gera a lista de meses do dropdown — 18 meses pra trás e 12 pra
@@ -549,24 +570,46 @@ export default function ContasAPagarPage() {
           </div>
         )}
 
-        {/* ── Seletor de mês (QA fix 14/08/2026, a pedido do Maycon) ── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-          <label style={{ fontSize: '11px', color: '#5a6b7a', fontWeight: 600 }}>Mês:</label>
+        {/* ── Seletor de mês (QA fix 14/08/2026, a pedido do Maycon) ──
+            Visual e interação alinhados ao padrão já existente em
+            ContasReceberFiltros.tsx (setas ◀▶, nome do mês por
+            extenso, mesmos tokens de estilo — selectStyle 28px,
+            btnSetaStyle). Compartilhado entre desktop e mobile (fora
+            de qualquer bloco isMobile), mesma cobertura de antes. ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+          <span style={{ fontSize: '11px', color: '#5a84a6', whiteSpace: 'nowrap', marginRight: '2px' }}>
+            Vencimento:
+          </span>
+          <button
+            onClick={() => setMesSelecionado(deslocarMes(mesSelecionado, -1))}
+            title="Mês anterior"
+            style={btnSetaMesStyle}
+          >
+            <i className="ti ti-chevron-left" aria-hidden="true" />
+          </button>
           <select
             value={mesSelecionado}
             onChange={(e) => setMesSelecionado(e.target.value)}
             style={{
-              border: '1px solid #dde8f0', borderRadius: '6px', padding: '6px 10px',
-              fontSize: '12px', fontFamily: 'Tahoma, Geneva, sans-serif', color: '#1a1a1a',
-              background: '#ffffff', cursor: 'pointer',
+              height: '28px', padding: '0 8px', fontSize: '12px',
+              fontFamily: 'Tahoma, Geneva, sans-serif', color: '#1a6094', fontWeight: 700,
+              background: '#ffffff', border: '1px solid #dde8f0', borderRadius: '4px',
+              outline: 'none', cursor: 'pointer', width: '160px',
             }}
           >
             {gerarOpcoesDeMes().map((m) => (
               <option key={m} value={m}>
-                {formatarLabelMes(m)}{m === mesAtualStr() ? ' (mês atual)' : ''}
+                {formatarLabelMesExtenso(m)}{m === mesAtualStr() ? ' (atual)' : ''}
               </option>
             ))}
           </select>
+          <button
+            onClick={() => setMesSelecionado(deslocarMes(mesSelecionado, 1))}
+            title="Próximo mês"
+            style={btnSetaMesStyle}
+          >
+            <i className="ti ti-chevron-right" aria-hidden="true" />
+          </button>
         </div>
 
         {!isMobile && (
@@ -603,7 +646,7 @@ export default function ContasAPagarPage() {
 
         {mesSelecionado === mesAtualStr() && titulosPendentesAnteriores.length > 0 && (
           <div style={{ fontSize: '12px', fontWeight: 700, color: '#1a6094', marginBottom: '6px' }}>
-            Títulos de {formatarLabelMes(mesSelecionado)}
+            Títulos de {formatarLabelMesExtenso(mesSelecionado)}
           </div>
         )}
 
