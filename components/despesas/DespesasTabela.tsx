@@ -202,6 +202,24 @@ export default function DespesasTabela({
             })
           )}
         </tbody>
+        {/* FEATURE (mesmo padrão já usado em Receitas — commit
+            "seletor de mes por emissao nas Receitas + total no rodape da
+            tabela"): rodapé com a soma de Valor Total das despesas
+            atualmente exibidas na tabela (respeitando os filtros ativos,
+            incluindo o seletor de mês) */}
+        {despesas.length > 0 && (
+          <tfoot>
+            <tr style={{ background: '#f0f4f7', borderTop: '2px solid #dde8f0', fontWeight: 700 }}>
+              <td colSpan={7} style={{ ...tdStyle(), textAlign: 'right', color: '#5a6b7a', fontWeight: 700, padding: '7px 8px' }}>
+                Total do mês
+              </td>
+              <td style={{ ...tdStyle(), textAlign: 'right', color: '#1a6094', fontWeight: 700, padding: '7px 8px' }}>
+                {formatarMoeda(despesas.reduce((soma, d) => soma + (d.valor_total ?? 0), 0))}
+              </td>
+              <td style={tdStyle()} />
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   )

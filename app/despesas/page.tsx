@@ -14,7 +14,7 @@
 
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { buscarDespesas, contarDespesas } from '@/lib/despesasService'
@@ -39,6 +39,62 @@ import DespesasTabela from '@/components/despesas/DespesasTabela'
 import DespesasMobileList from '@/components/despesas/DespesasMobileList'
 import DespesasModal from '@/components/despesas/DespesasModal'
 import BasebarDespesas from '@/components/despesas/BasebarDespesas'
+
+// ============================================================
+// Helpers de mês — seletor de vencimento por mês (mesmo padrão já usado
+// em app/receitas/page.tsx, commit "seletor de mes por emissao nas
+// Receitas + total no rodape da tabela" — aqui sincronizado com
+// vencimentoDe/vencimentoAte, os campos de data que FiltrosDespesas já
+// tem, em vez de dataEmissaoDe/dataEmissaoAte como em Receitas, já que
+// Despesas é uma tela de contas a pagar — o filtro natural é por
+// vencimento, não por emissão)
+// ============================================================
+
+function mesAtualStr(): string {
+  const hoje = new Date()
+  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`
+}
+
+function calcularFaixaDoMes(mesStr: string): { inicio: string; fim: string } {
+  const [ano, mes] = mesStr.split('-').map(Number)
+  const inicio = `${ano}-${String(mes).padStart(2, '0')}-01`
+  const ultimoDia = new Date(ano, mes, 0).getDate()
+  const fim = `${ano}-${String(mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`
+  return { inicio, fim }
+}
+
+const NOMES_MESES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+]
+
+function formatarLabelMesExtenso(mesStr: string): string {
+  const [ano, mes] = mesStr.split('-').map(Number)
+  return `${NOMES_MESES[mes - 1]} ${ano}`
+}
+
+function deslocarMes(mesStr: string, deslocamento: number): string {
+  const [ano, mes] = mesStr.split('-').map(Number)
+  const d = new Date(ano, mes - 1 + deslocamento, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function gerarOpcoesDeMes(): string[] {
+  const hoje = new Date()
+  const opcoes: string[] = []
+  for (let i = -18; i <= 12; i++) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1)
+    opcoes.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+  }
+  return opcoes
+}
+
+const btnSetaMesStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  width: '26px', height: '28px', background: '#ffffff',
+  border: '1px solid #dde8f0', borderRadius: '4px',
+  cursor: 'pointer', color: '#3a6080', fontSize: '13px',
+}
 
 // ============================================================
 // Filtros iniciais
@@ -74,6 +130,9 @@ export default function DespesasPage() {
 
   // ── Filtros ──
   const [filtros, setFiltros] = useState<FiltrosDespesas>(FILTROS_INICIAIS)
+
+  // ── Mês selecionado — seletor de vencimento (mesmo padrão de Receitas) ──
+  const [mesSelecionado, setMesSelecionado] = useState<string>(mesAtualStr())
 
   // ── Modal ──
   const [modoModal, setModoModal] = useState<ModoModalDespesa>(null)
@@ -139,6 +198,14 @@ export default function DespesasPage() {
       setCarregando(false)
     }
   }, [filtros])
+
+  // Sincroniza mês selecionado → filtros de vencimento (padrão Contas a
+  // Pagar / Receitas, adaptado para o campo de data que Despesas usa)
+  useEffect(() => {
+    const { inicio, fim } = calcularFaixaDoMes(mesSelecionado)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFiltros((f) => ({ ...f, vencimentoDe: inicio, vencimentoAte: fim }))
+  }, [mesSelecionado])
 
   // Efeito de carregamento inicial — mesmo padrão de data-fetch-on-mount
   // já usado (sem correção) em app/receitas/page.tsx:144 e
@@ -374,6 +441,43 @@ export default function DespesasPage() {
             </div>
           )}
 
+          {/* Seletor de mês — vencimento (mesmo padrão de Receitas/Contas a Pagar) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+            <span style={{ fontSize: '11px', color: '#5a84a6', whiteSpace: 'nowrap', marginRight: '2px' }}>
+              Vencimento:
+            </span>
+            <button
+              onClick={() => setMesSelecionado(deslocarMes(mesSelecionado, -1))}
+              title="Mês anterior"
+              style={btnSetaMesStyle}
+            >
+              <i className="ti ti-chevron-left" aria-hidden="true" />
+            </button>
+            <select
+              value={mesSelecionado}
+              onChange={(e) => setMesSelecionado(e.target.value)}
+              style={{
+                height: '28px', padding: '0 8px', fontSize: '12px',
+                fontFamily: 'Tahoma, Geneva, sans-serif', color: '#1a6094', fontWeight: 700,
+                background: '#ffffff', border: '1px solid #dde8f0', borderRadius: '4px',
+                outline: 'none', cursor: 'pointer', width: '160px',
+              }}
+            >
+              {gerarOpcoesDeMes().map((m) => (
+                <option key={m} value={m}>
+                  {formatarLabelMesExtenso(m)}{m === mesAtualStr() ? ' (atual)' : ''}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => setMesSelecionado(deslocarMes(mesSelecionado, 1))}
+              title="Próximo mês"
+              style={btnSetaMesStyle}
+            >
+              <i className="ti ti-chevron-right" aria-hidden="true" />
+            </button>
+          </div>
+
           <DespesasFiltros
             filtros={filtros}
             onFiltrosChange={setFiltros}
@@ -462,6 +566,33 @@ export default function DespesasPage() {
             </span>
           </div>
         )}
+
+        {/* Seletor de mês — mobile */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+          <span style={{ fontSize: '11px', color: '#5a84a6', whiteSpace: 'nowrap' }}>Vencimento:</span>
+          <button onClick={() => setMesSelecionado(deslocarMes(mesSelecionado, -1))} title="Mês anterior" style={btnSetaMesStyle}>
+            <i className="ti ti-chevron-left" aria-hidden="true" />
+          </button>
+          <select
+            value={mesSelecionado}
+            onChange={(e) => setMesSelecionado(e.target.value)}
+            style={{
+              height: '28px', padding: '0 6px', fontSize: '11px',
+              fontFamily: 'Tahoma, Geneva, sans-serif', color: '#1a6094', fontWeight: 700,
+              background: '#ffffff', border: '1px solid #dde8f0', borderRadius: '4px',
+              outline: 'none', cursor: 'pointer', flex: 1,
+            }}
+          >
+            {gerarOpcoesDeMes().map((m) => (
+              <option key={m} value={m}>
+                {formatarLabelMesExtenso(m)}{m === mesAtualStr() ? ' (atual)' : ''}
+              </option>
+            ))}
+          </select>
+          <button onClick={() => setMesSelecionado(deslocarMes(mesSelecionado, 1))} title="Próximo mês" style={btnSetaMesStyle}>
+            <i className="ti ti-chevron-right" aria-hidden="true" />
+          </button>
+        </div>
 
         <DespesasFiltros
           filtros={filtros}
