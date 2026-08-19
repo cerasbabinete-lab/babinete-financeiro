@@ -11,7 +11,7 @@
 
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import {
@@ -40,6 +40,56 @@ import ReceitasMobileList from '@/components/receitas/ReceitasMobileList'
 import ReceitasModal from '@/components/receitas/ReceitasModal'
 import BasebarReceitas from '@/components/receitas/BasebarReceitas'
 import ImportarXmlButton, { type ImportarXmlHandle } from '@/components/receitas/ImportarXmlButton'
+
+// ============================================================
+// Helpers de mês — seletor de emissão por mês (padrão Contas a Pagar)
+// ============================================================
+
+function mesAtualStr(): string {
+  const hoje = new Date()
+  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`
+}
+
+function calcularFaixaDoMes(mesStr: string): { inicio: string; fim: string } {
+  const [ano, mes] = mesStr.split('-').map(Number)
+  const inicio = `${ano}-${String(mes).padStart(2, '0')}-01`
+  const ultimoDia = new Date(ano, mes, 0).getDate()
+  const fim = `${ano}-${String(mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`
+  return { inicio, fim }
+}
+
+const NOMES_MESES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+]
+
+function formatarLabelMesExtenso(mesStr: string): string {
+  const [ano, mes] = mesStr.split('-').map(Number)
+  return `${NOMES_MESES[mes - 1]} ${ano}`
+}
+
+function deslocarMes(mesStr: string, deslocamento: number): string {
+  const [ano, mes] = mesStr.split('-').map(Number)
+  const d = new Date(ano, mes - 1 + deslocamento, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function gerarOpcoesDeMes(): string[] {
+  const hoje = new Date()
+  const opcoes: string[] = []
+  for (let i = -18; i <= 12; i++) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1)
+    opcoes.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+  }
+  return opcoes
+}
+
+const btnSetaMesStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  width: '26px', height: '28px', background: '#ffffff',
+  border: '1px solid #dde8f0', borderRadius: '4px',
+  cursor: 'pointer', color: '#3a6080', fontSize: '13px',
+}
 
 // ============================================================
 // Filtros iniciais
@@ -77,6 +127,9 @@ export default function ReceitasPage() {
 
   // ── Filtros ──
   const [filtros, setFiltros] = useState<FiltrosReceitas>(FILTROS_INICIAIS)
+
+  // ── Mês selecionado — seletor de emissão ──
+  const [mesSelecionado, setMesSelecionado] = useState<string>(mesAtualStr())
 
   // ── Modal ──
   const [modoModal,         setModoModal]         = useState<ModoModal>(null)
@@ -139,6 +192,12 @@ export default function ReceitasPage() {
       setCarregando(false)
     }
   }, [filtros])
+
+  // Sincroniza mês selecionado → filtros de data (padrão Contas a Pagar)
+  useEffect(() => {
+    const { inicio, fim } = calcularFaixaDoMes(mesSelecionado)
+    setFiltros((f) => ({ ...f, dataEmissaoDe: inicio, dataEmissaoAte: fim }))
+  }, [mesSelecionado])
 
   useEffect(() => {
     if (!authCarregando) carregarReceitas()
@@ -268,6 +327,43 @@ export default function ReceitasPage() {
 
           <FeedbackBanner />
 
+          {/* Seletor de mês — emissão (padrão Contas a Pagar) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+            <span style={{ fontSize: '11px', color: '#5a84a6', whiteSpace: 'nowrap', marginRight: '2px' }}>
+              Emissão:
+            </span>
+            <button
+              onClick={() => setMesSelecionado(deslocarMes(mesSelecionado, -1))}
+              title="Mês anterior"
+              style={btnSetaMesStyle}
+            >
+              <i className="ti ti-chevron-left" aria-hidden="true" />
+            </button>
+            <select
+              value={mesSelecionado}
+              onChange={(e) => setMesSelecionado(e.target.value)}
+              style={{
+                height: '28px', padding: '0 8px', fontSize: '12px',
+                fontFamily: 'Tahoma, Geneva, sans-serif', color: '#1a6094', fontWeight: 700,
+                background: '#ffffff', border: '1px solid #dde8f0', borderRadius: '4px',
+                outline: 'none', cursor: 'pointer', width: '160px',
+              }}
+            >
+              {gerarOpcoesDeMes().map((m) => (
+                <option key={m} value={m}>
+                  {formatarLabelMesExtenso(m)}{m === mesAtualStr() ? ' (atual)' : ''}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => setMesSelecionado(deslocarMes(mesSelecionado, 1))}
+              title="Próximo mês"
+              style={btnSetaMesStyle}
+            >
+              <i className="ti ti-chevron-right" aria-hidden="true" />
+            </button>
+          </div>
+
           <ReceitasFiltros
             filtros={filtros}
             transportadoras={transportadoras}
@@ -347,6 +443,33 @@ export default function ReceitasPage() {
             </span>
           </div>
         )}
+
+        {/* Seletor de mês — mobile */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+          <span style={{ fontSize: '11px', color: '#5a84a6', whiteSpace: 'nowrap' }}>Emissão:</span>
+          <button onClick={() => setMesSelecionado(deslocarMes(mesSelecionado, -1))} title="Mês anterior" style={btnSetaMesStyle}>
+            <i className="ti ti-chevron-left" aria-hidden="true" />
+          </button>
+          <select
+            value={mesSelecionado}
+            onChange={(e) => setMesSelecionado(e.target.value)}
+            style={{
+              height: '28px', padding: '0 6px', fontSize: '11px',
+              fontFamily: 'Tahoma, Geneva, sans-serif', color: '#1a6094', fontWeight: 700,
+              background: '#ffffff', border: '1px solid #dde8f0', borderRadius: '4px',
+              outline: 'none', cursor: 'pointer', flex: 1,
+            }}
+          >
+            {gerarOpcoesDeMes().map((m) => (
+              <option key={m} value={m}>
+                {formatarLabelMesExtenso(m)}{m === mesAtualStr() ? ' (atual)' : ''}
+              </option>
+            ))}
+          </select>
+          <button onClick={() => setMesSelecionado(deslocarMes(mesSelecionado, 1))} title="Próximo mês" style={btnSetaMesStyle}>
+            <i className="ti ti-chevron-right" aria-hidden="true" />
+          </button>
+        </div>
 
         <ReceitasFiltros
           filtros={filtros}

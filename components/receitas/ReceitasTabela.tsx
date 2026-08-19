@@ -205,6 +205,19 @@ export default function ReceitasTabela({
             })
           )}
         </tbody>
+        {receitas.length > 0 && (
+          <tfoot>
+            <tr style={{ background: '#f0f4f7', borderTop: '2px solid #dde8f0', fontWeight: 700 }}>
+              <td colSpan={10} style={{ ...tdStyle(), textAlign: 'right', color: '#5a6b7a', fontWeight: 700, padding: '7px 8px' }}>
+                Total do mês
+              </td>
+              <td style={{ ...tdStyle('7%'), textAlign: 'right', color: '#1a6094', fontWeight: 700, padding: '7px 8px' }}>
+                {formatarMoeda(receitas.reduce((soma, r) => soma + (r.valor_nf ?? 0), 0))}
+              </td>
+              <td style={tdStyle('6%')} />
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   )
