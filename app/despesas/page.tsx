@@ -17,6 +17,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { resolverUsernameExibicao } from '@/lib/authUsername'
 import { buscarDespesas, contarDespesas } from '@/lib/despesasService'
 import {
   buscarContadoresDespesasAberto,
@@ -170,7 +171,7 @@ export default function DespesasPage() {
     supabase.auth.getUser().then((result) => {
       const user = result.data?.user
       if (!user) { router.push('/login'); return }
-      setUsuario((user.email ?? '').split('@')[0])
+      setUsuario(resolverUsernameExibicao(user.email))
       setAuthCarregando(false)
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event: string) => {

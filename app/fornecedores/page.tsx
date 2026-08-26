@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { resolverUsernameExibicao } from '@/lib/authUsername'
 import { buscarFornecedores, contarFornecedores, excluirFornecedor, atualizarTipoFornecedor } from '@/lib/fornecedoresService'
 import type { Fornecedor, FiltrosFornecedores, ModoModal, TipoFornecedor } from '@/types/fornecedores'
 
@@ -81,7 +82,7 @@ export default function FornecedoresPage() {
         return
       }
       const email = session.user.email ?? ''
-      setUsuario(email.split('@')[0])
+      setUsuario(resolverUsernameExibicao(email))
       setAuthCarregando(false)
     })
   }, [router])

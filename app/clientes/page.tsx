@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { resolverUsernameExibicao } from '@/lib/authUsername'
 import { buscarClientes, contarClientesAtivos, excluirCliente } from '@/lib/clientesService'
 import type { Cliente, FiltrosClientes, ModoModal } from '@/types/clientes'
 
@@ -101,7 +102,7 @@ export default function ClientesPage() {
       }
       // Extrai nome do usuário do email (parte antes do @)
       const email = session.user.email ?? ''
-      setUsuario(email.split('@')[0])
+      setUsuario(resolverUsernameExibicao(email))
       setAuthCarregando(false)
     })
   }, [router])

@@ -22,6 +22,7 @@ import { useRouter } from 'next/navigation'
 
 // Cliente Supabase — usado exclusivamente para verificar sessão ativa
 import { supabase } from '@/lib/supabase'
+import { resolverUsernameExibicao } from '@/lib/authUsername'
 
 // Link do Next.js — usado nos cards de módulos ATIVOS para navegação SPA
 import Link from 'next/link'
@@ -51,7 +52,7 @@ const MODULOS: { label: string; href: string; icon: string; ativo: boolean }[] =
   { label: 'Contas a Pagar',  href: '/pagar',       icon: '/img/contas_pagar.svg',  ativo: true  },
   { label: 'Clientes',        href: '/clientes',    icon: '/img/clientes.svg',      ativo: true  },
   { label: 'Fornecedores',    href: '/fornecedores',icon: '/img/fornecedores.svg',  ativo: true  },
-  { label: 'Usuários',        href: '/usuarios',    icon: '/img/usuarios.svg',      ativo: false },
+  { label: 'Usuários',        href: '/usuarios',    icon: '/img/usuarios.svg',      ativo: true  },
   { label: 'Backup',          href: '/backup',      icon: '/img/backup.svg',        ativo: false },
 ]
 
@@ -118,10 +119,11 @@ export default function HomePage() {
         return
       }
 
-      // Extrai o identificador do usuário: parte antes do @ no email
-      // Ex: "maycon@cerasbabinete.com.br" → "maycon"
+      // Extrai o identificador do usuário a partir do e-mail de login
+      // — resolverUsernameExibicao() cobre o caso especial do Admin
+      // temporário (cerasbabinete@gmail.com -> "ceras"), ver lib/authUsername.ts
       const email = user.email ?? ''
-      setUsuario(email.split('@')[0]) // eslint-disable-line react-hooks/set-state-in-effect
+      setUsuario(resolverUsernameExibicao(email)) // eslint-disable-line react-hooks/set-state-in-effect
 
       // Libera o render do conteúdo — auth confirmada com sucesso
       setAuthCarregando(false) // eslint-disable-line react-hooks/set-state-in-effect

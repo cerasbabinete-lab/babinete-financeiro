@@ -8,7 +8,7 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 // Roteamento client-side — removido: redirect pós-login usa window.location.href
 // import { useRouter } from 'next/navigation'
 import Image from 'next/image'
@@ -17,23 +17,44 @@ import { supabase } from '@/lib/supabase'
 export default function LoginPage() {
 
   // router removido — redirect pós-login usa window.location.href (ver linha 38)
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
+  // Evita reexecutar o auto-login se o efeito rodar mais de uma vez
+  // (StrictMode do React em desenvolvimento monta os efeitos 2x) —
+  // useRef, não useState, porque não precisa disparar re-render
+  const autoLoginTentadoRef = useRef(false)
 
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault()
+  // ============================================================
+  // resolverEmailLogin()
+  // Traduz o username digitado no e-mail real usado pelo Supabase
+  // Auth. Caso especial do Admin (temporário — ver comentário em
+  // lib/usuariosService.ts, ehAdmin()): se o username digitado for
+  // o ADMIN_USERNAME fixo, usa o e-mail real da conta reaproveitada
+  // como Admin, em vez da fórmula padrão. Para todos os outros
+  // usuários, aplica a fórmula {username}@login.cerasbabinete.com.br
+  // (Especificação §2.1/§2.3 — mesma fórmula usada em
+  // derivarEmailTecnico() no service).
+  // ============================================================
+  function resolverEmailLogin(usernameDigitado: string): string {
+    if (usernameDigitado === process.env.NEXT_PUBLIC_ADMIN_USERNAME) {
+      return process.env.NEXT_PUBLIC_ADMIN_LOGIN_EMAIL ?? ''
+    }
+    return `${usernameDigitado}@login.cerasbabinete.com.br`
+  }
+
+  async function realizarLogin(usernameLogin: string, senhaLogin: string) {
     setErro('')
     setCarregando(true)
 
     const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password: senha,
+      email: resolverEmailLogin(usernameLogin.trim()),
+      password: senhaLogin,
     })
 
     if (error) {
-      setErro('E-mail ou senha inválidos.')
+      setErro('Usuário ou senha inválidos.')
       setCarregando(false)
       return
     }
@@ -43,6 +64,39 @@ export default function LoginPage() {
     // e interceptação do middleware — padrão aprovado no projeto para pós-auth
     window.location.href = '/'
   }
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault()
+    await realizarLogin(username, senha)
+  }
+
+  // ============================================================
+  // Auto-login em desenvolvimento (decisão desta sessão)
+  // Só ativa quando `npm run dev` (NODE_ENV==='development') E a
+  // variável NEXT_PUBLIC_DEV_AUTO_LOGIN_SENHA estiver definida no
+  // .env.local. A checagem de NODE_ENV é eliminada pelo Next.js no
+  // build de produção (dead-code elimination em comparação literal
+  // com process.env.NODE_ENV) — este bloco inteiro, e a senha que
+  // ele referencia, simplesmente não existem no bundle publicado.
+  // Objetivo: evitar ter que digitar login toda hora durante a
+  // construção/testes do sistema, SEM desligar a autenticação real
+  // (as rotas de API continuam exigindo o Bearer token normalmente
+  // — aqui só preenchemos e enviamos o formulário sozinhos).
+  // Remover este bloco quando o sistema for publicado/testado por
+  // completo (ver "On the horizon" — publicação em Vercel).
+  // ============================================================
+  useEffect(() => {
+    if (autoLoginTentadoRef.current) return
+    if (process.env.NODE_ENV !== 'development') return
+    const senhaAutoLogin = process.env.NEXT_PUBLIC_DEV_AUTO_LOGIN_SENHA
+    if (!senhaAutoLogin) return
+
+    autoLoginTentadoRef.current = true
+    const usernameAutoLogin = process.env.NEXT_PUBLIC_ADMIN_USERNAME ?? ''
+    setUsername(usernameAutoLogin) // eslint-disable-line react-hooks/set-state-in-effect
+    realizarLogin(usernameAutoLogin, senhaAutoLogin)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div
@@ -101,6 +155,23 @@ export default function LoginPage() {
           onSubmit={handleLogin}
           style={{ padding: '24px' }}
         >
+          {process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEV_AUTO_LOGIN_SENHA && (
+            <div
+              style={{
+                fontSize: '10px',
+                color: '#7a5c1e',
+                background: '#fdf6e8',
+                border: '1px solid #e8d5a3',
+                borderRadius: '4px',
+                padding: '6px 8px',
+                marginBottom: '12px',
+                fontStyle: 'italic',
+              }}
+            >
+              Modo desenvolvimento: auto-login ativo (ver .env.local)
+            </div>
+          )}
+
           <div style={{ marginBottom: '14px' }}>
             <label
               style={{
@@ -113,15 +184,16 @@ export default function LoginPage() {
                 marginBottom: '4px',
               }}
             >
-              E-mail
+              Usuário
             </label>
             <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="seu@email.com"
+              type="text"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              placeholder="seu usuário"
               required
               autoFocus
+              autoCapitalize="none"
               style={{
                 width: '100%',
                 height: '34px',

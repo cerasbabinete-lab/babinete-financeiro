@@ -22,6 +22,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { resolverUsernameExibicao } from '@/lib/authUsername'
 
 import Topbar from '@/components/layout/Topbar'
 import TopbarMobile from '@/components/layout/TopbarMobile'
@@ -66,7 +67,7 @@ export default function RelatoriosPage() {
         return
       }
       const email = session.user.email ?? ''
-      setUsuario(email.split('@')[0])
+      setUsuario(resolverUsernameExibicao(email))
       setAuthCarregando(false)
     })
   }, [router])
