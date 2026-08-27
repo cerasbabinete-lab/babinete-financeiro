@@ -52,9 +52,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // Autorização — módulo inteiro é Admin-only (Especificação §2.3),
   // independente do que a matriz de permissões do usuário diga.
-  // user.email aqui já É o email_tecnico (é o que foi passado como
-  // "email" ao criar o login na Auth Admin API) — não precisa de
-  // consulta extra à tabela usuarios pra obter esse valor.
+  // user.email aqui já é o e-mail usado para autenticar
+  // (email_tecnico para usuários criados pela fórmula padrão; para
+  // o Admin temporário atual, é o e-mail real cerasbabinete@gmail.com
+  // — ver assimetria documentada em app/login/page.tsx e
+  // lib/authUsername.ts). De qualquer forma, não precisa de consulta
+  // extra à tabela usuarios, pois ehAdmin() compara diretamente
+  // contra as variáveis de ambiente.
   if (!ehAdmin(user.id, user.email ?? '')) {
     return res.status(403).json({ erro: 'Acesso restrito ao Administrador.' })
   }

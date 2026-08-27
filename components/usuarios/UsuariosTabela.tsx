@@ -22,6 +22,7 @@
 
 import { useState } from 'react'
 import type { Usuario } from '@/types/usuarios'
+import { senhaValida, gerarSenhaAleatoria } from '@/lib/validacoesUsuarios'
 
 // ============================================================
 // Props
@@ -30,6 +31,7 @@ interface UsuariosTabelaProps {
   usuarios: Usuario[]
   carregando: boolean
   erro: string | null
+  usuarioLogado: string   // username do Admin logado — usado para desabilitar "Excluir" na própria linha (FIX-03)
   onEditar: (usuario: Usuario) => void
   onResetarSenha: (usuario: Usuario, novaSenha: string) => void
   onExcluir: (usuario: Usuario) => void
@@ -42,6 +44,7 @@ export default function UsuariosTabela({
   usuarios,
   carregando,
   erro,
+  usuarioLogado,
   onEditar,
   onResetarSenha,
   onExcluir,
@@ -194,15 +197,22 @@ export default function UsuariosTabela({
                           }}
                         />
                         <button
+                          onClick={() => setNovaSenhaDigitada(gerarSenhaAleatoria())}
+                          title="Gerar senha aleatória"
+                          style={{ ...btnAcaoStyle, fontSize: '10px', width: 'auto', padding: '2px 5px' }}
+                        >
+                          🎲
+                        </button>
+                        <button
                           onClick={() => {
-                            if (novaSenhaDigitada.trim().length < 6) return
+                            if (!senhaValida(novaSenhaDigitada)) return
                             onResetarSenha(usuario, novaSenhaDigitada.trim())
                             setConfirmando(null)
                             setNovaSenhaDigitada('')
                           }}
-                          disabled={novaSenhaDigitada.trim().length < 6}
+                          disabled={!senhaValida(novaSenhaDigitada)}
                           title="Confirmar nova senha"
-                          style={{ ...btnAcaoStyle, color: '#1a6094', fontSize: '10px', width: 'auto', padding: '2px 5px', opacity: novaSenhaDigitada.trim().length < 6 ? 0.4 : 1 }}
+                          style={{ ...btnAcaoStyle, color: '#1a6094', fontSize: '10px', width: 'auto', padding: '2px 5px', opacity: !senhaValida(novaSenhaDigitada) ? 0.4 : 1 }}
                         >
                           ✓
                         </button>
@@ -265,9 +275,10 @@ export default function UsuariosTabela({
 
                         <button
                           onClick={() => setConfirmando({ id: usuario.id, acao: 'excluir' })}
-                          title="Excluir usuário"
+                          disabled={usuario.username === usuarioLogado}
+                          title={usuario.username === usuarioLogado ? 'Não é possível excluir a própria conta' : 'Excluir usuário'}
                           aria-label={`Excluir ${usuario.nome_completo}`}
-                          style={{ ...btnAcaoStyle, color: '#dc2626' }}
+                          style={{ ...btnAcaoStyle, color: '#dc2626', opacity: usuario.username === usuarioLogado ? 0.4 : 1 }}
                           onMouseEnter={e => (e.currentTarget.style.background = '#fef2f2')}
                           onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                         >

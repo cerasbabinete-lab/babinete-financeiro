@@ -4,11 +4,11 @@
 // Módulo: Usuários
 // Função: Rota de atualização da matriz de permissões de um
 //         usuário — Especificação §5, Função 3, aba Permissões.
-//         Rejeita explicitamente qualquer tentativa de alterar as
-//         permissões do Admin, mesmo vindo de uma chamada
-//         autenticada (Especificação §5, Função 3, edge case: "not
-//         just rely on the UI being disabled" — a checagem real
-//         acontece dentro de atualizarPermissoesUsuario(), não aqui).
+//         Reversão #1 (26/08/2026, confirmada por Maycon): as
+//         permissões do Admin são editáveis como as de qualquer
+//         outro usuário — não há bloqueio aqui nem em
+//         atualizarPermissoesUsuario(). Ver
+//         Handoff_Modulo_Usuarios_Builder_para_Audit.md, Seção 6.1.
 // Conecta com: lib/usuariosService.ts (atualizarPermissoesUsuario, ehAdmin),
 //              types/usuarios.ts (PermissaoTogglePayload),
 //              components/usuarios/UsuarioFormModal.tsx
@@ -53,9 +53,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // A checagem "é o Admin?" do usuário-ALVO (não de quem está
-    // chamando a rota) acontece dentro desta função — bloqueio real,
-    // não decorativo (ver header deste arquivo)
+    // Nenhuma checagem de Admin-alvo acontece aqui nem dentro de
+    // atualizarPermissoesUsuario() — comportamento intencional
+    // (Reversão #1, ver header deste arquivo)
     await atualizarPermissoesUsuario(usuarioId, mudancas, supabaseAdmin)
     return res.status(200).json({ sucesso: true })
   } catch (err: unknown) {

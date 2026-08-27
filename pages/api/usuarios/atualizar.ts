@@ -18,6 +18,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 
 import { atualizarUsuario, emailValido, ehAdmin } from '@/lib/usuariosService'
+import { validarCpfCnpj } from '@/lib/validacoesUsuarios'
 import type { UsuarioUpdate } from '@/types/usuarios'
 
 function getSupabaseAdmin() {
@@ -48,10 +49,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ erro: 'Corpo da requisição incompleto: id é obrigatório.' })
   }
 
+  // Payload só com id, sem nenhum campo a atualizar — evita um
+  // .update({}) sem efeito definido no Supabase (FIX-14, Handoff_
+  // Modulo_Usuarios_Audit_para_QA.md)
+  if (Object.keys(dados).filter((k) => k !== 'id').length === 0) {
+    return res.status(400).json({ erro: 'Nenhum campo para atualizar foi enviado.' })
+  }
+
   // Reaplica validação de formato de e-mail se email_pessoal veio no payload
   // (Especificação §5, Função 3, edge cases — "re-apply the same field validations")
   if (dados.email_pessoal !== undefined && !emailValido(dados.email_pessoal)) {
     return res.status(400).json({ erro: 'E-mail pessoal em formato inválido.' })
+  }
+
+  // Reaplica validação de formato de cpf_cnpj se veio no payload (FIX-15)
+  if (dados.cpf_cnpj !== undefined && !validarCpfCnpj(dados.cpf_cnpj)) {
+    return res.status(400).json({ erro: 'CPF/CNPJ em formato inválido.' })
   }
 
   // Checagem de campo vazio para os campos que vieram no payload

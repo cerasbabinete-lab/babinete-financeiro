@@ -15,6 +15,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 
 import { criarUsuario, emailValido, senhaValida, ehAdmin } from '@/lib/usuariosService'
+import { validarCpfCnpj } from '@/lib/validacoesUsuarios'
 import type { UsuarioInsert } from '@/types/usuarios'
 
 function getSupabaseAdmin() {
@@ -63,6 +64,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // Passo 4 — valida formato de email_pessoal (Especificação §5, Função 1, passo 4)
   if (!emailValido(dados.email_pessoal)) {
     return res.status(400).json({ erro: 'E-mail pessoal em formato inválido.' })
+  }
+
+  // Passo 3 — valida formato de cpf_cnpj por dígito verificador (FIX-15)
+  if (!validarCpfCnpj(dados.cpf_cnpj)) {
+    return res.status(400).json({ erro: 'CPF/CNPJ em formato inválido.' })
   }
 
   // Passos de unicidade de username, email_tecnico, Auth, insert

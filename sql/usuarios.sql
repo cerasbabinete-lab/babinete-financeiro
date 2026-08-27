@@ -113,6 +113,12 @@ ALTER TABLE usuarios_permissoes ADD CONSTRAINT usuarios_permissoes_acao_check
 CREATE INDEX IF NOT EXISTS usuarios_permissoes_usuario_id_idx
   ON usuarios_permissoes (usuario_id);
 
+-- FIX-05 (Handoff_Modulo_Usuarios_Audit_para_QA.md): garante no
+-- schema a invariante de "uma linha por (usuario_id, modulo, acao)"
+-- que o app já assume — necessária para o upsert em lote do FIX-08.
+CREATE UNIQUE INDEX IF NOT EXISTS usuarios_permissoes_usuario_modulo_acao_key
+  ON usuarios_permissoes (usuario_id, modulo, acao);
+
 CREATE OR REPLACE FUNCTION set_updated_at_usuarios_permissoes()
 RETURNS TRIGGER AS $$
 BEGIN

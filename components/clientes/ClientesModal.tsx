@@ -328,7 +328,6 @@ export default function ClientesModal({
         padding: '16px',
         fontFamily: 'Tahoma, Geneva, sans-serif',
       }}
-      onClick={e => { if (e.target === e.currentTarget) onFechar() }}
     >
       {/* Card do modal */}
       <div

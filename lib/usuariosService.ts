@@ -33,6 +33,12 @@ import type {
   AcaoPermissao,
 } from '@/types/usuarios'
 import { enviarEmailNovaSenha } from '@/lib/usuariosMailer'
+import { senhaValida, emailValido } from '@/lib/validacoesUsuarios'
+
+// Re-exportadas para não quebrar os imports existentes em
+// pages/api/usuarios/{criar,atualizar,resetar-senha}.ts — a
+// implementação real agora vive em lib/validacoesUsuarios.ts (FIX-12)
+export { senhaValida, emailValido }
 
 // ============================================================
 // CONSTANTES
@@ -87,33 +93,10 @@ export function ehAdmin(authUserId: string, emailLogin: string): boolean {
   return authUserId === adminAuthUserId && emailLogin === adminLoginEmail
 }
 
-// ============================================================
-// senhaValida()
-// Piso mínimo de sanidade para a senha digitada pelo Admin (6
-// caracteres) — não é exigência de complexidade, só evita campo
-// vazio ou senha de 1-2 caracteres por engano. Decisão desta
-// sessão (26/08/2026): sistema não sorteia mais senha, Admin digita
-// diretamente na criação e no reset.
-// Chamado por: pages/api/usuarios/criar.ts, pages/api/usuarios/resetar-senha.ts
-// ============================================================
-export function senhaValida(senha: string): boolean {
-  return senha.trim().length >= 6
-}
-
-// ============================================================
-// emailValido()
-// Validação simples de formato de e-mail bem-formado — usada para
-// email_pessoal (Especificação §5, Função 1, passo 4 e Função 3,
-// edge cases). Não existe validador de e-mail em nenhum outro lugar
-// do projeto para reaproveitar (confirmado por busca no repositório).
-// Regex propositalmente simples (não cobre todos os casos exóticos
-// da RFC 5322) — suficiente para pegar erros de digitação óbvios,
-// consistente com o nível de rigor usado no resto do projeto.
-// Chamado por: pages/api/usuarios/criar.ts, pages/api/usuarios/atualizar.ts
-// ============================================================
-export function emailValido(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-}
+// senhaValida() e emailValido() foram extraídas para
+// lib/validacoesUsuarios.ts (FIX-12) — importadas e re-exportadas
+// no topo deste arquivo para manter compatibilidade com os imports
+// existentes.
 
 // ============================================================
 // derivarEmailTecnico()
@@ -184,9 +167,19 @@ export async function buscarUsuarioComPermissoes(
     throw new Error(erroPermissoes.message)
   }
 
+  // FIX-06 (Handoff_Modulo_Usuarios_Audit_para_QA.md): garante a
+  // ordem fixa MODULOS_FIXOS x ACOES_FIXAS documentada em
+  // types/usuarios.ts, Seção 2.1 — Postgres não garante isso sem
+  // ORDER BY explícito, então a ordenação é feita aqui em JS.
+  const permissoesOrdenadas = MODULOS_FIXOS.flatMap((modulo) =>
+    ACOES_FIXAS.map((acao) =>
+      (permissoes as UsuarioPermissao[]).find((p) => p.modulo === modulo && p.acao === acao)!
+    )
+  )
+
   return {
     usuario: usuario as Usuario,
-    permissoes: permissoes as UsuarioPermissao[],
+    permissoes: permissoesOrdenadas,
   }
 }
 
@@ -246,6 +239,13 @@ export async function criarUsuario(
   dados: UsuarioInsert,
   client: SupabaseClient,   // Client admin — necessário tanto para as tabelas quanto para client.auth.admin.*
 ): Promise<{ usuario: Usuario }> {
+  // Normaliza username para minúsculas — evita "Sheli" e "sheli"
+  // coexistindo como usuários distintos (DECISION-02, Handoff_
+  // Modulo_Usuarios_Audit_para_QA.md). Ponto único de normalização:
+  // tudo a partir daqui (checagem de unicidade, email_tecnico,
+  // gravação) usa a forma já normalizada.
+  dados = { ...dados, username: dados.username.trim().toLowerCase() }
+
   // Passo 1 — unicidade de username entre usuários ativos
   const disponivel = await usernameDisponivel(dados.username, client)
   if (!disponivel) {
@@ -316,6 +316,12 @@ export async function criarUsuario(
     console.error('[usuariosService] criarUsuario (insert permissoes) error:', erroInsertPermissoes)
     // Rollback total — desfaz o usuario E o Auth, tratando a operação inteira como falha
     // (Especificação §5, Função 1: "the whole operation should be treated as failed and rolled back")
+    // NOTA: DELETE físico aqui é uma exceção deliberada e única à
+    // convenção de soft-delete do projeto — isto não é a exclusão de
+    // um usuário real, é desfazer uma transação de criação que nunca
+    // chegou a se completar (compensating transaction), não um
+    // registro que precisa de histórico (FIX-07, Handoff_Modulo_
+    // Usuarios_Audit_para_QA.md)
     await client.from(TABELA_USUARIOS).delete().eq('id', usuarioInserido.id).then(
       () => {},
       (rollbackErr) => console.error('[usuariosService] criarUsuario rollback (delete usuarios) falhou:', rollbackErr),
@@ -344,16 +350,22 @@ export async function atualizarUsuario(
 ): Promise<Usuario> {
   const { id, ...campos } = dados
 
+  // Normaliza username para minúsculas, se veio no payload (DECISION-02)
+  if (campos.username) {
+    campos.username = campos.username.trim().toLowerCase()
+  }
+
   // Busca o registro atual para comparar username e obter auth_user_id
   const { data: atual, error: erroBusca } = await client
     .from(TABELA_USUARIOS)
-    .select('username, auth_user_id')
+    .select('username, auth_user_id, email_tecnico')
     .eq('id', id)
+    .is('deleted_at', null)
     .single()
 
   if (erroBusca || !atual) {
     console.error('[usuariosService] atualizarUsuario (busca atual) error:', erroBusca)
-    throw new Error(erroBusca?.message ?? 'Usuário não encontrado.')
+    throw new Error(erroBusca?.message ?? 'Usuário não encontrado ou já excluído.')
   }
 
   const camposParaAtualizar: Record<string, unknown> = { ...campos }
@@ -391,6 +403,24 @@ export async function atualizarUsuario(
 
   if (error) {
     console.error('[usuariosService] atualizarUsuario error:', error)
+
+    // Se o e-mail no Auth já foi trocado (username mudou) mas este
+    // UPDATE na tabela falhou, tenta reverter o Auth pro e-mail
+    // antigo para evitar divergência (login novo, registro exibido
+    // antigo) — FIX-02, Handoff_Modulo_Usuarios_Audit_para_QA.md
+    if (campos.username) {
+      const { error: erroRollback } = await client.auth.admin.updateUserById(atual.auth_user_id, {
+        email: atual.email_tecnico,
+        email_confirm: true,
+      })
+      if (erroRollback) {
+        console.error('[usuariosService] atualizarUsuario (rollback Auth email) error:', erroRollback)
+        throw new Error(
+          `${error.message} — ATENÇÃO: o e-mail de login no Auth pode estar dessincronizado com a tabela usuarios e precisa de verificação manual.`,
+        )
+      }
+    }
+
     throw new Error(error.message)
   }
 
@@ -414,19 +444,37 @@ export async function atualizarPermissoesUsuario(
   mudancas: PermissaoTogglePayload[],
   client: SupabaseClient,
 ): Promise<void> {
-  // Aplica cada mudança individualmente — update por (usuario_id, modulo, acao)
-  for (const mudanca of mudancas) {
-    const { error } = await client
-      .from(TABELA_PERMISSOES)
-      .update({ permitido: mudanca.permitido })
-      .eq('usuario_id', usuarioId)
-      .eq('modulo', mudanca.modulo)
-      .eq('acao', mudanca.acao)
+  // Upsert em lote — substitui o loop de N updates sequenciais por
+  // uma única chamada de rede (FIX-08, Handoff_Modulo_Usuarios_
+  // Audit_para_QA.md). Depende da constraint UNIQUE (usuario_id,
+  // modulo, acao) criada no Supabase (FIX-05) — sem ela, o upsert
+  // insere linhas duplicadas em vez de atualizar as existentes.
+  const linhas = mudancas.map((m) => ({
+    usuario_id: usuarioId,
+    modulo: m.modulo,
+    acao: m.acao,
+    permitido: m.permitido,
+  }))
 
-    if (error) {
-      console.error('[usuariosService] atualizarPermissoesUsuario error:', error)
-      throw new Error(error.message)
-    }
+  const { data: afetadas, error } = await client
+    .from(TABELA_PERMISSOES)
+    .upsert(linhas, { onConflict: 'usuario_id,modulo,acao' })
+    .select('modulo, acao')
+
+  if (error) {
+    console.error('[usuariosService] atualizarPermissoesUsuario error:', error)
+    throw new Error(error.message)
+  }
+
+  // FIX-09: confirma que todas as mudanças pedidas realmente foram
+  // aplicadas — um (modulo, acao) inválido antes falhava em
+  // silêncio (nenhuma linha afetada, nenhum erro reportado)
+  if (!afetadas || afetadas.length !== mudancas.length) {
+    const aplicadas = new Set((afetadas ?? []).map((a) => `${a.modulo}:${a.acao}`))
+    const naoAplicadas = mudancas
+      .filter((m) => !aplicadas.has(`${m.modulo}:${m.acao}`))
+      .map((m) => `${m.modulo}/${m.acao}`)
+    throw new Error(`Falha ao aplicar permissões: combinação(ões) inválida(s) — ${naoAplicadas.join(', ')}`)
   }
 }
 
@@ -507,6 +555,14 @@ export async function excluirUsuario(usuarioId: string, client: SupabaseClient):
   if (erroBusca || !usuario) {
     console.error('[usuariosService] excluirUsuario (busca) error:', erroBusca)
     throw new Error(erroBusca?.message ?? 'Usuário não encontrado ou já excluído.')
+  }
+
+  // Bloqueia a auto-exclusão do Admin — risco de lockout total do
+  // sistema (bootstrap temporário, ver Handoff_Modulo_Usuarios_
+  // Builder_para_Audit.md Seção 6.4) — FIX-03, Handoff_Modulo_
+  // Usuarios_Audit_para_QA.md
+  if (usuario.auth_user_id === process.env.ADMIN_AUTH_USER_ID) {
+    throw new Error('Não é possível excluir o próprio usuário Administrador.')
   }
 
   // Passo 1 — soft-delete na tabela usuarios (padrão do projeto: nunca DELETE físico)

@@ -491,7 +491,6 @@ export default function FornecedoresModal({
         padding: '16px',
         fontFamily: 'Tahoma, Geneva, sans-serif',
       }}
-      onClick={e => { if (e.target === e.currentTarget) onFechar() }}
     >
       <div
         style={{

@@ -38,26 +38,48 @@ export default function LoginPage() {
   // derivarEmailTecnico() no service).
   // ============================================================
   function resolverEmailLogin(usernameDigitado: string): string {
-    if (usernameDigitado === process.env.NEXT_PUBLIC_ADMIN_USERNAME) {
+    // Normaliza para minúsculas — usernames são sempre gravados em
+    // minúsculas (DECISION-02, Handoff_Modulo_Usuarios_Audit_para_QA.md),
+    // então o login precisa comparar da mesma forma
+    const usernameNormalizado = usernameDigitado.trim().toLowerCase()
+    if (usernameNormalizado === process.env.NEXT_PUBLIC_ADMIN_USERNAME) {
       return process.env.NEXT_PUBLIC_ADMIN_LOGIN_EMAIL ?? ''
     }
-    return `${usernameDigitado}@login.cerasbabinete.com.br`
+    return `${usernameNormalizado}@login.cerasbabinete.com.br`
   }
 
   async function realizarLogin(usernameLogin: string, senhaLogin: string) {
     setErro('')
     setCarregando(true)
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: resolverEmailLogin(usernameLogin.trim()),
       password: senhaLogin,
     })
 
     if (error) {
+      // Log de auditoria (login_falha) — fire-and-forget, nunca
+      // bloqueia nem atrasa o feedback de erro pro usuário
+      fetch('/api/logs/registrar-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: usernameLogin.trim(), sucesso: false }),
+        keepalive: true,
+      }).catch(() => {})
+
       setErro('Usuário ou senha inválidos.')
       setCarregando(false)
       return
     }
+
+    // Log de auditoria (login_sucesso) — keepalive garante que a
+    // requisição sobrevive ao hard navigation logo abaixo
+    fetch('/api/logs/registrar-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: usernameLogin.trim(), sucesso: true, token: data.session?.access_token }),
+      keepalive: true,
+    }).catch(() => {})
 
     // Redireciona para a Home após login bem-sucedido
     // window.location.href (hard navigation) evita race condition entre escrita do cookie

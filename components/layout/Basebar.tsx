@@ -12,7 +12,7 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { fazerBackup, listarBackups, baixarBackup, restaurarBackup } from '@/lib/clientesService'
 import type { Cliente } from '@/types/clientes'
 import ExportDropdown from '@/components/clientes/ExportDropdown'
@@ -33,6 +33,9 @@ interface BasebarProps {
 export default function Basebar({ clientes, usuario, onNovoCliente, onRestaurado }: BasebarProps) {
 
   const [loadingBackup, setLoadingBackup] = useState(false)
+  // Rastreia se o mousedown começou no overlay — evita fechar o
+  // modal ao selecionar texto arrastando o mouse e soltar fora dele
+  const mousedownNoOverlayRef = useRef(false)
   const [loadingRestore, setLoadingRestore] = useState(false)
   const [modalRestaurar, setModalRestaurar] = useState(false)
   const [arquivosBackup, setArquivosBackup] = useState<string[]>([])
@@ -153,7 +156,11 @@ export default function Basebar({ clientes, usuario, onNovoCliente, onRestaurado
             display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
             fontFamily: 'Tahoma, Geneva, sans-serif',
           }}
-          onClick={e => { if (e.target === e.currentTarget) setModalRestaurar(false) }}
+          onMouseDown={e => { mousedownNoOverlayRef.current = e.target === e.currentTarget }}
+          onClick={e => {
+            if (mousedownNoOverlayRef.current && e.target === e.currentTarget) setModalRestaurar(false)
+            mousedownNoOverlayRef.current = false
+          }}
         >
           <div
             style={{

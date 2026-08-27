@@ -21,7 +21,7 @@
 
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { resolverUsernameExibicao } from '@/lib/authUsername'
@@ -36,8 +36,10 @@ import Drawer from '@/components/layout/Drawer'
 // Módulo Usuários
 import UsuariosTabela from '@/components/usuarios/UsuariosTabela'
 import UsuarioFormModal from '@/components/usuarios/UsuarioFormModal'
+import LogAcessoTabela from '@/components/usuarios/LogAcessoTabela'
 
 type ModoModal = 'novo' | 'editar' | null
+type AbaPagina = 'usuarios' | 'log'
 
 export default function UsuariosPage() {
 
@@ -45,6 +47,11 @@ export default function UsuariosPage() {
 
   const [usuarioLogado, setUsuarioLogado] = useState<string>('')
   const [authCarregando, setAuthCarregando] = useState(true)
+  const [abaAtiva, setAbaAtiva] = useState<AbaPagina>('usuarios')
+  // Rastreia se o mousedown começou no overlay do dialogReset —
+  // evita fechar ao selecionar texto arrastando o mouse (ex.: copiar
+  // o e-mail exibido) e soltar fora da caixa
+  const mousedownNoOverlayRef = useRef(false)
 
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [carregando, setCarregando] = useState(true)
@@ -75,12 +82,15 @@ export default function UsuariosPage() {
   // Verificação de autenticação + autorização (Admin-only)
   // ============================================================
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
+    // getUser() valida o JWT contra o servidor Supabase (mais seguro
+    // que getSession(), que só lê o localStorage) — FIX-10, Handoff_
+    // Modulo_Usuarios_Audit_para_QA.md
+    supabase.auth.getUser().then(({ data: { user }, error }) => {
+      if (!user || error) {
         router.push('/login')
         return
       }
-      const emailLogin = session.user.email ?? ''
+      const emailLogin = user.email ?? ''
       const usernameAtual = resolverUsernameExibicao(emailLogin)
       setUsuarioLogado(usernameAtual)
 
@@ -95,7 +105,17 @@ export default function UsuariosPage() {
       }
 
       setAuthCarregando(false)
+    }).catch(() => {
+      router.push('/login')
     })
+
+    // Listener reativo — redireciona imediatamente em SIGNED_OUT
+    // (logout remoto, sessão expirada, logout em outra aba) — FIX-11
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') router.push('/login')
+    })
+
+    return () => subscription.unsubscribe()
   }, [router])
 
   // ============================================================
@@ -232,21 +252,44 @@ export default function UsuariosPage() {
   // pra justificar um Header dedicado como FornecedoresHeader.tsx)
   // ============================================================
   const headerConteudo = (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-      <div>
-        <div style={{ fontSize: isMobile ? '13px' : '15px', fontWeight: 700, color: '#1a6094' }}>Usuários</div>
-        <div style={{ fontSize: '10px', color: '#5a84a6' }}>{usuarios.length} usuário{usuarios.length === 1 ? '' : 's'} cadastrado{usuarios.length === 1 ? '' : 's'}</div>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+        <div>
+          <div style={{ fontSize: isMobile ? '13px' : '15px', fontWeight: 700, color: '#1a6094' }}>Usuários</div>
+          <div style={{ fontSize: '10px', color: '#5a84a6' }}>{usuarios.length} usuário{usuarios.length === 1 ? '' : 's'} cadastrado{usuarios.length === 1 ? '' : 's'}</div>
+        </div>
+        {abaAtiva === 'usuarios' && (
+          <button
+            onClick={handleNovoUsuario}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '5px', padding: '7px 14px', fontSize: '12px', fontWeight: 700,
+              fontFamily: 'Tahoma, Geneva, sans-serif', background: '#1a6094', color: '#ffffff', border: '1px solid #1a6094',
+              borderRadius: '5px', cursor: 'pointer',
+            }}
+          >
+            <i className="ti ti-plus" aria-hidden="true" /> Novo Usuário
+          </button>
+        )}
       </div>
-      <button
-        onClick={handleNovoUsuario}
-        style={{
-          display: 'flex', alignItems: 'center', gap: '5px', padding: '7px 14px', fontSize: '12px', fontWeight: 700,
-          fontFamily: 'Tahoma, Geneva, sans-serif', background: '#1a6094', color: '#ffffff', border: '1px solid #1a6094',
-          borderRadius: '5px', cursor: 'pointer',
-        }}
-      >
-        <i className="ti ti-plus" aria-hidden="true" /> Novo Usuário
-      </button>
+
+      {/* Abas — Log de Acesso é Admin-only, mas o módulo inteiro já é
+          (checagem de acesso no topo desta página), então não precisa
+          de gate extra aqui */}
+      <div style={{ display: 'flex', gap: '4px', borderBottom: '1px solid #dde8f0', marginBottom: '12px' }}>
+        {(['usuarios', 'log'] as const).map(aba => (
+          <button
+            key={aba}
+            onClick={() => setAbaAtiva(aba)}
+            style={{
+              padding: '7px 14px', fontSize: '12px', fontWeight: 700, fontFamily: 'Tahoma, Geneva, sans-serif',
+              background: 'none', border: 'none', borderBottom: abaAtiva === aba ? '2px solid #1a6094' : '2px solid transparent',
+              color: abaAtiva === aba ? '#1a6094' : '#5a84a6', cursor: 'pointer', marginBottom: '-1px',
+            }}
+          >
+            {aba === 'usuarios' ? 'Usuários' : 'Log de Acesso'}
+          </button>
+        ))}
+      </div>
     </div>
   )
 
@@ -262,7 +305,11 @@ export default function UsuariosPage() {
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px',
         fontFamily: 'Tahoma, Geneva, sans-serif',
       }}
-      onClick={e => { if (e.target === e.currentTarget) setResetInfo(null) }}
+      onMouseDown={e => { mousedownNoOverlayRef.current = e.target === e.currentTarget }}
+      onClick={e => {
+        if (mousedownNoOverlayRef.current && e.target === e.currentTarget) setResetInfo(null)
+        mousedownNoOverlayRef.current = false
+      }}
     >
       <div style={{ background: '#ffffff', borderRadius: '8px', width: '100%', maxWidth: '380px', overflow: 'hidden' }}>
         <div style={{ background: '#1a6094', padding: '10px 16px' }}>
@@ -297,14 +344,19 @@ export default function UsuariosPage() {
 
         <main style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
           {headerConteudo}
-          <UsuariosTabela
-            usuarios={usuarios}
-            carregando={carregando}
-            erro={erroLista}
-            onEditar={handleEditar}
-            onResetarSenha={handleResetarSenha}
-            onExcluir={handleExcluir}
-          />
+          {abaAtiva === 'usuarios' ? (
+            <UsuariosTabela
+              usuarios={usuarios}
+              carregando={carregando}
+              erro={erroLista}
+              usuarioLogado={usuarioLogado}
+              onEditar={handleEditar}
+              onResetarSenha={handleResetarSenha}
+              onExcluir={handleExcluir}
+            />
+          ) : (
+            <LogAcessoTabela />
+          )}
         </main>
 
         {modoModal && (
@@ -331,14 +383,19 @@ export default function UsuariosPage() {
 
       <main style={{ flex: 1, padding: '10px 12px' }}>
         {headerConteudo}
-        <UsuariosTabela
-          usuarios={usuarios}
-          carregando={carregando}
-          erro={erroLista}
-          onEditar={handleEditar}
-          onResetarSenha={handleResetarSenha}
-          onExcluir={handleExcluir}
-        />
+        {abaAtiva === 'usuarios' ? (
+          <UsuariosTabela
+            usuarios={usuarios}
+            carregando={carregando}
+            erro={erroLista}
+            usuarioLogado={usuarioLogado}
+            onEditar={handleEditar}
+            onResetarSenha={handleResetarSenha}
+            onExcluir={handleExcluir}
+          />
+        ) : (
+          <LogAcessoTabela />
+        )}
       </main>
 
       {modoModal && (

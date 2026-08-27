@@ -16,6 +16,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { registrarLogoutClient } from '@/lib/logsClient'
 
 // QA fix (achado Médio #18 — Relatorio_Auditoria_Modulo_Despesas.md):
 // campo "habilitado" adicionado — "Contas a Pagar" apontava para /pagar,
@@ -51,12 +52,14 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
 
   async function handleTrocar() {
     onClose()
+    await registrarLogoutClient()
     await supabase.auth.signOut()
     router.push('/login')
   }
 
   async function handleSair() {
     onClose()
+    await registrarLogoutClient()
     await supabase.auth.signOut()
     window.close()
     router.push('/encerrado')

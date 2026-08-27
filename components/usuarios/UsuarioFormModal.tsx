@@ -19,6 +19,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { senhaValida, emailValido, validarCpfCnpj, gerarSenhaAleatoria } from '@/lib/validacoesUsuarios'
 import type {
   Usuario,
   UsuarioPermissao,
@@ -234,10 +235,11 @@ export default function UsuarioFormModal({
     if (!form.nome_completo.trim()) novosErros.nome_completo = 'Obrigatório'
     if (!form.username.trim()) novosErros.username = 'Obrigatório'
     if (!form.cpf_cnpj.trim()) novosErros.cpf_cnpj = 'Obrigatório'
+    else if (!validarCpfCnpj(form.cpf_cnpj)) novosErros.cpf_cnpj = 'CPF/CNPJ inválido'
     if (!form.data_nascimento.trim()) novosErros.data_nascimento = 'Obrigatório'
     if (!form.celular_whatsapp.trim()) novosErros.celular_whatsapp = 'Obrigatório'
     if (!form.email_pessoal.trim()) novosErros.email_pessoal = 'Obrigatório'
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email_pessoal)) novosErros.email_pessoal = 'E-mail inválido'
+    else if (!emailValido(form.email_pessoal)) novosErros.email_pessoal = 'E-mail inválido'
 
     setErros(novosErros)
 
@@ -246,7 +248,7 @@ export default function UsuarioFormModal({
     let senhaOk = true
     if (modo === 'novo') {
       if (!senha.trim()) { setErroSenha('Obrigatório'); senhaOk = false }
-      else if (senha.trim().length < 6) { setErroSenha('Mínimo de 6 caracteres'); senhaOk = false }
+      else if (!senhaValida(senha)) { setErroSenha('Mínimo de 6 caracteres'); senhaOk = false }
       else setErroSenha(null)
     }
 
@@ -331,8 +333,13 @@ export default function UsuarioFormModal({
   // ============================================================
   // Render principal — modal com abas
   // ============================================================
+  // Overlay sem fechamento por clique fora — decisão explícita
+  // (27/08/2026): é um formulário com dados digitados, fechar sem
+  // querer perde a edição. Só fecha pelo X ou pelo botão Cancelar
+  // (ambos chamam onFechar diretamente), ou automaticamente após
+  // salvar com sucesso.
   return (
-    <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onFechar() }}>
+    <div style={overlayStyle}>
       <div style={boxStyle}>
 
         {/* Header */}
@@ -402,13 +409,23 @@ export default function UsuarioFormModal({
                 <div style={rowStyle}>
                   <div style={colStyle()}>
                     <label style={labelStyle}>Senha *</label>
-                    <input
-                      type="text"
-                      value={senha}
-                      onChange={e => { setSenha(e.target.value); setErroSenha(null) }}
-                      placeholder="Mínimo 6 caracteres"
-                      style={{ ...inputStyle, borderColor: erroSenha ? '#dc2626' : '#dde8f0' }}
-                    />
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <input
+                        type="text"
+                        value={senha}
+                        onChange={e => { setSenha(e.target.value); setErroSenha(null) }}
+                        placeholder="Mínimo 6 caracteres"
+                        style={{ ...inputStyle, borderColor: erroSenha ? '#dc2626' : '#dde8f0' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setSenha(gerarSenhaAleatoria()); setErroSenha(null) }}
+                        title="Gerar senha aleatória"
+                        style={{ ...inputStyle, width: 'auto', whiteSpace: 'nowrap', cursor: 'pointer', background: '#f0f4f7', color: '#1a6094', fontWeight: 600 }}
+                      >
+                        Gerar senha
+                      </button>
+                    </div>
                     {erroSenha && <span style={erroCampoStyle}>{erroSenha}</span>}
                     <span style={{ fontSize: '9px', color: '#5a84a6' }}>
                       Guarde esta senha em local seguro — o sistema não permite consultá-la depois.

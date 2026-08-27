@@ -14,6 +14,7 @@
 'use client'
 
 import { supabase } from '@/lib/supabase'
+import { registrarLogoutClient } from '@/lib/logsClient'
 import { useRouter } from 'next/navigation'
 
 interface TopbarProps {
@@ -25,11 +26,13 @@ export default function Topbar({ usuario = '' }: TopbarProps) {
   const router = useRouter()
 
   async function handleTrocar() {
+    await registrarLogoutClient()
     await supabase.auth.signOut()
     router.push('/login')
   }
 
   async function handleSair() {
+    await registrarLogoutClient()
     await supabase.auth.signOut()
     window.close()
     router.push('/encerrado')
