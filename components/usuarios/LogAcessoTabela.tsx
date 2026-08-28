@@ -41,12 +41,48 @@ function formatarDataHora(iso: string): string {
   return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' })
 }
 
+// ============================================================
+// formatarLogsParaTxt() / baixarTxt()
+// Exportação do Log de Acesso em texto puro — usada pelos botões
+// "Exportar página" e "Exportar tudo". Formato: uma linha por
+// registro, campos separados por " | ", cabeçalho com metadados.
+// ============================================================
+function formatarLogsParaTxt(logs: LogAcesso[], escopo: string): string {
+  const geradoEm = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' })
+  const linhas = [
+    'Log de Acesso — Ceras Babinete Gestão Financeira',
+    `Exportado em: ${geradoEm}`,
+    `Escopo: ${escopo}`,
+    `Total de registros: ${logs.length}`,
+    '='.repeat(70),
+    '',
+    ...logs.map(log =>
+      `${formatarDataHora(log.created_at)} | ${log.username} | ${ROTULO_EVENTO[log.tipo_evento]} | Módulo: ${log.modulo ?? '—'} | Registro: ${log.registro_descricao ?? '—'} | IP: ${log.ip_address ?? '—'}`
+    ),
+  ]
+  return linhas.join('\n')
+}
+
+function baixarTxt(conteudo: string, nomeArquivo: string): void {
+  const blob = new Blob([conteudo], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = nomeArquivo
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
 export default function LogAcessoTabela() {
   const [logs, setLogs] = useState<LogAcesso[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [pagina, setPagina] = useState(1)
   const [total, setTotal] = useState(0)
+  const [exportandoTudo, setExportandoTudo] = useState(false)
+  const [erroExport, setErroExport] = useState<string | null>(null)
 
   const carregarLogs = useCallback(async (paginaAlvo: number) => {
     setCarregando(true)
@@ -75,6 +111,44 @@ export default function LogAcessoTabela() {
 
   const totalPaginas = Math.max(1, Math.ceil(total / TAMANHO_PAGINA))
 
+  function exportarPaginaAtual() {
+    const nomeArquivo = `log-acesso_pagina-${pagina}_${new Date().toISOString().slice(0, 10)}.txt`
+    baixarTxt(formatarLogsParaTxt(logs, `Página ${pagina} de ${totalPaginas} (${logs.length} registros desta página)`), nomeArquivo)
+  }
+
+  async function exportarTudo() {
+    setExportandoTudo(true)
+    setErroExport(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token ?? ''
+
+      const todos: LogAcesso[] = []
+      let paginaAtual = 1
+      let totalGeral = Infinity
+      const TAMANHO_LOTE = 200 // máximo aceito por pages/api/logs/listar.ts
+
+      while (todos.length < totalGeral) {
+        const res = await fetch(`/api/logs/listar?pagina=${paginaAtual}&tamanhoPagina=${TAMANHO_LOTE}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.erro ?? 'Falha ao buscar logs.')
+
+        todos.push(...json.logs)
+        totalGeral = json.total
+        paginaAtual += 1
+      }
+
+      const nomeArquivo = `log-acesso_completo_${new Date().toISOString().slice(0, 10)}.txt`
+      baixarTxt(formatarLogsParaTxt(todos, `Todos os registros (${todos.length} no total)`), nomeArquivo)
+    } catch (err: unknown) {
+      setErroExport(err instanceof Error ? err.message : 'Falha ao exportar todos os logs.')
+    } finally {
+      setExportandoTudo(false)
+    }
+  }
+
   if (carregando && logs.length === 0) {
     return <div style={{ padding: '24px', textAlign: 'center', color: '#5a84a6', fontSize: '12px' }}>Carregando...</div>
   }
@@ -84,7 +158,39 @@ export default function LogAcessoTabela() {
   }
 
   return (
-    <div style={{ width: '100%', overflowX: 'auto', border: '1px solid #dde8f0', borderRadius: '8px', fontFamily: 'Tahoma, Geneva, sans-serif' }}>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginBottom: '8px' }}>
+        <button
+          onClick={exportarPaginaAtual}
+          disabled={logs.length === 0}
+          style={{
+            padding: '5px 12px', fontSize: '11px', fontWeight: 700, fontFamily: 'Tahoma, Geneva, sans-serif',
+            background: '#fff', color: '#1a6094', border: '1px solid #dde8f0', borderRadius: '5px',
+            cursor: logs.length === 0 ? 'default' : 'pointer', opacity: logs.length === 0 ? 0.4 : 1,
+          }}
+        >
+          Exportar página (.txt)
+        </button>
+        <button
+          onClick={exportarTudo}
+          disabled={exportandoTudo || total === 0}
+          style={{
+            padding: '5px 12px', fontSize: '11px', fontWeight: 700, fontFamily: 'Tahoma, Geneva, sans-serif',
+            background: '#1a6094', color: '#fff', border: '1px solid #1a6094', borderRadius: '5px',
+            cursor: exportandoTudo || total === 0 ? 'default' : 'pointer', opacity: exportandoTudo || total === 0 ? 0.6 : 1,
+          }}
+        >
+          {exportandoTudo ? 'Exportando...' : 'Exportar tudo (.txt)'}
+        </button>
+      </div>
+
+      {erroExport && (
+        <div style={{ padding: '8px 10px', marginBottom: '8px', background: '#fef2f2', color: '#dc2626', fontSize: '11px', borderRadius: '5px' }}>
+          {erroExport}
+        </div>
+      )}
+
+      <div style={{ width: '100%', overflowX: 'auto', border: '1px solid #dde8f0', borderRadius: '8px', fontFamily: 'Tahoma, Geneva, sans-serif' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
         <thead>
           <tr style={{ background: '#f0f4f7', textAlign: 'left' }}>
@@ -134,6 +240,7 @@ export default function LogAcessoTabela() {
             Próxima
           </button>
         </div>
+      </div>
       </div>
     </div>
   )
