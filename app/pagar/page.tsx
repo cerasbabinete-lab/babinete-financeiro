@@ -534,10 +534,33 @@ export default function ContasAPagarPage() {
         </>
       )}
 
-      <main style={{ flex: 1, padding: isMobile ? '10px 12px' : '20px 32px', maxWidth: isMobile ? undefined : '1200px', width: '100%', margin: '0 auto' }}>
+      <main style={{ flex: 1, padding: isMobile ? '10px 12px' : '20px 32px' }}>
 
         {msgSucesso && <div style={bannerStyle('#166534', '#dcfce7')}>{msgSucesso}</div>}
         {msgErro && <div style={bannerStyle('#d32f2f', '#fee2e2')}>{msgErro}</div>}
+
+        {/* QA fix (28/08/2026, a pedido do Maycon): ordem dos blocos
+            corrigida pra bater com Despesas/Receitas/Contas a Receber —
+            cabeçalho (título+botões) SEMPRE primeiro, depois
+            pills/contadores, depois aviso de vencimento, depois
+            seletor de mês, depois a busca. Antes o seletor de mês
+            (inserido numa sessão anterior) tinha ficado ANTES do
+            cabeçalho por engano, invertendo a ordem só neste módulo. */}
+        {!isMobile && (
+          <ContasAPagarHeader
+            totalTitulos={total}
+            importando={importando}
+            onSelecionarRelatorio={handleSelecionarRelatorio}
+            onSelecionarComprovante={handleSelecionarComprovante}
+            onSelecionarBoleto={handleSelecionarBoleto}
+            onAbrirRoster={handleAbrirRoster}
+            titulos={titulos}
+            usuario={usuario}
+            onRestaurado={() => { carregarTitulos(); carregarPendentesAnteriores() }}
+            onErro={setMsgErro}
+            onSucesso={setMsgSucesso}
+          />
+        )}
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px', fontSize: '11px' }}>
           <Pill cor="#166534" bg="#dcfce7" label={`Em Aberto: ${contadores.emAberto}`} />
@@ -613,17 +636,6 @@ export default function ContasAPagarPage() {
           </button>
         </div>
 
-        {!isMobile && (
-          <ContasAPagarHeader
-            totalTitulos={total}
-            importando={importando}
-            onSelecionarRelatorio={handleSelecionarRelatorio}
-            onSelecionarComprovante={handleSelecionarComprovante}
-            onSelecionarBoleto={handleSelecionarBoleto}
-            onAbrirRoster={handleAbrirRoster}
-          />
-        )}
-
         <ContasAPagarFiltros filtros={filtros} onChange={setFiltros} />
 
         {/* ── Pendências de meses anteriores — só quando o mês
@@ -667,6 +679,11 @@ export default function ContasAPagarPage() {
           onSelecionarComprovante={handleSelecionarComprovante}
           onSelecionarBoleto={handleSelecionarBoleto}
           onAbrirRoster={handleAbrirRoster}
+          titulos={titulos}
+          usuario={usuario}
+          onRestaurado={() => { carregarTitulos(); carregarPendentesAnteriores() }}
+          onErro={setMsgErro}
+          onSucesso={setMsgSucesso}
         />
       )}
 

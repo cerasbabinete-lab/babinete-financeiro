@@ -39,6 +39,13 @@ import type {
   BeneficiarioPessoalRosterPagar,
 } from '@/types/contasAPagar'
 import type { StatusPagamentoDespesa } from '@/types/despesas'
+// FEATURE (a pedido do usuário — mesmo padrão já usado em Receitas,
+// Contas a Receber, Clientes, Fornecedores e Despesas): Backup,
+// Restaurar e Exportar (CSV/Excel). Papa/XLSX só usados aqui, nas
+// funções de exportação client-side.
+import Papa from 'papaparse'
+import * as XLSX from 'xlsx'
+import { STATUS_LABELS_PAGAR } from '@/types/contasAPagar'
 
 // ============================================================
 // CONSTANTES
@@ -882,3 +889,166 @@ export function isTituloNearVencimento(titulo: ContaAPagar): boolean {
 // Re-exporta tipo de evento para uso nos componentes
 // ============================================================
 export type { ContaAPagarEvento }
+
+// ============================================================
+// FEATURE (a pedido do usuário, 20/08/2026 — mesmo padrão já
+// existente em Receitas, Contas a Receber, Clientes, Fornecedores e
+// Despesas): Backup, Restaurar e Exportar (CSV/Excel). Chamado por
+// ContasAPagarHeader.tsx, BasebarContasPagar.tsx e
+// ExportDropdownContasAPagar.tsx (novos componentes).
+//
+// Referência de arquitetura: Contexto_Padrao_Backup_Restaurar_Exportar.md
+// — este módulo já segue o padrão "4b" descrito lá (toda escrita passa
+// por pages/api/pagar/*.ts com Bearer+getUser(), nunca direto do
+// browser — ver comentário no topo deste arquivo), então
+// restaurarBackup() segue o mesmo caminho, delegando pra uma rota nova
+// (pages/api/pagar/restaurar-backup.ts), igual Despesas fez — não o
+// padrão mais antigo (Receitas/Receber/Clientes/Fornecedores) de
+// upsert direto do navegador com a chave anônima.
+// ============================================================
+
+// ------------------------------------------------------------
+// dataHoje()
+// Retorna a data de hoje em ISO curto (YYYY-MM-DD) — usado para
+// compor o nome dos arquivos exportados. Mesmo padrão de
+// despesasService.ts::dataHoje() / receitasService.ts::dataHoje()
+// ------------------------------------------------------------
+function dataHoje(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+// ------------------------------------------------------------
+// mapearTituloParaExportacao()
+// Achata um título (com eventos, se carregados) em uma linha plana
+// para CSV/Excel — mesmo formato usado nas duas funções de exportação
+// ------------------------------------------------------------
+function mapearTituloParaExportacao(t: ContaAPagar) {
+  return {
+    'Vencimento':     formatarDataBR(t.data_vencimento),
+    'Nº Documento':   t.numero_documento ?? '',
+    'CNPJ/CPF':       formatarCnpjCpf(t.favorecido_cnpj_cpf),
+    'Favorecido':     t.favorecido_nome,
+    'Dt. Process.':   formatarDataBR(t.data_processamento),
+    'Nosso Número':   t.nosso_numero ?? '',
+    'Valor':          t.valor,
+    'Status':         STATUS_LABELS_PAGAR[t.status] ?? t.status,
+    'Data Baixa':     t.data_baixa ? formatarDataBR(t.data_baixa) : '',
+  }
+}
+
+// ------------------------------------------------------------
+// exportarCSV()
+// Exporta a lista atual de títulos (filtrada/visível na tela) como .csv
+// Chamado por: ExportDropdownContasAPagar.tsx ao selecionar "CSV"
+// ------------------------------------------------------------
+export function exportarCSV(titulos: ContaAPagar[], usuario: string): void {
+  const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
+  const dados = titulos.map(mapearTituloParaExportacao)
+
+  const csv = Papa.unparse(dados, { delimiter: ';' })
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `contas_a_pagar_${dataHoje()}_${nomeSeguro}.csv`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+// ------------------------------------------------------------
+// exportarExcel()
+// Exporta a lista atual de títulos (filtrada/visível na tela) como .xlsx
+// Chamado por: ExportDropdownContasAPagar.tsx ao selecionar "Excel"
+// ------------------------------------------------------------
+export function exportarExcel(titulos: ContaAPagar[], usuario: string): void {
+  const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
+  const dados = titulos.map(mapearTituloParaExportacao)
+
+  const ws = XLSX.utils.json_to_sheet(dados)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Contas a Pagar')
+  XLSX.writeFile(wb, `contas_a_pagar_${dataHoje()}_${nomeSeguro}.xlsx`)
+}
+
+// ------------------------------------------------------------
+// fazerBackup()
+// Exporta a tabela contas_a_pagar COMPLETA (todas, sem filtro de
+// mês/status/busca), incluindo os eventos de cada título, como JSON.
+// Chamado por: ContasAPagarHeader.tsx / BasebarContasPagar.tsx ao
+// clicar em Backup. Usa o client anon — SELECT já é liberado.
+// ------------------------------------------------------------
+export async function fazerBackup(usuario?: string): Promise<void> {
+  const { data, error } = await supabase
+    .from(TABELA)
+    .select(`
+      *,
+      eventos:${TABELA_EVENTOS}(*)
+    `)
+    .order('data_vencimento', { ascending: false })
+
+  if (error) {
+    console.error('[contasAPagarService] fazerBackup error:', error)
+    throw new Error(error.message)
+  }
+
+  const json    = JSON.stringify(data, null, 2)
+  const blob    = new Blob([json], { type: 'application/json;charset=utf-8;' })
+  const url     = URL.createObjectURL(blob)
+  const link    = document.createElement('a')
+  link.href     = url
+  const sufixo  = usuario ? `_${usuario}` : ''
+  link.download = `backup_contas_a_pagar_${dataHoje()}${sufixo}.json`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+// ------------------------------------------------------------
+// lerArquivoBackup()
+// Lê o arquivo JSON selecionado pelo usuário e retorna o array de
+// títulos para ser passado a restaurarBackup()
+// Chamado por: ContasAPagarHeader.tsx após o usuário selecionar arquivo
+// ------------------------------------------------------------
+export function lerArquivoBackup(file: File): Promise<ContaAPagar[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const conteudo = e.target?.result as string
+        const dados    = JSON.parse(conteudo) as ContaAPagar[]
+        resolve(dados)
+      } catch {
+        reject(new Error('Arquivo de backup inválido ou corrompido.'))
+      }
+    }
+    reader.onerror = () => reject(new Error('Erro ao ler o arquivo.'))
+    reader.readAsText(file, 'utf-8')
+  })
+}
+
+// ------------------------------------------------------------
+// restaurarBackup()
+// Segue o padrão de segurança já documentado no cabeçalho deste
+// arquivo (mesmo de Despesas — Contexto_Padrao_Backup_Restaurar_Exportar.md
+// §4b): não faz upsert direto do navegador. Delega pra rota de
+// servidor (pages/api/pagar/restaurar-backup.ts), autenticada via
+// Bearer token, usando o client admin.
+// Chamado por: ContasAPagarHeader.tsx / BasebarContasPagar.tsx após
+// leitura do arquivo
+// ------------------------------------------------------------
+export async function restaurarBackup(titulos: ContaAPagar[]): Promise<{ processados: number }> {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token ?? ''
+
+  const res = await fetch('/api/pagar/restaurar-backup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ titulos }),
+  })
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({ erro: 'Erro desconhecido' }))
+    throw new Error(json.erro ?? 'Erro ao restaurar backup')
+  }
+
+  return res.json()
+}
