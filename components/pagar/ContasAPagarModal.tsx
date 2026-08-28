@@ -46,6 +46,13 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
   // contadores/listagem — cancelamento continua exclusivo do botão
   // dedicado "Cancelar Título" (onCancelar, que seta deleted_at corretamente)
   const [statusEdit, setStatusEdit] = useState<ContaAPagar['status']>('em_aberto')
+  // QA fix (20/08/2026, a pedido do Maycon): Valor editável manualmente
+  // — caso real confirmado: título criado automaticamente a partir de
+  // uma Despesa nasceu com R$1,00 em vez de R$276,44 (bug na criação
+  // automática, sendo investigado à parte). Até esse bug de origem ser
+  // corrigido, o usuário precisa poder consertar o valor na hora, sem
+  // depender de mim rodando SQL.
+  const [valorEdit, setValorEdit] = useState<number>(0)
   const [mostrarBaixa, setMostrarBaixa] = useState(false)
   const [formaBaixa, setFormaBaixa] = useState<FormaBaixaPagar>('pix')
   const [valorBaixa, setValorBaixa] = useState<number>(0)
@@ -57,6 +64,7 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
     setNossoNumero(titulo?.nosso_numero ?? '')
     setLinhaDigitavel(titulo?.linha_digitavel ?? '')
     setStatusEdit(titulo?.status ?? 'em_aberto')
+    setValorEdit(titulo?.valor ?? 0)
     setMostrarBaixa(!!abrirEmBaixa)
     setValorBaixa(titulo ? titulo.valor : 0)
     setErro(null)
@@ -68,6 +76,7 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
   const cancelado = titulo.deleted_at !== null && titulo.deleted_at !== undefined
 
   async function handleSalvar() {
+    if (valorEdit <= 0) { setErro('Informe um valor maior que zero.'); return }
     setSalvando(true)
     setErro(null)
     try {
@@ -77,6 +86,7 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
         nosso_numero: nossoNumero.trim() || null,
         linha_digitavel: linhaDigitavel.trim() || null,
         status: statusEdit,
+        valor: valorEdit,
       })
     } catch (err: unknown) {
       setErro(err instanceof Error ? err.message : 'Erro ao salvar')
@@ -145,7 +155,21 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
             )}
           </div>
           <div><span style={label}>Vencimento</span><div style={valor}>{formatarDataBR(titulo.data_vencimento)}</div></div>
-          <div><span style={label}>Valor</span><div style={{ ...valor, fontWeight: 700, color: '#1a6094' }}>{formatarMoeda(titulo.valor)}</div></div>
+          <div>
+            <span style={label}>Valor</span>
+            {somenteLeitura ? (
+              <div style={{ ...valor, fontWeight: 700, color: '#1a6094' }}>{formatarMoeda(titulo.valor)}</div>
+            ) : (
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={valorEdit}
+                onChange={(e) => setValorEdit(parseFloat(e.target.value) || 0)}
+                style={{ ...inputStyle, marginBottom: '12px', fontWeight: 700, color: '#1a6094' }}
+              />
+            )}
+          </div>
           <div>
             <span style={label}>Status</span>
             {somenteLeitura ? (

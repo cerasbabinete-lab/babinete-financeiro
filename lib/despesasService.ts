@@ -20,6 +20,12 @@ import type {
   DespesaParcelaInsert,
   FiltrosDespesas,
 } from '@/types/despesas'
+// FEATURE: Backup/Restaurar/Exportar (mesmo padrão já usado em Receitas,
+// Contas a Receber, Clientes e Fornecedores) — Papa/XLSX só usados aqui,
+// nas funções de exportação client-side
+import Papa from 'papaparse'
+import * as XLSX from 'xlsx'
+import { CATEGORIA_FINANCEIRA_LABELS, ORIGEM_TIPO_LABELS, STATUS_PAGAMENTO_LABELS } from '@/types/despesas'
 
 // ============================================================
 // CONSTANTES
@@ -416,6 +422,167 @@ export function formatarDataBR(iso: string): string {
   if (!iso) return ''
   const d = new Date(iso + (iso.length === 10 ? 'T00:00:00' : ''))
   return d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+}
+
+// ============================================================
+// dataHoje()
+// Retorna a data de hoje em ISO curto (YYYY-MM-DD) — usado para
+// compor o nome dos arquivos exportados. Mesmo padrão de
+// receitasService.ts::dataHoje()
+// ============================================================
+function dataHoje(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+// ============================================================
+// FEATURE (a pedido do usuário — mesmo padrão já existente em
+// Receitas, Contas a Receber, Clientes e Fornecedores): Backup,
+// Restaurar e Exportar (CSV/Excel). Chamado por DespesasHeader.tsx
+// e ExportDropdownDespesas.tsx (novos componentes).
+// ============================================================
+
+// ============================================================
+// mapearDespesaParaExportacao()
+// Achata uma Despesa (com parcelas) em uma linha plana para
+// CSV/Excel — mesmo formato usado nas duas funções de exportação,
+// evita duplicar a lista de colunas duas vezes
+// ============================================================
+function mapearDespesaParaExportacao(d: Despesa) {
+  const parcelas = d.parcelas ?? []
+  return {
+    'Emissão':          d.documento_data_emissao ? formatarDataBR(d.documento_data_emissao) : '',
+    'Nº Documento':     d.documento_numero ?? '',
+    'Favorecido':       d.favorecido_nome,
+    'CNPJ/CPF':         formatarCnpjCpf(d.favorecido_cnpj_cpf ?? ''),
+    'Categoria':        CATEGORIA_FINANCEIRA_LABELS[d.categoria_financeira] ?? d.categoria_financeira,
+    'Origem':           ORIGEM_TIPO_LABELS[d.origem_tipo] ?? d.origem_tipo,
+    'Parcelas':         parcelas.length,
+    '1º Vencimento':    parcelas.length > 0 ? formatarDataBR(parcelas[0].data_vencimento) : '',
+    'Status':           STATUS_PAGAMENTO_LABELS[d.status_pagamento] ?? d.status_pagamento,
+    'Valor Total':      d.valor_total,
+  }
+}
+
+// ============================================================
+// exportarCSV()
+// Exporta a lista atual de despesas (filtrada) como .csv
+// Chamado por: ExportDropdownDespesas.tsx ao selecionar "CSV"
+// ============================================================
+export function exportarCSV(despesas: Despesa[], usuario: string): void {
+  const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
+  const dados = despesas.map(mapearDespesaParaExportacao)
+
+  const csv = Papa.unparse(dados, { delimiter: ';' })
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `despesas_${dataHoje()}_${nomeSeguro}.csv`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+// ============================================================
+// exportarExcel()
+// Exporta a lista atual de despesas (filtrada) como .xlsx
+// Chamado por: ExportDropdownDespesas.tsx ao selecionar "Excel"
+// ============================================================
+export function exportarExcel(despesas: Despesa[], usuario: string): void {
+  const nomeSeguro = usuario.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'usuario'
+  const dados = despesas.map(mapearDespesaParaExportacao)
+
+  const ws = XLSX.utils.json_to_sheet(dados)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Despesas')
+  XLSX.writeFile(wb, `despesas_${dataHoje()}_${nomeSeguro}.xlsx`)
+}
+
+// ============================================================
+// fazerBackup()
+// Exporta a tabela despesas COMPLETA (todas, sem filtro de mês/
+// status) como JSON, incluindo as parcelas de cada uma.
+// Chamado por: DespesasHeader.tsx ao clicar em Backup
+// Usa o client anon (supabase) — SELECT já é liberado por RLS
+// (política despesas_select / despesas_parcelas_select)
+// ============================================================
+export async function fazerBackup(usuario?: string): Promise<void> {
+  const { data, error } = await supabase
+    .from(TABELA)
+    .select(`
+      *,
+      parcelas:${TABELA_PARCELAS}(*)
+    `)
+    .order('documento_data_emissao', { ascending: false })
+
+  if (error) {
+    console.error('[despesasService] fazerBackup error:', error)
+    throw new Error(error.message)
+  }
+
+  const json    = JSON.stringify(data, null, 2)
+  const blob    = new Blob([json], { type: 'application/json;charset=utf-8;' })
+  const url     = URL.createObjectURL(blob)
+  const link    = document.createElement('a')
+  link.href     = url
+  const sufixo  = usuario ? `_${usuario}` : ''
+  link.download = `backup_despesas_${dataHoje()}${sufixo}.json`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+// ============================================================
+// lerArquivoBackup()
+// Lê o arquivo JSON selecionado pelo usuário e retorna o array
+// de despesas para ser passado a restaurarBackup()
+// Chamado por: DespesasHeader.tsx após o usuário selecionar arquivo
+// ============================================================
+export function lerArquivoBackup(file: File): Promise<Despesa[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const conteudo = e.target?.result as string
+        const dados    = JSON.parse(conteudo) as Despesa[]
+        resolve(dados)
+      } catch {
+        reject(new Error('Arquivo de backup inválido ou corrompido.'))
+      }
+    }
+    reader.onerror = () => reject(new Error('Erro ao ler o arquivo.'))
+    reader.readAsText(file, 'utf-8')
+  })
+}
+
+// ============================================================
+// restaurarBackup()
+// DIFERENÇA DELIBERADA em relação a receitasService.ts::restaurarBackup:
+// aqui o upsert NÃO é feito direto do navegador com a chave anônima.
+// despesas/despesas_parcelas só têm política de RLS de SELECT (de
+// propósito — toda escrita do módulo Despesas passa pelas rotas de
+// servidor com a service role key, ver achado Alto #8 do QA). Manter
+// esse padrão de segurança em vez de abrir RLS de escrita só para o
+// Restaurar. Por isso esta função apenas delega para a nova rota
+// pages/api/despesas/restaurar-backup.ts, que faz o upsert de fato
+// com o client admin, autenticada via Bearer token (mesmo padrão de
+// cancelar.ts / atualizar.ts).
+// Chamado por: DespesasHeader.tsx após leitura do arquivo
+// ============================================================
+export async function restaurarBackup(despesas: Despesa[]): Promise<{ processados: number }> {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token ?? ''
+
+  const res = await fetch('/api/despesas/restaurar-backup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ despesas }),
+  })
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({ erro: 'Erro desconhecido' }))
+    throw new Error(json.erro ?? 'Erro ao restaurar backup')
+  }
+
+  return res.json()
 }
 
 // ============================================================

@@ -395,9 +395,14 @@ export default function DespesasPage() {
 
           <DespesasHeader
             totalDespesas={total}
+            despesas={despesas}
+            usuario={usuario}
             onImportarXml={handleImportarXml}
             onImportarDocumento={handleImportarDocumento}
             onNovaDespesa={handleNovaDespesa}
+            onRestaurado={carregarDespesas}
+            onErro={setMsgErro}
+            onSucesso={setMsgSucesso}
           />
 
           <InputsOcultos
@@ -616,9 +621,14 @@ export default function DespesasPage() {
       </main>
 
       <BasebarDespesas
+        despesas={despesas}
+        usuario={usuario}
         onImportarXml={handleImportarXml}
         onImportarDocumento={handleImportarDocumento}
         onNovaDespesa={handleNovaDespesa}
+        onRestaurado={carregarDespesas}
+        onErro={setMsgErro}
+        onSucesso={setMsgSucesso}
       />
 
       {modoModal && (
