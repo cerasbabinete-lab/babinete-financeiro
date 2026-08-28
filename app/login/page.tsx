@@ -72,14 +72,24 @@ export default function LoginPage() {
       return
     }
 
-    // Log de auditoria (login_sucesso) — keepalive garante que a
-    // requisição sobrevive ao hard navigation logo abaixo
-    fetch('/api/logs/registrar-login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: usernameLogin.trim(), sucesso: true, token: data.session?.access_token }),
-      keepalive: true,
-    }).catch(() => {})
+    // Log de auditoria (login_sucesso) — AGUARDA terminar antes de
+    // navegar: keepalive não é garantia suficiente contra o
+    // window.location.href logo abaixo matar a requisição no meio
+    // (bug real observado: só login_falha estava sendo gravado,
+    // porque só esse caminho não navega em seguida). Timeout curto
+    // evita que uma falha de rede aqui trave o login.
+    try {
+      await Promise.race([
+        fetch('/api/logs/registrar-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: usernameLogin.trim(), sucesso: true, token: data.session?.access_token }),
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500)),
+      ])
+    } catch {
+      // Auditoria complementar — nunca impede o login de completar
+    }
 
     // Redireciona para a Home após login bem-sucedido
     // window.location.href (hard navigation) evita race condition entre escrita do cookie
