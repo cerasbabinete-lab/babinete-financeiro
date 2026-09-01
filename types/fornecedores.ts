@@ -14,36 +14,71 @@
 // Reutiliza a mesma estrutura do módulo Clientes
 // ============================================================
 export interface ContatoWhatsApp {
-  name: string   // Nome do contato WhatsApp
-  phone: string  // Número do telefone
+  name: string        // Nome do contato WhatsApp
+  phone: string       // Número do telefone
+  favorito?: boolean  // Contato favorito — Especificacao_Fornecedores_Pix_Categorias_
+                       // WhatsApp.md, Seção 2.1. No máximo 1 true por fornecedor,
+                       // aplicado em código (WhatsAppSection.tsx), não em banco —
+                       // coluna é JSONB de linha única, não tabela separada.
 }
 
 // ============================================================
-// TipoFornecedor
-// Classificação usada pelo relatório "Gastos por tipo de fornecedor"
-// (Módulo Relatórios, Especificacao_Modulo_Relatorios.md, Seção 2.6) —
-// espelha 1:1 o CHECK de sql/fornecedores.sql (fornecedores_tipo_
-// fornecedor_check). Union type fechado — qualquer valor novo precisa
-// ser adicionado aqui E no CHECK do banco ao mesmo tempo.
+// TipoChavePix
+// Valores possíveis do tipo de chave Pix de um fornecedor — espelha
+// 1:1 o CHECK de sql/fornecedores.sql (fornecedor_chaves_pix.tipo_chave).
+// Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md, Seção 1.
 // ============================================================
-export type TipoFornecedor =
-  | 'materia_prima_insumo' // Matéria-prima e insumo de produção
-  | 'embalagem'            // Embalagem (caixa, rótulo, lata etc.)
-  | 'servicos'             // Prestação de serviço
-  | 'outros'               // Não se encaixa nas categorias acima
+export type TipoChavePix =
+  | 'cpf'
+  | 'cnpj'
+  | 'email'
+  | 'celular'
+  | 'aleatoria'
 
 // ============================================================
-// TIPO_FORNECEDOR_LABELS
-// Rótulo amigável de exibição para cada valor de TipoFornecedor —
-// usado no formulário de classificação (FornecedoresModal.tsx) e no
-// relatório 2.6 (agrupamento por tipo). Mantido aqui, junto do tipo,
-// para não duplicar a lista de valores em cada tela que precisar dela.
+// ChavePix
+// Representa um registro completo da tabela fornecedor_chaves_pix —
+// um fornecedor pode ter 0..N, no máximo 1 com preferencial=true
+// (garantido por índice único parcial no banco, Seção 1.2)
 // ============================================================
-export const TIPO_FORNECEDOR_LABELS: Record<TipoFornecedor, string> = {
-  materia_prima_insumo: 'Matéria-prima / Insumo',
-  embalagem: 'Embalagem',
-  servicos: 'Serviços',
-  outros: 'Outros',
+export interface ChavePix {
+  id: number                  // Chave primária auto-increment
+  fornecedor_id: number       // FK — fornecedor dono da chave
+  tipo_chave: TipoChavePix    // Tipo selecionado no formulário
+  valor_chave: string         // Valor da chave — sem validação de formato (Seção 1.1)
+  preferencial: boolean       // true = usada pelo Dashboard futuro e pela 2ª via de boleto
+  created_at: string          // Criado em (ISO string)
+  updated_at: string          // Atualizado em (ISO string)
+  deleted_at: string | null   // Soft-delete — null enquanto ativa
+}
+
+// ============================================================
+// OPCOES_TIPO_CHAVE_PIX
+// Lista ordenada de {value,label} para popular o <select> do tipo de
+// chave no bloco "Chaves Pix" de FornecedoresModal.tsx — evita
+// duplicar a lista de valores em cada tela que precisar dela
+// ============================================================
+export const OPCOES_TIPO_CHAVE_PIX: { value: TipoChavePix; label: string }[] = [
+  { value: 'cpf', label: 'CPF' },
+  { value: 'cnpj', label: 'CNPJ' },
+  { value: 'email', label: 'E-mail' },
+  { value: 'celular', label: 'Celular' },
+  { value: 'aleatoria', label: 'Aleatória' },
+]
+
+// ============================================================
+// FornecedorCategoria
+// Representa um registro completo da tabela fornecedor_categorias —
+// substitui o antigo union fechado TipoFornecedor/TIPO_FORNECEDOR_LABELS
+// (removidos nesta revisão) por uma lista totalmente gerenciável pelo
+// usuário via CategoriasModal.tsx. Especificação, Seção 4.
+// ============================================================
+export interface FornecedorCategoria {
+  id: number                  // Chave primária auto-increment
+  nome: string                 // Nome da categoria, editável pelo usuário
+  created_at: string          // Criado em (ISO string)
+  updated_at: string          // Atualizado em (ISO string)
+  deleted_at: string | null   // Soft-delete — null enquanto ativa
 }
 
 // ============================================================
@@ -72,7 +107,9 @@ export interface Fornecedor {
   email_contato?: string              // E-mail do contato
   website?: string                    // Website do fornecedor — campo novo
   dados_bancarios?: string            // Dados bancários (free text) — campo novo
-  tipo_fornecedor?: TipoFornecedor | null // Classificação p/ relatório 2.6 — null até classificação manual
+  tipo_fornecedor_id?: number | null  // FK p/ fornecedor_categorias — Classificação usada pelo
+                                       // relatório 2.6 — null até classificação manual (substitui
+                                       // o antigo campo tipo_fornecedor TEXT, removido do banco)
   data_nascimento?: string | null     // Data nascimento (CPF/pessoa física) — modal only; null quando vazio
   observacoes?: string                // Observações livres
   contato_whatsapp?: ContatoWhatsApp[] // Contatos WhatsApp Business (JSONB)

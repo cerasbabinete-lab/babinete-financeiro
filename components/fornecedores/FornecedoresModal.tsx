@@ -5,20 +5,44 @@
 // Função: Modal completo Novo/Editar/Visualizar Fornecedor
 //         COM CNPJ Auto-Fill via BrasilAPI (primary) + CNPJá (fallback)
 //         Funciona em modo 'novo' e 'editar' — conforme aprovado
-// Conecta com: app/fornecedores/page.tsx
+//         Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md:
+//         Chaves Pix (Seção 1, indisponível em modo 'novo' — sem
+//         fornecedor.id ainda), categoria dinâmica + link "Gerenciar
+//         categorias" (Seção 4), favorito de contato WhatsApp (Seção 2)
+// Conecta com: app/fornecedores/page.tsx (categorias, onCategoriasAlteradas)
 //              fornecedoresService.ts, lib/localidades.ts
 //              WhatsAppSection.tsx (reutilizado de Clientes)
+//              CategoriasModal.tsx (novo, Seção 4.6)
 //              types/fornecedores.ts
 // ============================================================
 
 'use client'
 
 import { useEffect, useState } from 'react'
-import { criarFornecedor, editarFornecedor, verificarDuplicidadeFornecedor } from '@/lib/fornecedoresService'
+import {
+  criarFornecedor,
+  editarFornecedor,
+  verificarDuplicidadeFornecedor,
+  listarChavesPix,
+  criarChavePix,
+  atualizarChavePix,
+  definirChavePixPreferencial,
+  excluirChavePix,
+  definirContatoWhatsAppFavorito,
+} from '@/lib/fornecedoresService'
 import { getUFs, getCidades } from '@/lib/localidades'
 import WhatsAppSection from '@/components/clientes/WhatsAppSection'
-import type { Fornecedor, FornecedorInsert, ContatoWhatsApp, ModoModal, TipoFornecedor } from '@/types/fornecedores'
-import { TIPO_FORNECEDOR_LABELS } from '@/types/fornecedores'
+import CategoriasModal from '@/components/fornecedores/CategoriasModal'
+import type {
+  Fornecedor,
+  FornecedorInsert,
+  ContatoWhatsApp,
+  ModoModal,
+  ChavePix,
+  TipoChavePix,
+  FornecedorCategoria,
+} from '@/types/fornecedores'
+import { OPCOES_TIPO_CHAVE_PIX } from '@/types/fornecedores'
 
 // ============================================================
 // Props
@@ -28,6 +52,10 @@ interface FornecedoresModalProps {
   fornecedor?: Fornecedor | null
   onFechar: () => void
   onSalvo: () => void
+  categorias: FornecedorCategoria[]   // Lista buscada UMA VEZ em app/fornecedores/page.tsx — evita
+                                       // fetch redundante entre Modal/Tabela/MobileList na mesma tela
+  onCategoriasAlteradas: () => void   // Repassado ao CategoriasModal — chamado após qualquer criação/
+                                       // rename/exclusão de categoria para o pai re-buscar a lista
 }
 
 // ============================================================
@@ -53,7 +81,7 @@ const FORM_INICIAL: FornecedorInsert = {
   email_contato: '',
   website: '',
   dados_bancarios: '',
-  tipo_fornecedor: null, // não classificado — mesmo default do banco (Módulo Relatórios, 2.6)
+  tipo_fornecedor_id: null, // não classificado — mesmo default do banco (Módulo Relatórios, 2.6)
   data_nascimento: '',
   observacoes: '',
   contato_whatsapp: [],
@@ -126,6 +154,8 @@ export default function FornecedoresModal({
   fornecedor,
   onFechar,
   onSalvo,
+  categorias,
+  onCategoriasAlteradas,
 }: FornecedoresModalProps) {
 
   const [form, setForm] = useState<FornecedorInsert>(FORM_INICIAL)
@@ -137,8 +167,36 @@ export default function FornecedoresModal({
   const [consultando, setConsultando] = useState(false)
   const [erroCnpj, setErroCnpj] = useState<string>('')
 
+  // ── Estados do bloco "Gerenciar categorias" (Seção 4.6) ──
+  const [categoriasModalAberto, setCategoriasModalAberto] = useState(false)
+
+  // ── Estados do bloco "Chaves Pix" (Seção 1.6) — indisponível em
+  // modo 'novo' porque depende de fornecedor.id, que só existe após
+  // o primeiro Gravar (mesma decisão aprovada para este cenário) ──
+  const [chavesPix, setChavesPix] = useState<ChavePix[]>([])
+  const [carregandoChavesPix, setCarregandoChavesPix] = useState(false)
+  const [erroChavePix, setErroChavePix] = useState('')
+  const [processandoChavePix, setProcessandoChavePix] = useState(false)
+  // Formulário "Adicionar chave"
+  const [adicionandoChavePix, setAdicionandoChavePix] = useState(false)
+  const [novoTipoChave, setNovoTipoChave] = useState<TipoChavePix>('cpf')
+  const [novoValorChave, setNovoValorChave] = useState('')
+  // Edição inline de uma chave existente (tipo/valor — nunca preferencial)
+  const [editandoChaveId, setEditandoChaveId] = useState<number | null>(null)
+  const [edicaoTipoChave, setEdicaoTipoChave] = useState<TipoChavePix>('cpf')
+  const [edicaoValorChave, setEdicaoValorChave] = useState('')
+  // Confirmação inline de exclusão de uma chave
+  const [confirmandoExcluirChaveId, setConfirmandoExcluirChaveId] = useState<number | null>(null)
+
+  // ── Estado de erro do favorito WhatsApp (Seção 2.3) — inline,
+  // nunca alert()/confirm() (convenção do projeto) ──
+  const [erroFavoritoWhatsApp, setErroFavoritoWhatsApp] = useState('')
+
   const ufs = getUFs()
   const readOnly = modo === 'visualizar'
+  // true quando o fornecedor já existe no banco — Chaves Pix e favorito
+  // WhatsApp dependem de fornecedor.id, indisponível em modo 'novo'
+  const fornecedorSalvo = modo !== 'novo' && !!fornecedor?.id
 
   // ============================================================
   // Efeito: pré-preenche ao abrir
@@ -170,7 +228,7 @@ export default function FornecedoresModal({
         email_contato: fornecedor.email_contato ?? '',
         website: fornecedor.website ?? '',
         dados_bancarios: fornecedor.dados_bancarios ?? '',
-        tipo_fornecedor: fornecedor.tipo_fornecedor ?? null,
+        tipo_fornecedor_id: fornecedor.tipo_fornecedor_id ?? null,
         data_nascimento: fornecedor.data_nascimento ?? '',
         observacoes: fornecedor.observacoes ?? '',
         contato_whatsapp: fornecedor.contato_whatsapp ?? [],
@@ -180,6 +238,34 @@ export default function FornecedoresModal({
       setErroCnpj('')
     }
   }, [modo, fornecedor])
+
+  // ============================================================
+  // Efeito: carrega as Chaves Pix do fornecedor (Seção 1.6)
+  // Só busca quando há fornecedor.id (modo 'editar'/'visualizar') —
+  // em modo 'novo' o bloco fica desabilitado, sem chamada ao serviço
+  // ============================================================
+  useEffect(() => {
+    if (fornecedorSalvo && fornecedor?.id) {
+      setCarregandoChavesPix(true) // eslint-disable-line react-hooks/set-state-in-effect -- efeito de carregamento sob condição (fornecedor.id mudou), não render em cascata não-controlado
+      setErroChavePix('')
+      listarChavesPix(fornecedor.id)
+        .then(lista => setChavesPix(lista))
+        .catch((err: unknown) => {
+          setErroChavePix(err instanceof Error ? err.message : 'Erro ao carregar chaves Pix.')
+        })
+        .finally(() => setCarregandoChavesPix(false))
+    } else {
+      setChavesPix([])
+    }
+    // Reseta os formulários de adicionar/editar chave ao trocar de fornecedor/modo —
+    // evita carregar um formulário aberto de um fornecedor anterior
+    setAdicionandoChavePix(false)
+    setNovoTipoChave('cpf')
+    setNovoValorChave('')
+    setEditandoChaveId(null)
+    setConfirmandoExcluirChaveId(null)
+    setErroFavoritoWhatsApp('')
+  }, [fornecedorSalvo, fornecedor?.id])
 
   // ============================================================
   // handleChange
@@ -204,16 +290,18 @@ export default function FornecedoresModal({
 
   // ============================================================
   // handleTipoFornecedorChange
-  // Select fechado (Módulo Relatórios, 2.6) — diferente de
+  // Select de categoria dinâmica (Módulo Relatórios, 2.6 + Especificacao_
+  // Fornecedores_Pix_Categorias_WhatsApp.md, Seção 4) — diferente de
   // handleChange genérico, converte a opção vazia ('') para null
-  // explicitamente, porque o CHECK do banco (fornecedores_tipo_
-  // fornecedor_check) não aceita string vazia como valor válido
+  // explicitamente ("Não classificado"), e o valor não-vazio (id da
+  // categoria, sempre string vinda do DOM) para number — a coluna
+  // tipo_fornecedor_id é INTEGER, não aceita string
   // ============================================================
   function handleTipoFornecedorChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const valor = e.target.value
     setForm(prev => ({
       ...prev,
-      tipo_fornecedor: valor === '' ? null : (valor as TipoFornecedor),
+      tipo_fornecedor_id: valor === '' ? null : Number(valor),
     }))
   }
 
@@ -222,6 +310,155 @@ export default function FornecedoresModal({
   // ============================================================
   function handleWhatsApp(contatos: ContatoWhatsApp[]) {
     setForm(prev => ({ ...prev, contato_whatsapp: contatos }))
+  }
+
+  // ============================================================
+  // handleDefinirFavoritoWhatsApp
+  // Chamado por WhatsAppSection (prop onDefinirFavorito) quando o
+  // usuário clica no toggle de favorito de um contato (Seção 2.3).
+  // Grava IMEDIATAMENTE no banco (fornecedor.id obrigatório — por
+  // isso suportaFavorito só é true quando fornecedorSalvo é true) e
+  // reflete o resultado no estado local do form, mesmo padrão de
+  // handleWhatsApp
+  // ============================================================
+  async function handleDefinirFavoritoWhatsApp(indice: number) {
+    if (!fornecedor?.id) return // segurança — botão fica indisponível neste caso via suportaFavorito
+    setErroFavoritoWhatsApp('')
+    try {
+      await definirContatoWhatsAppFavorito(fornecedor.id, indice)
+      // Recalcula localmente o mesmo resultado que o serviço gravou —
+      // evita um novo fetch só para refletir a troca de favorito
+      setForm(prev => ({
+        ...prev,
+        contato_whatsapp: (prev.contato_whatsapp ?? []).map((c, i) => ({
+          ...c,
+          favorito: i === indice,
+        })),
+      }))
+    } catch (err: unknown) {
+      setErroFavoritoWhatsApp(
+        err instanceof Error ? err.message : 'Erro ao definir contato favorito.'
+      )
+    }
+  }
+
+  // ============================================================
+  // ────────────────────────────────────────────────────────────
+  // SEÇÃO: HANDLERS DAS CHAVES PIX (Especificacao_Fornecedores_
+  // Pix_Categorias_WhatsApp.md, Seção 1.6). Todas as ações abaixo
+  // gravam IMEDIATAMENTE no banco via lib/fornecedoresService.ts —
+  // não passam pelo payload de handleSalvar, mesmo padrão já usado
+  // por CategoriasModal.tsx (Seção 4.6)
+  // ────────────────────────────────────────────────────────────
+  // ============================================================
+
+  // ============================================================
+  // handleAdicionarChavePix
+  // Cria uma nova chave a partir do formulário "Adicionar chave"
+  // Ambos os campos (tipo, valor) são obrigatórios — sem outra
+  // validação de formato (Seção 1.1)
+  // ============================================================
+  async function handleAdicionarChavePix() {
+    if (!fornecedor?.id) return // segurança — bloco fica indisponível neste caso (fornecedorSalvo=false)
+    if (!novoValorChave.trim()) return // valor obrigatório
+
+    setProcessandoChavePix(true)
+    setErroChavePix('')
+    try {
+      const nova = await criarChavePix(fornecedor.id, novoTipoChave, novoValorChave.trim())
+      setChavesPix(prev => [...prev, nova]) // acrescenta a chave recém-criada à lista local
+      setNovoTipoChave('cpf')
+      setNovoValorChave('')
+      setAdicionandoChavePix(false)
+    } catch (err: unknown) {
+      setErroChavePix(err instanceof Error ? err.message : 'Erro ao adicionar chave Pix.')
+    } finally {
+      setProcessandoChavePix(false)
+    }
+  }
+
+  // ============================================================
+  // handleDefinirChavePreferencial
+  // Toggle estilo rádio — chama o RPC via definirChavePixPreferencial()
+  // e recalcula localmente qual chave fica com preferencial=true,
+  // mesmo padrão de handleDefinirFavoritoWhatsApp acima
+  // ============================================================
+  async function handleDefinirChavePreferencial(chaveId: number) {
+    if (!fornecedor?.id) return
+    setProcessandoChavePix(true)
+    setErroChavePix('')
+    try {
+      await definirChavePixPreferencial(fornecedor.id, chaveId)
+      setChavesPix(prev => prev.map(c => ({ ...c, preferencial: c.id === chaveId })))
+    } catch (err: unknown) {
+      setErroChavePix(err instanceof Error ? err.message : 'Erro ao definir chave preferencial.')
+    } finally {
+      setProcessandoChavePix(false)
+    }
+  }
+
+  // ============================================================
+  // handleIniciarEdicaoChave / handleConfirmarEdicaoChave /
+  // handleCancelarEdicaoChave
+  // Edição inline de tipo/valor de uma chave existente — NUNCA
+  // altera `preferencial` (só definirChavePixPreferencial faz isso,
+  // Seção 1.5). A Seção 1.6 não descreve explicitamente um botão de
+  // edição por linha, mas o serviço atualizarChavePix() existe e
+  // precisa de um gatilho na UI — decisão de engenharia: mesmo
+  // padrão de edição inline já usado em CategoriasModal.tsx (Seção 4.6)
+  // ============================================================
+  function handleIniciarEdicaoChave(chave: ChavePix) {
+    setEditandoChaveId(chave.id)
+    setEdicaoTipoChave(chave.tipo_chave)
+    setEdicaoValorChave(chave.valor_chave)
+    setErroChavePix('')
+  }
+
+  async function handleConfirmarEdicaoChave() {
+    if (editandoChaveId === null) return
+    if (!edicaoValorChave.trim()) return // valor vazio não é gravado
+
+    setProcessandoChavePix(true)
+    setErroChavePix('')
+    try {
+      await atualizarChavePix(editandoChaveId, edicaoTipoChave, edicaoValorChave.trim())
+      setChavesPix(prev =>
+        prev.map(c =>
+          c.id === editandoChaveId
+            ? { ...c, tipo_chave: edicaoTipoChave, valor_chave: edicaoValorChave.trim() }
+            : c
+        )
+      )
+      setEditandoChaveId(null)
+    } catch (err: unknown) {
+      setErroChavePix(err instanceof Error ? err.message : 'Erro ao atualizar chave Pix.')
+    } finally {
+      setProcessandoChavePix(false)
+    }
+  }
+
+  function handleCancelarEdicaoChave() {
+    setEditandoChaveId(null)
+  }
+
+  // ============================================================
+  // handleExcluirChavePix
+  // Soft delete via excluirChavePix() — sem promoção automática de
+  // outra chave a preferencial (Seção 1.5)
+  // ============================================================
+  async function handleExcluirChavePix(chaveId: number) {
+    setProcessandoChavePix(true)
+    setErroChavePix('')
+    try {
+      await excluirChavePix(chaveId)
+      setChavesPix(prev => prev.filter(c => c.id !== chaveId))
+      setConfirmandoExcluirChaveId(null)
+    } catch (err: unknown) {
+      setErroChavePix(err instanceof Error ? err.message : 'Erro ao excluir chave Pix.')
+      setConfirmandoExcluirChaveId(null) // fecha a confirmação mesmo em erro — evita ficar travado
+    } finally {
+      setProcessandoChavePix(false)
+    }
   }
 
   // ============================================================
@@ -430,7 +667,7 @@ export default function FornecedoresModal({
         email_contato:   normalizarEmail(form.email_contato ?? ''),  // lowercase
         website:         normalizarTexto(form.website ?? ''),
         dados_bancarios: normalizarTexto(form.dados_bancarios ?? ''),
-        tipo_fornecedor: form.tipo_fornecedor ?? null, // <select> fechado — sem string vazia a normalizar
+        tipo_fornecedor_id: form.tipo_fornecedor_id ?? null, // <select> fechado — sem string vazia a normalizar
         observacoes:     normalizarTexto(form.observacoes ?? ''),
         contato_whatsapp: form.contato_whatsapp ?? [],
         // data_nascimento: '' → null (Postgres rejeita string vazia em coluna date)
@@ -477,8 +714,13 @@ export default function FornecedoresModal({
 
   // ============================================================
   // Render
+  // Fragmento externo (<>) porque CategoriasModal.tsx renderiza como
+  // um segundo overlay independente (zIndex 1100, acima deste modal,
+  // que continua montado atrás) — não pode ficar aninhado dentro da
+  // mesma div de overlay sem herdar seu contexto de posicionamento
   // ============================================================
   return (
+    <>
     <div
       style={{
         position: 'fixed',
@@ -760,41 +1002,367 @@ export default function FornecedoresModal({
                 style={inputStyle}
               />
             </div>
-            <div style={colStyle('220px')}>
+            <div style={colStyle('260px')}>
               <label style={labelStyle}>Tipo de Fornecedor</label>
               {/* Classificação usada pelo relatório "Gastos por tipo de
                   fornecedor" — opcional, fica "Não classificado" (null)
-                  até o usuário definir manualmente */}
-              <select
-                name="tipo_fornecedor"
-                value={form.tipo_fornecedor ?? ''}
-                onChange={handleTipoFornecedorChange}
-                disabled={readOnly}
-                style={selectStyle}
-              >
-                <option value="">Não classificado</option>
-                {(Object.entries(TIPO_FORNECEDOR_LABELS) as [TipoFornecedor, string][]).map(
-                  ([valor, rotulo]) => (
-                    <option key={valor} value={valor}>{rotulo}</option>
-                  )
+                  até o usuário definir manualmente. Lista de categorias
+                  agora é dinâmica (fornecedor_categorias), gerenciável
+                  pelo usuário via CategoriasModal.tsx (Seção 4) — a lista
+                  em si (prop `categorias`) vem de app/fornecedores/page.tsx,
+                  buscada uma única vez para a tela inteira */}
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <select
+                  name="tipo_fornecedor_id"
+                  value={form.tipo_fornecedor_id ?? ''}
+                  onChange={handleTipoFornecedorChange}
+                  disabled={readOnly}
+                  style={{ ...selectStyle, flex: 1 }}
+                >
+                  <option value="">Não classificado</option>
+                  {categorias.map(categoria => (
+                    <option key={categoria.id} value={categoria.id}>{categoria.nome}</option>
+                  ))}
+                </select>
+                {/* Link "Gerenciar categorias" — oculto em modo visualizar,
+                    abre CategoriasModal.tsx por cima deste modal (Seção 4.6) */}
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => setCategoriasModalAberto(true)}
+                    title="Gerenciar categorias de fornecedor"
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      fontFamily: 'Tahoma, Geneva, sans-serif',
+                      background: '#ffffff',
+                      color: '#1a6094',
+                      border: '1px solid #1a6094',
+                      borderRadius: '4px',
+                      padding: '0 8px',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <i className="ti ti-settings" style={{ fontSize: '11px', marginRight: '3px' }} aria-hidden="true" />
+                    Gerenciar
+                  </button>
                 )}
-              </select>
+              </div>
             </div>
           </div>
 
           {/* Divider */}
           <hr style={{ border: 'none', borderTop: '1px solid #dde8f0', margin: '12px 0' }} />
 
-          {/* WhatsApp Business — reutilizado de Clientes */}
+          {/* WhatsApp Business — reutilizado de Clientes. suportaFavorito só
+              fica true com fornecedor já salvo (Seção 2.3 depende de
+              fornecedor.id) — em modo 'novo' cai para false automaticamente
+              e a nota abaixo explica o motivo */}
           <WhatsAppSection
             contatos={form.contato_whatsapp ?? []}
             onChange={handleWhatsApp}
             readOnly={readOnly}
+            suportaFavorito={fornecedorSalvo}
+            onDefinirFavorito={handleDefinirFavoritoWhatsApp}
+            notaFavoritoIndisponivel={
+              !fornecedorSalvo && !readOnly
+                ? 'Salve o fornecedor primeiro para marcar um contato como favorito.'
+                : undefined
+            }
           />
+          {/* Erro inline da ação de favoritar — nunca alert()/confirm() */}
+          {erroFavoritoWhatsApp && (
+            <p style={{ ...erroStyle, marginTop: '4px' }}>{erroFavoritoWhatsApp}</p>
+          )}
 
-          {/* Dados Bancários */}
+          {/* Dados Bancários — inclui o bloco "Chaves Pix" (Seção 1.6),
+              posicionado acima do textarea de dados_bancarios (Ponto
+              discricionário 1 da especificação — ambos os lados são
+              aceitáveis, desde que dentro desta seção) */}
           <div style={{ marginTop: '12px' }}>
             <label style={labelStyle}>Dados Bancários</label>
+
+            {/* ── Bloco Chaves Pix ── */}
+            <div
+              style={{
+                background: '#f0f7fc',
+                border: '1px solid #c4d8eb',
+                borderRadius: '6px',
+                padding: '10px 12px',
+                marginTop: '4px',
+                marginBottom: '8px',
+                fontFamily: 'Tahoma, Geneva, sans-serif',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '8px',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    color: '#1a6094',
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Chaves Pix
+                </span>
+                {/* Botão "Adicionar chave" — só com fornecedor salvo, fora de
+                    modo visualizar, e formulário de adição ainda fechado */}
+                {!readOnly && fornecedorSalvo && !adicionandoChavePix && (
+                  <button
+                    type="button"
+                    onClick={() => setAdicionandoChavePix(true)}
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      fontFamily: 'Tahoma, Geneva, sans-serif',
+                      background: '#ffffff',
+                      color: '#1a6094',
+                      border: '1px solid #1a6094',
+                      borderRadius: '4px',
+                      padding: '3px 8px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    + Adicionar chave
+                  </button>
+                )}
+              </div>
+
+              {/* Nota — indisponível em modo 'novo' (sem fornecedor.id ainda) */}
+              {!fornecedorSalvo && (
+                <p style={{ fontSize: '10px', color: '#5a84a6', fontStyle: 'italic', margin: 0 }}>
+                  Salve o fornecedor primeiro para cadastrar chaves Pix.
+                </p>
+              )}
+
+              {/* Erro inline — nunca alert()/confirm() */}
+              {fornecedorSalvo && erroChavePix && (
+                <p style={{ ...erroStyle, marginBottom: '6px' }}>{erroChavePix}</p>
+              )}
+
+              {/* Lista de chaves existentes */}
+              {fornecedorSalvo && carregandoChavesPix && (
+                <p style={{ fontSize: '10px', color: '#5a84a6', margin: 0 }}>Carregando chaves Pix...</p>
+              )}
+              {fornecedorSalvo && !carregandoChavesPix && chavesPix.length === 0 && !adicionandoChavePix && (
+                <p style={{ fontSize: '10px', color: '#5a84a6', margin: 0 }}>Nenhuma chave Pix cadastrada.</p>
+              )}
+              {fornecedorSalvo && !carregandoChavesPix && chavesPix.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {chavesPix.map(chave => (
+                    <div
+                      key={chave.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '5px 8px',
+                        background: '#ffffff',
+                        border: '1px solid #c4d8eb',
+                        borderRadius: '4px',
+                        gap: '6px',
+                      }}
+                    >
+                      {editandoChaveId === chave.id ? (
+                        // ── Modo edição inline (tipo + valor) ──
+                        <>
+                          <select
+                            value={edicaoTipoChave}
+                            onChange={e => setEdicaoTipoChave(e.target.value as TipoChavePix)}
+                            disabled={processandoChavePix}
+                            style={{ ...selectStyle, width: 'auto', flexShrink: 0 }}
+                          >
+                            {OPCOES_TIPO_CHAVE_PIX.map(op => (
+                              <option key={op.value} value={op.value}>{op.label}</option>
+                            ))}
+                          </select>
+                          <input
+                            type="text"
+                            value={edicaoValorChave}
+                            onChange={e => setEdicaoValorChave(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleConfirmarEdicaoChave()}
+                            disabled={processandoChavePix}
+                            autoFocus
+                            style={{ ...inputStyle, flex: 1 }}
+                          />
+                          <button
+                            onClick={handleConfirmarEdicaoChave}
+                            disabled={processandoChavePix || !edicaoValorChave.trim()}
+                            title="Confirmar"
+                            style={{ ...btnPixStyle, color: '#15803d' }}
+                          >
+                            <i className="ti ti-check" aria-hidden="true" />
+                          </button>
+                          <button
+                            onClick={handleCancelarEdicaoChave}
+                            disabled={processandoChavePix}
+                            title="Cancelar"
+                            style={btnPixStyle}
+                          >
+                            <i className="ti ti-x" aria-hidden="true" />
+                          </button>
+                        </>
+                      ) : confirmandoExcluirChaveId === chave.id ? (
+                        // ── Confirmação inline de exclusão — nunca window.confirm() ──
+                        <>
+                          <span style={{ fontSize: '10px', color: '#b45309', flex: 1 }}>
+                            Excluir esta chave Pix?
+                          </span>
+                          <button
+                            onClick={() => handleExcluirChavePix(chave.id)}
+                            disabled={processandoChavePix}
+                            title="Confirmar exclusão"
+                            style={{ ...btnPixStyle, color: '#dc2626', fontSize: '10px', width: 'auto', padding: '2px 6px' }}
+                          >
+                            Excluir
+                          </button>
+                          <button
+                            onClick={() => setConfirmandoExcluirChaveId(null)}
+                            disabled={processandoChavePix}
+                            title="Cancelar"
+                            style={{ ...btnPixStyle, fontSize: '10px', width: 'auto', padding: '2px 6px' }}
+                          >
+                            Não
+                          </button>
+                        </>
+                      ) : (
+                        // ── Linha padrão — toggle preferencial + tipo/valor + ações ──
+                        <>
+                          {/* Toggle preferencial — estilo rádio, mesmo padrão do favorito
+                              WhatsApp (WhatsAppSection.tsx) */}
+                          {!readOnly && (
+                            <button
+                              onClick={() => handleDefinirChavePreferencial(chave.id)}
+                              disabled={processandoChavePix}
+                              title={chave.preferencial ? 'Chave preferencial' : 'Definir como preferencial'}
+                              aria-label={chave.preferencial ? 'Chave preferencial' : 'Definir como preferencial'}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: '20px',
+                                height: '20px',
+                                padding: 0,
+                                fontSize: '13px',
+                                background: 'transparent',
+                                border: 'none',
+                                color: chave.preferencial ? '#f59e0b' : '#c4d8eb',
+                                cursor: 'pointer',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {chave.preferencial ? '★' : '☆'}
+                            </button>
+                          )}
+                          {readOnly && chave.preferencial && (
+                            <span style={{ color: '#f59e0b', fontSize: '13px' }}>★</span>
+                          )}
+                          <span style={{ fontSize: '10px', fontWeight: 700, color: '#1a6094', flexShrink: 0 }}>
+                            {OPCOES_TIPO_CHAVE_PIX.find(op => op.value === chave.tipo_chave)?.label ?? chave.tipo_chave}
+                          </span>
+                          <span style={{ fontSize: '11px', color: '#2c4a60', flex: 1, wordBreak: 'break-all' }}>
+                            {chave.valor_chave}
+                          </span>
+                          {!readOnly && (
+                            <>
+                              <button
+                                onClick={() => handleIniciarEdicaoChave(chave)}
+                                title="Editar chave"
+                                style={btnPixStyle}
+                              >
+                                <i className="ti ti-writing" aria-hidden="true" />
+                              </button>
+                              <button
+                                onClick={() => setConfirmandoExcluirChaveId(chave.id)}
+                                title="Remover chave"
+                                style={{ ...btnPixStyle, color: '#dc2626' }}
+                              >
+                                <i className="ti ti-trash" aria-hidden="true" />
+                              </button>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Formulário "Adicionar chave" */}
+              {fornecedorSalvo && adicionandoChavePix && (
+                <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <select
+                      value={novoTipoChave}
+                      onChange={e => setNovoTipoChave(e.target.value as TipoChavePix)}
+                      disabled={processandoChavePix}
+                      style={{ ...selectStyle, width: 'auto', flexShrink: 0 }}
+                    >
+                      {OPCOES_TIPO_CHAVE_PIX.map(op => (
+                        <option key={op.value} value={op.value}>{op.label}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Valor da chave"
+                      value={novoValorChave}
+                      onChange={e => setNovoValorChave(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleAdicionarChavePix()}
+                      disabled={processandoChavePix}
+                      autoFocus
+                      style={{ ...inputStyle, flex: 1 }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      onClick={handleAdicionarChavePix}
+                      disabled={processandoChavePix || !novoValorChave.trim()}
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        fontFamily: 'Tahoma, Geneva, sans-serif',
+                        background: '#1a6094',
+                        color: '#ffffff',
+                        border: '1px solid #1a6094',
+                        borderRadius: '4px',
+                        padding: '4px 12px',
+                        cursor: processandoChavePix || !novoValorChave.trim() ? 'not-allowed' : 'pointer',
+                        opacity: processandoChavePix || !novoValorChave.trim() ? 0.6 : 1,
+                      }}
+                    >
+                      Salvar
+                    </button>
+                    <button
+                      onClick={() => { setAdicionandoChavePix(false); setNovoValorChave(''); setNovoTipoChave('cpf') }}
+                      disabled={processandoChavePix}
+                      style={{
+                        fontSize: '11px',
+                        fontFamily: 'Tahoma, Geneva, sans-serif',
+                        background: '#ffffff',
+                        color: '#3a6080',
+                        border: '1px solid #c4d8eb',
+                        borderRadius: '4px',
+                        padding: '4px 12px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <textarea
               name="dados_bancarios"
               value={form.dados_bancarios ?? ''}
@@ -877,6 +1445,18 @@ export default function FornecedoresModal({
         </div>
       </div>
     </div>
+
+    {/* CategoriasModal — segundo overlay independente, aberto por cima
+        deste (Seção 4.6). onCategoriasAlteradas repassa direto o
+        callback recebido do pai (app/fornecedores/page.tsx), que é
+        quem detém a lista `categorias` e faz o re-fetch */}
+    <CategoriasModal
+      aberto={categoriasModalAberto}
+      categorias={categorias}
+      onFechar={() => setCategoriasModalAberto(false)}
+      onCategoriasAlteradas={onCategoriasAlteradas}
+    />
+    </>
   )
 }
 
@@ -932,4 +1512,22 @@ const erroStyle: React.CSSProperties = {
   fontSize: '10px',
   color: '#dc2626',
   fontFamily: 'Tahoma, Geneva, sans-serif',
+}
+
+// Botão de ação pequeno (editar/excluir/confirmar) das linhas do
+// bloco Chaves Pix — mesmo padrão de btnAcaoStyle em FornecedoresTabela.tsx
+const btnPixStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '22px',
+  height: '22px',
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  padding: '2px 4px',
+  borderRadius: '3px',
+  fontSize: '12px',
+  color: '#1a6094',
+  flexShrink: 0,
 }

@@ -16,7 +16,10 @@ import type {
   FornecedorInsert,
   FornecedorUpdate,
   FiltrosFornecedores,
-  TipoFornecedor,
+  ChavePix,
+  TipoChavePix,
+  FornecedorCategoria,
+  ContatoWhatsApp,
 } from '@/types/fornecedores'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
@@ -25,6 +28,8 @@ import * as XLSX from 'xlsx'
 // CONSTANTES
 // ============================================================
 const TABELA = 'fornecedores'
+const TABELA_CHAVES_PIX = 'fornecedor_chaves_pix'  // Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md, Seção 1
+const TABELA_CATEGORIAS = 'fornecedor_categorias'  // Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md, Seção 4
 
 // ============================================================
 // buscarFornecedores()
@@ -205,22 +210,28 @@ export async function editarFornecedor(fornecedor: FornecedorUpdate): Promise<Fo
 
 // ============================================================
 // atualizarTipoFornecedor()
-// Atualiza SOMENTE o campo tipo_fornecedor de um fornecedor — usado
+// Atualiza SOMENTE o campo tipo_fornecedor_id de um fornecedor — usado
 // pela classificação rápida inline na tabela/lista (FornecedoresTabela.tsx,
 // FornecedoresMobileList.tsx), suporte à classificação em massa dos 19
 // fornecedores existentes pedida pela Especificacao_Modulo_Relatorios.md,
 // Seção 3. Não passa por editarFornecedor() de propósito: evita reenviar
 // o registro inteiro só para trocar um campo, e mantém a intenção da
 // chamada explícita no nome da função.
-// Chamado por: FornecedoresTabela.tsx, FornecedoresMobileList.tsx
+// MIGRADO (Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md, Seção
+// 4.5): antes escrevia o enum fechado tipo_fornecedor (TEXT), agora
+// escreve tipo_fornecedor_id (FK p/ fornecedor_categorias) — parâmetro
+// categoriaId é o id da linha em fornecedor_categorias, ou null para
+// "Não classificado".
+// Chamado por: FornecedoresTabela.tsx, FornecedoresMobileList.tsx,
+//              app/fornecedores/page.tsx (handleAlterarTipo)
 // ============================================================
 export async function atualizarTipoFornecedor(
   id: number,
-  tipoFornecedor: TipoFornecedor | null,
+  categoriaId: number | null,
 ): Promise<Fornecedor> {
   const { data, error } = await supabase
     .from(TABELA)
-    .update({ tipo_fornecedor: tipoFornecedor }) // único campo alterado
+    .update({ tipo_fornecedor_id: categoriaId }) // único campo alterado
     .eq('id', id)
     .select()
     .single()
@@ -231,6 +242,312 @@ export async function atualizarTipoFornecedor(
   }
 
   return data as Fornecedor
+}
+
+// ============================================================
+// ────────────────────────────────────────────────────────────
+// SEÇÃO: CHAVES PIX (Especificacao_Fornecedores_Pix_Categorias_
+// WhatsApp.md, Seção 1). Tabela própria fornecedor_chaves_pix —
+// 0..N chaves por fornecedor, no máximo 1 preferencial por vez.
+// ────────────────────────────────────────────────────────────
+// ============================================================
+
+// ============================================================
+// listarChavesPix()
+// Retorna as chaves Pix não-deletadas de um fornecedor
+// Ordenado por created_at para manter ordem estável de cadastro
+// Chamado por: FornecedoresModal.tsx ao abrir em modo editar/visualizar
+// ============================================================
+export async function listarChavesPix(fornecedorId: number): Promise<ChavePix[]> {
+  const { data, error } = await supabase
+    .from(TABELA_CHAVES_PIX)
+    .select('*')
+    .eq('fornecedor_id', fornecedorId) // só as chaves deste fornecedor
+    .is('deleted_at', null)            // soft-delete — nunca lista as excluídas
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    console.error('[fornecedoresService] listarChavesPix error:', error)
+    throw new Error(error.message)
+  }
+
+  return (data as ChavePix[]) ?? []
+}
+
+// ============================================================
+// criarChavePix()
+// Insere uma nova chave Pix para o fornecedor informado
+// Sem validação de formato em valor (Seção 1.1) — só "não vazio",
+// já garantido pela UI antes de chamar esta função
+// preferencial nasce sempre false — marcar como preferencial é uma
+// ação separada e explícita via definirChavePixPreferencial()
+// Chamado por: FornecedoresModal.tsx, botão "Adicionar chave"
+// ============================================================
+export async function criarChavePix(
+  fornecedorId: number,
+  tipo: TipoChavePix,
+  valor: string,
+): Promise<ChavePix> {
+  const { data, error } = await supabase
+    .from(TABELA_CHAVES_PIX)
+    .insert({
+      fornecedor_id: fornecedorId, // FK — dono da chave
+      tipo_chave: tipo,            // tipo selecionado no formulário
+      valor_chave: valor,          // valor digitado — sem transformação
+      // preferencial: usa o DEFAULT false da coluna — não enviado aqui
+    })
+    .select()
+    .single()
+
+  if (error) {
+    console.error('[fornecedoresService] criarChavePix error:', error)
+    throw new Error(error.message)
+  }
+
+  return data as ChavePix
+}
+
+// ============================================================
+// atualizarChavePix()
+// Atualiza tipo/valor de uma chave existente — NÃO toca em
+// `preferencial` (Seção 1.5: só definirChavePixPreferencial() altera
+// esse campo, garantindo que a troca sempre passe pelo RPC atômico)
+// Chamado por: FornecedoresModal.tsx, edição de uma linha existente
+// ============================================================
+export async function atualizarChavePix(
+  chaveId: number,
+  tipo: TipoChavePix,
+  valor: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from(TABELA_CHAVES_PIX)
+    .update({ tipo_chave: tipo, valor_chave: valor, updated_at: new Date().toISOString() })
+    .eq('id', chaveId)
+
+  if (error) {
+    console.error('[fornecedoresService] atualizarChavePix error:', error)
+    throw new Error(error.message)
+  }
+}
+
+// ============================================================
+// definirChavePixPreferencial()
+// Único jeito de alterar `preferencial` — delega ao RPC
+// set_chave_pix_preferencial (sql/fornecedores.sql, Seção 1.3), que
+// desmarca a chave preferencial atual e marca a nova na mesma
+// transação. Chamada via supabase.rpc() precisa disso porque dois
+// UPDATEs separados do client JS não são atômicos entre si.
+// Chamado por: FornecedoresModal.tsx, toggle estilo rádio por linha
+// ============================================================
+export async function definirChavePixPreferencial(
+  fornecedorId: number,
+  chaveId: number,
+): Promise<void> {
+  const { error } = await supabase.rpc('set_chave_pix_preferencial', {
+    p_fornecedor_id: fornecedorId, // nome do parâmetro deve bater com a assinatura SQL do RPC
+    p_chave_id: chaveId,
+  })
+
+  if (error) {
+    console.error('[fornecedoresService] definirChavePixPreferencial error:', error)
+    throw new Error(error.message)
+  }
+}
+
+// ============================================================
+// excluirChavePix()
+// Soft delete de uma chave Pix — nunca DELETE físico (convenção do
+// projeto). Se a chave excluída era a preferencial, nenhuma outra é
+// promovida automaticamente — o fornecedor simplesmente fica sem
+// chave preferencial até o usuário escolher uma nova (Seção 1.5)
+// Chamado por: FornecedoresModal.tsx, confirmação inline Sim/Não
+// ============================================================
+export async function excluirChavePix(chaveId: number): Promise<void> {
+  const { error } = await supabase
+    .from(TABELA_CHAVES_PIX)
+    .update({ deleted_at: new Date().toISOString() }) // soft-delete
+    .eq('id', chaveId)
+
+  if (error) {
+    console.error('[fornecedoresService] excluirChavePix error:', error)
+    throw new Error(error.message)
+  }
+}
+
+// ============================================================
+// listarChavesPixPreferenciais()
+// Retorna TODAS as chaves Pix marcadas como preferencial (não-
+// deletadas), de todos os fornecedores — usado pela coluna "Chave
+// Pix" da listagem (Especificacao_Fornecedores_Pix_Categorias_
+// WhatsApp.md, Seção 3.1), que precisa desse dado mas o objeto
+// Fornecedor não o contém (fica em tabela separada, não embutido
+// no select('*') de fornecedores). Conjunto pequeno por construção:
+// o índice único parcial do banco (uq_fornecedor_chave_pix_
+// preferencial) garante no máximo 1 linha por fornecedor.
+// Chamado por: app/fornecedores/page.tsx, repassado por prop para
+//              FornecedoresTabela.tsx e FornecedoresMobileList.tsx
+// ============================================================
+export async function listarChavesPixPreferenciais(): Promise<ChavePix[]> {
+  const { data, error } = await supabase
+    .from(TABELA_CHAVES_PIX)
+    .select('*')
+    .eq('preferencial', true) // só as marcadas como preferencial
+    .is('deleted_at', null)   // soft-delete — nunca inclui as excluídas
+
+  if (error) {
+    console.error('[fornecedoresService] listarChavesPixPreferenciais error:', error)
+    throw new Error(error.message)
+  }
+
+  return (data as ChavePix[]) ?? []
+}
+
+// ============================================================
+// ────────────────────────────────────────────────────────────
+// SEÇÃO: CATEGORIAS DE FORNECEDOR (Especificacao_Fornecedores_
+// Pix_Categorias_WhatsApp.md, Seção 4). Tabela própria
+// fornecedor_categorias — substitui o enum fechado tipo_fornecedor.
+// Qualquer usuário logado pode criar/renomear/excluir — sem
+// restrição de permissão (Seção 4.1).
+// ────────────────────────────────────────────────────────────
+// ============================================================
+
+// ============================================================
+// listarCategorias()
+// Retorna as categorias ativas (não-deletadas), ordenadas por nome
+// Chamado por: FornecedoresModal.tsx, CategoriasModal.tsx,
+//              app/fornecedores/page.tsx (fetch único, repassado
+//              via prop para Tabela/MobileList — evita 3 fetches
+//              redundantes na mesma tela)
+// ============================================================
+export async function listarCategorias(): Promise<FornecedorCategoria[]> {
+  const { data, error } = await supabase
+    .from(TABELA_CATEGORIAS)
+    .select('*')
+    .is('deleted_at', null)         // soft-delete — nunca lista as excluídas
+    .order('nome', { ascending: true }) // ordem alfabética — mais fácil de achar no <select>
+
+  if (error) {
+    console.error('[fornecedoresService] listarCategorias error:', error)
+    throw new Error(error.message)
+  }
+
+  return (data as FornecedorCategoria[]) ?? []
+}
+
+// ============================================================
+// criarCategoria()
+// Insere uma nova categoria — nome único (case-insensitive) garantido
+// pelo índice uq_fornecedor_categoria_nome no banco; erro de duplicidade
+// sobe como Error normal, tratado pela UI (CategoriasModal.tsx)
+// Chamado por: CategoriasModal.tsx, botão "Adicionar categoria"
+// ============================================================
+export async function criarCategoria(nome: string): Promise<FornecedorCategoria> {
+  const { data, error } = await supabase
+    .from(TABELA_CATEGORIAS)
+    .insert({ nome }) // created_at/updated_at usam DEFAULT now() da coluna
+    .select()
+    .single()
+
+  if (error) {
+    console.error('[fornecedoresService] criarCategoria error:', error)
+    throw new Error(error.message)
+  }
+
+  return data as FornecedorCategoria
+}
+
+// ============================================================
+// renomearCategoria()
+// Atualiza SOMENTE o nome de uma categoria existente
+// Chamado por: CategoriasModal.tsx, controle de rename inline
+// ============================================================
+export async function renomearCategoria(categoriaId: number, novoNome: string): Promise<void> {
+  const { error } = await supabase
+    .from(TABELA_CATEGORIAS)
+    .update({ nome: novoNome, updated_at: new Date().toISOString() })
+    .eq('id', categoriaId)
+
+  if (error) {
+    console.error('[fornecedoresService] renomearCategoria error:', error)
+    throw new Error(error.message)
+  }
+}
+
+// ============================================================
+// excluirCategoria()
+// Único jeito de excluir uma categoria — delega ao RPC
+// excluir_categoria_fornecedor (sql/fornecedores.sql, Seção 4.4), que
+// primeiro reclassifica todo fornecedor que usava a categoria para
+// "Não classificado" e só depois soft-deleta a categoria — nunca
+// deixa um fornecedor apontando para categoria já excluída
+// Chamado por: CategoriasModal.tsx, confirmação inline Sim/Não
+// ============================================================
+export async function excluirCategoria(categoriaId: number): Promise<void> {
+  const { error } = await supabase.rpc('excluir_categoria_fornecedor', {
+    p_categoria_id: categoriaId, // nome do parâmetro deve bater com a assinatura SQL do RPC
+  })
+
+  if (error) {
+    console.error('[fornecedoresService] excluirCategoria error:', error)
+    throw new Error(error.message)
+  }
+}
+
+// ============================================================
+// ────────────────────────────────────────────────────────────
+// SEÇÃO: WHATSAPP FAVORITO (Especificacao_Fornecedores_Pix_
+// Categorias_WhatsApp.md, Seção 2). contato_whatsapp é JSONB de
+// linha única — sem RPC necessário (Seção 2.1): ler, modificar em
+// memória e escrever de volta com um único UPDATE já é atômico por
+// natureza (uma linha, uma coluna, um statement).
+// ────────────────────────────────────────────────────────────
+// ============================================================
+
+// ============================================================
+// definirContatoWhatsAppFavorito()
+// Lê o array contato_whatsapp atual do fornecedor, marca favorito=true
+// no índice informado e favorito=false em todos os outros, e grava o
+// array inteiro de volta em um único update()
+// Chamado por: FornecedoresModal.tsx → WhatsAppSection.tsx (toggle
+// estilo rádio, disponível quando suportaFavorito={true})
+// ============================================================
+export async function definirContatoWhatsAppFavorito(
+  fornecedorId: number,
+  contatoIndice: number,
+): Promise<void> {
+  // Passo 1: lê o array atual — precisa do estado mais recente do banco,
+  // não do estado local do form, pra evitar sobrescrever uma edição concorrente
+  const { data: atual, error: erroLeitura } = await supabase
+    .from(TABELA)
+    .select('contato_whatsapp')
+    .eq('id', fornecedorId)
+    .single()
+
+  if (erroLeitura) {
+    console.error('[fornecedoresService] definirContatoWhatsAppFavorito (leitura) error:', erroLeitura)
+    throw new Error(erroLeitura.message)
+  }
+
+  const contatos = (atual?.contato_whatsapp as ContatoWhatsApp[] | null) ?? []
+
+  // Passo 2: recalcula o array em memória — só o índice alvo fica true
+  const atualizado = contatos.map((c, i) => ({
+    ...c,
+    favorito: i === contatoIndice,
+  }))
+
+  // Passo 3: grava o array inteiro de volta — uma linha, uma coluna,
+  // um statement — já atômico por natureza, sem necessidade de RPC
+  const { error: erroEscrita } = await supabase
+    .from(TABELA)
+    .update({ contato_whatsapp: atualizado })
+    .eq('id', fornecedorId)
+
+  if (erroEscrita) {
+    console.error('[fornecedoresService] definirContatoWhatsAppFavorito (escrita) error:', erroEscrita)
+    throw new Error(erroEscrita.message)
+  }
 }
 
 // ============================================================

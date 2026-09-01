@@ -13,7 +13,27 @@
 --              cnpj/cpf a cada importação — motivo do índice abaixo),
 --              lib/relatorios/gastosPorTipoFornecedor.ts (Módulo
 --              Relatórios, relatório 2.6 — consome tipo_fornecedor)
--- Revisão desta versão (Módulo Relatórios — Especificacao_Modulo_
+-- Revisão desta versão (Especificacao_Fornecedores_Pix_Categorias_
+-- WhatsApp.md, aprovada por Maycon):
+--   - Adicionada fornecedor_chaves_pix (Seção 1) — 0..N chaves Pix
+--     por fornecedor, no máximo 1 preferencial (garantido por índice
+--     único parcial + RPC set_chave_pix_preferencial).
+--   - Adicionada fornecedor_categorias (Seção 4) — substitui o CHECK
+--     fechado de tipo_fornecedor por tabela editável pelo usuário.
+--     Coluna tipo_fornecedor_id (FK) substitui tipo_fornecedor (TEXT);
+--     RPC excluir_categoria_fornecedor reclassifica fornecedores para
+--     "Não classificado" antes de soft-deletar a categoria.
+--   - Nota RLS: assumido inicialmente que fornecedores não tinha RLS
+--     habilitado (nenhuma CREATE POLICY/ENABLE ROW LEVEL SECURITY
+--     encontrada para esta tabela em todo o sql/*.sql versionado) —
+--     CORRIGIDO em produção (01/09/2026): Maycon confirmou via
+--     pg_policies que fornecedores tem a política "Usuarios
+--     autenticados tem acesso total" (FOR ALL, authenticated,
+--     USING true, WITH CHECK true), não capturada em nenhum arquivo
+--     .sql do projeto. Ver bloco "HOTFIX — RLS" ao final deste
+--     arquivo: replica essa mesma política, com o mesmo nome, nas
+--     duas tabelas novas.
+-- Revisão anterior (Módulo Relatórios — Especificacao_Modulo_
 -- Relatorios.md, Seção 2.6/3, aprovada por Maycon):
 --   - Adicionado tipo_fornecedor TEXT + CHECK, nullable. Fornecedores
 --     existentes ficam NULL até classificação manual (tela de
@@ -175,4 +195,190 @@ WHERE NOT EXISTS (
 
 -- Ressincroniza a sequence de id — defensivo, no-op se já estiver em dia
 SELECT setval(pg_get_serial_sequence('public.fornecedores', 'id'), MAX(id)) FROM public.fornecedores;
+
+
+-- ============================================================
+-- ADENDO — CHAVES PIX + CATEGORIAS DINÂMICAS DE FORNECEDOR
+-- Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md
+-- Aprovado por Maycon. Segue a mesma convenção do resto deste
+-- arquivo: idempotente, sem numeração, sem patch separado.
+-- ============================================================
+
+-- ────────────────────────────────────────────────────────────
+-- 1) FORNECEDOR_CHAVES_PIX — Especificação, Seção 1.2
+-- 0..N chaves Pix por fornecedor; no máximo 1 preferencial por vez.
+-- ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS fornecedor_chaves_pix (
+  -- Chave primária auto-increment — mesmo padrão numérico do resto do banco
+  id             SERIAL PRIMARY KEY,
+
+  -- FK para o fornecedor dono da chave — obrigatório, sem chave órfã
+  fornecedor_id  INTEGER NOT NULL REFERENCES fornecedores(id),
+
+  -- Tipo da chave — espelha 1:1 o union TipoChavePix em types/fornecedores.ts
+  tipo_chave     TEXT NOT NULL CHECK (tipo_chave IN ('cpf','cnpj','email','celular','aleatoria')),
+
+  -- Valor da chave — SEM validação de formato (regex/dígitos), decisão
+  -- explícita da Seção 1.1: só exige "não vazio", aplicado na UI/serviço
+  valor_chave    TEXT NOT NULL,
+
+  -- true = chave usada pelo futuro módulo Dashboard e pela geração de
+  -- 2ª via de boleto — no máximo uma por fornecedor (índice único abaixo)
+  preferencial   BOOLEAN NOT NULL DEFAULT false,
+
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),  -- auditoria — criado em
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),  -- auditoria — atualizado em
+  deleted_at     TIMESTAMPTZ                          -- soft-delete — nunca DELETE físico (convenção do projeto)
+);
+
+-- Postgres não cria índice de FK automaticamente — obrigatório por
+-- convenção do projeto (performance de lookup por fornecedor)
+CREATE INDEX IF NOT EXISTS idx_fornecedor_chaves_pix_fornecedor_id
+  ON fornecedor_chaves_pix (fornecedor_id);
+
+-- Garante, em nível de banco, no máximo 1 chave preferencial (não-deletada)
+-- por fornecedor — o RPC abaixo depende desta garantia pra ser seguro
+DROP INDEX IF EXISTS uq_fornecedor_chave_pix_preferencial;
+CREATE UNIQUE INDEX uq_fornecedor_chave_pix_preferencial
+  ON fornecedor_chaves_pix (fornecedor_id)
+  WHERE preferencial = true AND deleted_at IS NULL;
+
+-- RPC — troca atômica da chave preferencial (Seção 1.3). Único jeito de
+-- alterar `preferencial` — chamado por definirChavePixPreferencial() em
+-- lib/fornecedoresService.ts via supabase.rpc(). Função explícita,
+-- NÃO é trigger (proibido pela Seção 0.3 da spec).
+CREATE OR REPLACE FUNCTION set_chave_pix_preferencial(p_fornecedor_id INTEGER, p_chave_id INTEGER)
+RETURNS void AS $$
+BEGIN
+  -- Passo 1: desmarca a chave preferencial atual do fornecedor (se houver)
+  UPDATE fornecedor_chaves_pix
+     SET preferencial = false, updated_at = now()
+   WHERE fornecedor_id = p_fornecedor_id AND deleted_at IS NULL AND preferencial = true;
+
+  -- Passo 2: marca a nova chave como preferencial — mesma transação da
+  -- função plpgsql do Passo 1, portanto atômico (os dois sucedem juntos ou nenhum)
+  UPDATE fornecedor_chaves_pix
+     SET preferencial = true, updated_at = now()
+   WHERE id = p_chave_id AND fornecedor_id = p_fornecedor_id AND deleted_at IS NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ────────────────────────────────────────────────────────────
+-- 2) FORNECEDOR_CATEGORIAS — Especificação, Seção 4.2
+-- Substitui o CHECK fechado de tipo_fornecedor por tabela editável
+-- por qualquer usuário logado, sem restrição de permissão.
+-- ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS fornecedor_categorias (
+  id          SERIAL PRIMARY KEY,                -- chave primária auto-increment
+  nome        TEXT NOT NULL,                     -- nome da categoria, editável pelo usuário
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(), -- auditoria — criado em
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(), -- auditoria — atualizado em
+  deleted_at  TIMESTAMPTZ                         -- soft-delete — nunca DELETE físico
+);
+
+-- Impede duas categorias ativas com o mesmo nome (case-insensitive via lower())
+DROP INDEX IF EXISTS uq_fornecedor_categoria_nome;
+CREATE UNIQUE INDEX uq_fornecedor_categoria_nome
+  ON fornecedor_categorias (lower(nome))
+  WHERE deleted_at IS NULL;
+
+-- Remove o CHECK do enum fechado — incondicional (DROP CONSTRAINT IF
+-- EXISTS + ADD, nunca "IF NOT EXISTS WHERE conname=", convenção do projeto)
+ALTER TABLE fornecedores DROP CONSTRAINT IF EXISTS fornecedores_tipo_fornecedor_check;
+
+-- Adiciona a nova coluna FK que substitui tipo_fornecedor (TEXT) —
+-- ADD COLUMN IF NOT EXISTS é idempotente por natureza
+ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS tipo_fornecedor_id INTEGER REFERENCES fornecedor_categorias(id);
+
+-- Índice de FK — Postgres não cria automaticamente (mesma convenção do
+-- índice de fornecedor_chaves_pix acima)
+CREATE INDEX IF NOT EXISTS idx_fornecedores_tipo_fornecedor_id
+  ON fornecedores (tipo_fornecedor_id);
+
+-- Migração de dados (Seção 4.3) — reset limpo e intencional: sistema
+-- ainda pré-lançamento, não é mapeamento campo-a-campo cuidadoso.
+--
+-- Semeia as 4 categorias que já existiam no enum fechado, agora como
+-- pontos de partida editáveis pelo usuário
+INSERT INTO fornecedor_categorias (nome)
+SELECT v FROM (VALUES ('Matéria-prima / Insumo'), ('Embalagem'), ('Serviços'), ('Outros')) AS t(v)
+WHERE NOT EXISTS (SELECT 1 FROM fornecedor_categorias WHERE lower(nome) = lower(t.v));
+
+-- Reseta a classificação de TODO fornecedor para "Não classificado"
+-- (tipo_fornecedor_id = NULL) — Maycon reclassifica manualmente pela
+-- nova tela. NÃO mapear os valores antigos de tipo_fornecedor para as
+-- novas categorias automaticamente — decisão explícita da Seção 4.3
+UPDATE fornecedores SET tipo_fornecedor_id = NULL;
+
+-- RPC — exclusão de categoria (Seção 4.4). Único jeito de excluir uma
+-- categoria — chamado por excluirCategoria() em lib/fornecedoresService.ts.
+-- Ordem importa: reclassifica os fornecedores ANTES de soft-deletar a
+-- categoria, pra nenhum fornecedor apontar pra uma categoria já deletada,
+-- nem que seja momentaneamente.
+CREATE OR REPLACE FUNCTION excluir_categoria_fornecedor(p_categoria_id INTEGER)
+RETURNS void AS $$
+BEGIN
+  -- Passo 1: reclassifica todo fornecedor que usava esta categoria para "Não classificado"
+  UPDATE fornecedores
+     SET tipo_fornecedor_id = NULL
+   WHERE tipo_fornecedor_id = p_categoria_id;
+
+  -- Passo 2: soft-delete da categoria em si — só depois do passo 1 acima
+  UPDATE fornecedor_categorias
+     SET deleted_at = now(), updated_at = now()
+   WHERE id = p_categoria_id AND deleted_at IS NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================
+-- HOTFIX — RLS em fornecedor_chaves_pix e fornecedor_categorias
+-- Descoberto em produção: "new row violates row-level security
+-- policy for table 'fornecedor_categorias'" ao tentar adicionar uma
+-- categoria. A nota original acima ("fornecedores não tem RLS
+-- habilitado") foi baseada só na inspeção dos arquivos .sql
+-- versionados no repo — não há acesso de leitura ao estado real do
+-- banco neste ambiente (Supabase MCP indisponível).
+--
+-- Confirmado por Maycon via consulta direta a pg_policies: fornecedores
+-- tem a política "Usuarios autenticados tem acesso total" — FOR ALL,
+-- TO authenticated, USING (true), WITH CHECK (true). As duas tabelas
+-- novas abaixo replicam ESSA política exatamente, inclusive o nome,
+-- para consistência entre tabelas do módulo (Seção 1.2: "mirror it
+-- exactly, do not invent stricter or looser policies").
+--
+-- FOR ALL cobre SELECT/INSERT/UPDATE/DELETE em uma política só; os
+-- dois RPCs (set_chave_pix_preferencial, excluir_categoria_
+-- fornecedor) rodam como SECURITY INVOKER (padrão do Postgres — não
+-- declarados SECURITY DEFINER), então ficam sujeitos à mesma política
+-- do usuário que chamou, sem necessidade de tratamento à parte.
+-- ============================================================
+
+ALTER TABLE fornecedor_chaves_pix ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS fornecedor_chaves_pix_authenticated ON fornecedor_chaves_pix; -- nome do hotfix anterior, se já aplicado
+DROP POLICY IF EXISTS "Usuarios autenticados tem acesso total" ON fornecedor_chaves_pix;
+CREATE POLICY "Usuarios autenticados tem acesso total" ON fornecedor_chaves_pix
+  FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+ALTER TABLE fornecedor_categorias ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS fornecedor_categorias_authenticated ON fornecedor_categorias; -- nome do hotfix anterior, se já aplicado
+DROP POLICY IF EXISTS "Usuarios autenticados tem acesso total" ON fornecedor_categorias;
+CREATE POLICY "Usuarios autenticados tem acesso total" ON fornecedor_categorias
+  FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+-- ============================================================
+-- PASSO FINAL SEPARADO — NÃO roda automaticamente com o resto acima.
+-- Execute esta linha manualmente SÓ depois de confirmar que
+-- tipo_fornecedor_id está funcionando ponta-a-ponta na aplicação
+-- (Builder note, Seção 4.3 da especificação). Deixada comentada de
+-- propósito para ser fácil de pular.
+-- ============================================================
+-- ALTER TABLE fornecedores DROP COLUMN IF EXISTS tipo_fornecedor;
 

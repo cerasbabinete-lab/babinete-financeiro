@@ -6,15 +6,27 @@
 //         fornecedor) — filtro de período + tipo opcional, cartões
 //         por tipo, gráfico de pizza, tabela mensal detalhada.
 // Conecta com: lib/relatorios/gastosPorTipoFornecedor.ts
+//              lib/fornecedoresService.ts (listarCategorias — filtro
+//              dinâmico, Especificacao_Fornecedores_Pix_Categorias_
+//              WhatsApp.md, Seção 4.7)
 // Referência: Especificacao_Modulo_Relatorios.md, Seção 2.6
+//
+// MIGRAÇÃO (Seção 4.7): OPCOES_TIPO estático (4 valores do enum
+// fechado) virou fetch dinâmico via listarCategorias() + opção fixa
+// "Não classificado" ao final. Rótulos de exibição não vêm mais de
+// um dicionário externo (ROTULO_TIPO, removido de gastosPorTipoFornecedor.ts)
+// — cada linha agregada já chega com `rotulo` resolvido ao vivo pelo
+// gerador do relatório.
 // ============================================================
 
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { gerarRelatorioGastosPorTipoFornecedor, ROTULO_TIPO } from '@/lib/relatorios/gastosPorTipoFornecedor'
+import { gerarRelatorioGastosPorTipoFornecedor } from '@/lib/relatorios/gastosPorTipoFornecedor'
+import { listarCategorias } from '@/lib/fornecedoresService'
 import { formatarMoeda, formatarMesBR } from '@/lib/relatorios/formatadores'
 import type { RelatorioGastosPorTipoFornecedor, TipoFornecedorOuNaoClassificado } from '@/types/relatorios'
+import type { FornecedorCategoria } from '@/types/fornecedores'
 
 import GraficoSvg from '@/components/relatorios/GraficoSvg'
 import DisclaimerRodape from '@/components/relatorios/DisclaimerRodape'
@@ -29,7 +41,18 @@ function datasPadrao(): { dataInicial: string; dataFinal: string } {
   return { dataInicial, dataFinal }
 }
 
-const OPCOES_TIPO: TipoFornecedorOuNaoClassificado[] = ['materia_prima_insumo', 'embalagem', 'servicos', 'outros', 'nao_classificado']
+// ============================================================
+// tipoFiltroParaTipo()
+// Converte o valor bruto do <select> (sempre string, convenção do
+// DOM) para o tipo real esperado pelo gerador do relatório — '' vira
+// undefined (sem filtro), 'nao_classificado' fica como está, qualquer
+// outro valor é o id numérico de uma categoria (fornecedor_categorias)
+// ============================================================
+function tipoFiltroParaTipo(valor: string): TipoFornecedorOuNaoClassificado | undefined {
+  if (valor === '') return undefined
+  if (valor === 'nao_classificado') return 'nao_classificado'
+  return Number(valor)
+}
 
 export default function GastosPorTipoFornecedorRelatorio() {
   const [filtros, setFiltros] = useState({ ...datasPadrao(), tipoFiltro: '' })
@@ -37,6 +60,21 @@ export default function GastosPorTipoFornecedorRelatorio() {
   const [relatorio, setRelatorio] = useState<RelatorioGastosPorTipoFornecedor | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
+
+  // Categorias dinâmicas para popular o filtro dropdown (Seção 4.7) —
+  // buscadas uma vez ao montar a tela; CategoriasModal.tsx vive em
+  // Fornecedores, não neste módulo, então não há necessidade de
+  // re-buscar durante a vida desta tela (relatório é gerado sob
+  // demanda, não fica aberto durante uma sessão de edição de categorias)
+  const [categorias, setCategorias] = useState<FornecedorCategoria[]>([])
+
+  useEffect(() => {
+    listarCategorias()
+      .then(lista => setCategorias(lista))
+      .catch((err: unknown) => {
+        console.error('[GastosPorTipoFornecedorRelatorio] listarCategorias error:', err)
+      })
+  }, [])
 
   const { exportar, exportando, erroExportacao } = useExportarRelatorio('/api/relatorios/gastos-por-tipo-fornecedor')
 
@@ -47,7 +85,7 @@ export default function GastosPorTipoFornecedorRelatorio() {
       const r = await gerarRelatorioGastosPorTipoFornecedor({
         dataInicial: filtrosAplicados.dataInicial,
         dataFinal: filtrosAplicados.dataFinal,
-        tipoFiltro: (filtrosAplicados.tipoFiltro || undefined) as TipoFornecedorOuNaoClassificado | undefined,
+        tipoFiltro: tipoFiltroParaTipo(filtrosAplicados.tipoFiltro),
       })
       setRelatorio(r)
     } catch (err: unknown) {
@@ -63,6 +101,8 @@ export default function GastosPorTipoFornecedorRelatorio() {
   const paramsExport: Record<string, string> = {
     dataInicial: filtrosAplicados.dataInicial,
     dataFinal: filtrosAplicados.dataFinal,
+    // Valor bruto do <select> (numérico-como-string ou 'nao_classificado')
+    // — a API route faz a mesma conversão via tipoFiltroParaTipo() local
     ...(filtrosAplicados.tipoFiltro ? { tipoFiltro: filtrosAplicados.tipoFiltro } : {}),
   }
 
@@ -83,7 +123,10 @@ export default function GastosPorTipoFornecedorRelatorio() {
             <label style={estilosRelatorio.rotuloFiltro}>Tipo</label>
             <select value={filtros.tipoFiltro} onChange={e => setFiltros(f => ({ ...f, tipoFiltro: e.target.value }))} style={estilosRelatorio.select}>
               <option value="">Todos</option>
-              {OPCOES_TIPO.map(tipo => <option key={tipo} value={tipo}>{ROTULO_TIPO[tipo]}</option>)}
+              {categorias.map(categoria => (
+                <option key={categoria.id} value={categoria.id}>{categoria.nome}</option>
+              ))}
+              <option value="nao_classificado">Não classificado</option>
             </select>
           </div>
         }
@@ -98,7 +141,7 @@ export default function GastosPorTipoFornecedorRelatorio() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
             <CartaoResumoUi rotulo="Total geral do período" valor={formatarMoeda(relatorio.totalGeral)} />
             {relatorio.porTipo.map(t => (
-              <CartaoResumoUi key={t.tipo} rotulo={ROTULO_TIPO[t.tipo]} valor={formatarMoeda(t.total)} />
+              <CartaoResumoUi key={String(t.tipo)} rotulo={t.rotulo} valor={formatarMoeda(t.total)} />
             ))}
           </div>
 
@@ -122,7 +165,7 @@ export default function GastosPorTipoFornecedorRelatorio() {
                   relatorio.porTipoPorMes.map((g, i) => (
                     <tr key={i} style={{ background: i % 2 !== 0 ? '#f7fafc' : '#ffffff', borderBottom: '1px solid #e8f0f7' }}>
                       <td style={estilosRelatorio.td}>{formatarMesBR(g.mes)}</td>
-                      <td style={estilosRelatorio.td}>{ROTULO_TIPO[g.tipo]}</td>
+                      <td style={estilosRelatorio.td}>{g.rotulo}</td>
                       <td style={{ ...estilosRelatorio.td, textAlign: 'right' }}>{formatarMoeda(g.total)}</td>
                     </tr>
                   ))

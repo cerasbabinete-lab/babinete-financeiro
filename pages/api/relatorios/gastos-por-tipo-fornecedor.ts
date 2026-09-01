@@ -6,12 +6,21 @@
 //         fornecedor" (2.6) — o último dos 6
 // Conecta com: lib/relatorios/gastosPorTipoFornecedor.ts
 // Referência: Especificacao_Modulo_Relatorios.md, Seção 2.6
+//
+// MIGRAÇÃO (Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md,
+// Seção 4.7) — ROTULO_TIPO (dicionário estático) removido de
+// gastosPorTipoFornecedor.ts; rótulos agora vêm resolvidos ao vivo em
+// cada linha agregada (`.rotulo`). Contrato externo desta rota
+// inalterado: `tipoFiltro` continua sendo aceito como string na
+// query (única forma possível em HTTP), só a conversão interna
+// (string → number | 'nao_classificado') mudou, via tipoFiltroParaTipo()
+// abaixo — mesma função equivalente usada no componente de tela.
 // ============================================================
 
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 
-import { gerarRelatorioGastosPorTipoFornecedor, ROTULO_TIPO } from '@/lib/relatorios/gastosPorTipoFornecedor'
+import { gerarRelatorioGastosPorTipoFornecedor } from '@/lib/relatorios/gastosPorTipoFornecedor'
 import {
   criarDocumentoRelatorio,
   desenharCartoesResumo,
@@ -29,6 +38,18 @@ function getSupabaseAdmin() {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 }
 
+// ============================================================
+// tipoFiltroParaTipo()
+// Converte o valor bruto da query string (sempre string em HTTP) para
+// o tipo real esperado pelo gerador do relatório — mesma lógica
+// equivalente usada em GastosPorTipoFornecedorRelatorio.tsx (tela)
+// ============================================================
+function tipoFiltroParaTipo(valor: string | undefined): TipoFornecedorOuNaoClassificado | undefined {
+  if (!valor) return undefined
+  if (valor === 'nao_classificado') return 'nao_classificado'
+  return Number(valor)
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).json({ erro: 'Método não permitido' })
 
@@ -42,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const dataInicial = String(req.query.dataInicial ?? '')
   const dataFinal = String(req.query.dataFinal ?? '')
   const formato = String(req.query.formato ?? '')
-  const tipoFiltro = req.query.tipoFiltro ? (String(req.query.tipoFiltro) as TipoFornecedorOuNaoClassificado) : undefined
+  const tipoFiltro = tipoFiltroParaTipo(req.query.tipoFiltro ? String(req.query.tipoFiltro) : undefined)
 
   if (!dataInicial || !dataFinal) return res.status(400).json({ erro: 'dataInicial e dataFinal são obrigatórios' })
   if (formato !== 'pdf' && formato !== 'xlsx') {
@@ -55,15 +76,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Tabela: uma linha por combinação tipo+mês (visão mensal
     // detalhada) — a visão "por tipo" (período inteiro) fica nos
-    // cartões de resumo
+    // cartões de resumo. Rótulo já vem resolvido em cada linha
+    // (relatorio.porTipoPorMes[i].rotulo) — sem dicionário externo
     const linhasTabela = relatorio.porTipoPorMes.map(g => ({
       mes: formatarMesBR(g.mes),
-      tipo: ROTULO_TIPO[g.tipo],
+      tipo: g.rotulo,
       total: formatarMoeda(g.total),
     }))
 
     const cartoes: CartaoResumo[] = relatorio.porTipo.map(t => ({
-      rotulo: ROTULO_TIPO[t.tipo],
+      rotulo: t.rotulo,
       valor: formatarMoeda(t.total),
     }))
 

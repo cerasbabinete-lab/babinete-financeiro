@@ -1,12 +1,20 @@
 // ============================================================
 // components/clientes/WhatsAppSection.tsx
 // Projeto: Ceras Babinete — Gestão Financeira
-// Módulo: Clientes
-// Função: Seção WhatsApp Business dentro do modal de cliente
-//         Permite adicionar e remover contatos {name, phone}
-//         Armazenados como array JSONB em contato_whatsapp
-// Conecta com: ClientesModal.tsx (contatos, onChange, readOnly)
-//              types/clientes.ts (ContatoWhatsApp)
+// Módulo: Clientes (compartilhado com Fornecedores)
+// Função: Seção WhatsApp Business dentro do modal de cliente/fornecedor
+//         Permite adicionar e remover contatos {name, phone,
+//         favorito?}. Armazenados como array JSONB em contato_whatsapp
+//         Favorito (Especificacao_Fornecedores_Pix_Categorias_
+//         WhatsApp.md, Seção 2.2) fica atrás da prop opcional
+//         suportaFavorito — sem comportamento novo quando omitida,
+//         portanto INERTE para Clientes nesta entrega (nenhuma tela
+//         de Clientes passa suportaFavorito={true}).
+// Conecta com: ClientesModal.tsx (contatos, onChange, readOnly —
+//              sem suportaFavorito/onDefinirFavorito, uso inalterado)
+//              FornecedoresModal.tsx (usa suportaFavorito={true} +
+//              onDefinirFavorito, ver Seção 2.2 da especificação)
+//              types/clientes.ts (ContatoWhatsApp, campo favorito)
 // ============================================================
 
 'use client'
@@ -19,8 +27,20 @@ import type { ContatoWhatsApp } from '@/types/clientes'
 // ============================================================
 interface WhatsAppSectionProps {
   contatos: ContatoWhatsApp[]                        // Array atual de contatos
-  onChange: (contatos: ContatoWhatsApp[]) => void    // Callback ao alterar lista
+  onChange: (contatos: ContatoWhatsApp[]) => void    // Callback ao alterar lista (adicionar/remover)
   readOnly?: boolean                                  // Modo visualizar — sem edição
+
+  // ── Campos novos (Seção 2.2) — opcionais, sem valor = comportamento
+  // idêntico ao anterior a esta mudança (usado por Clientes hoje) ──
+  suportaFavorito?: boolean                           // true = renderiza o toggle de favorito por contato
+  onDefinirFavorito?: (indice: number) => void        // Chamado ao clicar no toggle — quem usa o componente
+                                                       // decide COMO persistir (ex: FornecedoresModal.tsx chama
+                                                       // definirContatoWhatsAppFavorito() e depois atualiza
+                                                       // `contatos` via onChange). Este componente permanece
+                                                       // "burro" — não conhece fornecedorId nem services.
+  notaFavoritoIndisponivel?: string                   // Texto opcional exibido no lugar do toggle quando o
+                                                       // recurso existe mas está indisponível agora (ex:
+                                                       // fornecedor ainda não salvo) — quem usa decide o texto
 }
 
 // ============================================================
@@ -30,6 +50,9 @@ export default function WhatsAppSection({
   contatos,
   onChange,
   readOnly = false,
+  suportaFavorito = false,
+  onDefinirFavorito,
+  notaFavoritoIndisponivel,
 }: WhatsAppSectionProps) {
 
   // Controla visibilidade do formulário de novo contato
@@ -48,6 +71,7 @@ export default function WhatsAppSection({
     const novo: ContatoWhatsApp = {
       name: novoNome.trim(),
       phone: novoFone.trim(),
+      favorito: false, // explícito — nasce não-favorito, evita undefined ambíguo
     }
     onChange([...contatos, novo])
     // Reseta o formulário
@@ -161,7 +185,37 @@ export default function WhatsAppSection({
                 borderRadius: '4px',
               }}
             >
-              <div>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                {/* Toggle de favorito — só quando suportaFavorito=true (Seção 2.2).
+                    Comportamento estilo rádio: clicar em um desmarca os outros —
+                    a lógica de "desmarcar os outros" acontece no service
+                    (definirContatoWhatsAppFavorito), não aqui — este componente
+                    só dispara a intenção via onDefinirFavorito */}
+                {suportaFavorito && (
+                  <button
+                    onClick={() => onDefinirFavorito?.(index)}
+                    disabled={readOnly || !onDefinirFavorito}
+                    title={c.favorito ? 'Contato favorito' : 'Definir como favorito'}
+                    aria-label={c.favorito ? 'Contato favorito' : `Definir ${c.name || c.phone} como favorito`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '20px',
+                      height: '20px',
+                      marginRight: '6px',
+                      padding: 0,
+                      fontSize: '13px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: c.favorito ? '#f59e0b' : '#c4d8eb', // dourado quando favorito, cinza-claro quando não
+                      cursor: readOnly ? 'default' : 'pointer',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {c.favorito ? '★' : '☆'}
+                  </button>
+                )}
                 {/* Nome do contato */}
                 {c.name && (
                   <span
@@ -204,6 +258,16 @@ export default function WhatsAppSection({
             </div>
           ))}
         </div>
+      )}
+
+      {/* Nota opcional — quem usa o componente decide o texto (ou omite).
+          FornecedoresModal.tsx passa isto em modo 'novo', quando o favorito
+          Pix já está indisponível pela mesma razão (sem fornecedor.id ainda,
+          Seção 1.6) — mantém o aviso consistente entre Chaves Pix e WhatsApp */}
+      {notaFavoritoIndisponivel && !readOnly && (
+        <p style={{ fontSize: '10px', color: '#5a84a6', fontStyle: 'italic', margin: '6px 0 0' }}>
+          {notaFavoritoIndisponivel}
+        </p>
       )}
 
       {/* Formulário inline para novo contato */}

@@ -5,16 +5,25 @@
 // Função: Tabela desktop com fornecedores filtrados
 //         Clone de ClientesTabela.tsx — SEM coluna Lista
 //         Colunas: Cód. | Nome Fantasia | Razão Social | CNPJ/CPF
-//                  Cidade/UF | Telefone | E-mail | Contato | Ações
-// Conecta com: app/fornecedores/page.tsx (fornecedores, onEditar, onVisualizar, onExcluir)
-//              types/fornecedores.ts (Fornecedor)
+//                  Cidade/UF | Telefone | E-mail | Chave Pix |
+//                  Contato | WhatsApp | Tipo | Ações
+//         Chave Pix/WhatsApp e select de Tipo dinâmico adicionados
+//         por Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md,
+//         Seções 3 e 4. Layout NÃO usa table-layout:fixed nem
+//         colunas percentuais — o arquivo original já não seguia
+//         esse padrão (scroll horizontal + larguras px pontuais),
+//         então as 2 colunas novas seguem o MESMO padrão real do
+//         arquivo em vez de introduzir uma reestruturação não
+//         autorizada (confirmado com Maycon antes desta entrega)
+// Conecta com: app/fornecedores/page.tsx (fornecedores, onEditar,
+//              onVisualizar, onExcluir, categorias)
+//              types/fornecedores.ts (Fornecedor, FornecedorCategoria)
 // ============================================================
 
 'use client'
 
 import { useState } from 'react'
-import type { Fornecedor, TipoFornecedor } from '@/types/fornecedores'
-import { TIPO_FORNECEDOR_LABELS } from '@/types/fornecedores'
+import type { Fornecedor, FornecedorCategoria, ChavePix } from '@/types/fornecedores'
 
 // ============================================================
 // Props
@@ -29,7 +38,12 @@ interface FornecedoresTabelaProps {
   // linha, sem precisar abrir o modal completo de edição. A chamada
   // real ao serviço (atualizarTipoFornecedor) acontece no componente
   // pai (app/fornecedores/page.tsx), que também atualiza o estado local
-  onAlterarTipo: (fornecedor: Fornecedor, tipo: TipoFornecedor | null) => void
+  // MIGRADO (Seção 4.5): parâmetro passa a ser o id da categoria (FK),
+  // não mais o enum fechado
+  onAlterarTipo: (fornecedor: Fornecedor, categoriaId: number | null) => void
+  categorias: FornecedorCategoria[]           // Lista dinâmica — buscada uma vez em app/fornecedores/page.tsx (Seção 4)
+  chavesPixPreferenciais: ChavePix[]          // Todas as chaves preferenciais de todos os fornecedores (Seção 3.1) —
+                                               // filtradas por fornecedor_id linha a linha abaixo
 }
 
 // ============================================================
@@ -41,9 +55,43 @@ export default function FornecedoresTabela({
   onVisualizar,
   onExcluir,
   onAlterarTipo,
+  categorias,
+  chavesPixPreferenciais,
 }: FornecedoresTabelaProps) {
 
   const [hoverId, setHoverId] = useState<number | null>(null)
+
+  // ============================================================
+  // getChavePixDoFornecedor
+  // Encontra a chave Pix preferencial deste fornecedor na lista
+  // recebida por prop (Seção 3.1: "— (dash) se nenhuma existir")
+  // BUGFIX (confirmado por Maycon em produção, 01/09/2026):
+  // fornecedores.id é BIGINT — Supabase/PostgREST serializa BIGINT
+  // como STRING no JSON (evita perda de precisão em números grandes),
+  // enquanto fornecedor_chaves_pix.fornecedor_id é INTEGER e vem como
+  // number. `===` direto (number === string) sempre dava false, então
+  // a coluna nunca encontrava a chave mesmo com o dado certo no banco.
+  // Fix: compara como String dos dois lados, imune a qual dos dois
+  // (ou os dois) vier como string em tempo de execução
+  // ============================================================
+  function getChavePixDoFornecedor(fornecedorId: number): string {
+    const chave = chavesPixPreferenciais.find(c => String(c.fornecedor_id) === String(fornecedorId))
+    return chave?.valor_chave ?? '—'
+  }
+
+  // ============================================================
+  // getWhatsAppFavoritoDoFornecedor
+  // Regra da Seção 3.1: mostra o telefone do contato favorito; se
+  // nenhum estiver marcado, mostra o único existente (se houver
+  // exatamente 1); se 0 ou 2+ sem nenhum marcado, mostra "—"
+  // ============================================================
+  function getWhatsAppFavoritoDoFornecedor(fornecedor: Fornecedor): string {
+    const contatos = fornecedor.contato_whatsapp ?? []
+    const favorito = contatos.find(c => c.favorito)
+    if (favorito) return favorito.phone
+    if (contatos.length === 1) return contatos[0].phone // fallback — só 1 contato, mostra mesmo sem marcação
+    return '—'
+  }
   // id do fornecedor aguardando confirmação de exclusão (null = nenhum)
   const [confirmandoExcluirId, setConfirmandoExcluirId] = useState<number | null>(null)
 
@@ -72,7 +120,7 @@ export default function FornecedoresTabela({
           width: '100%',
           borderCollapse: 'collapse',
           fontSize: '10px',
-          minWidth: '850px',
+          minWidth: '1050px', // +200px pelas 2 colunas novas (Chave Pix, WhatsApp) — mesmo padrão de scroll horizontal já usado neste arquivo
         }}
       >
         {/* Cabeçalho — sem coluna Lista */}
@@ -93,7 +141,9 @@ export default function FornecedoresTabela({
             <th style={thStyle()}>Cidade/UF</th>
             <th style={thStyle()}>Telefone</th>
             <th style={thStyle()}>E-mail</th>
+            <th style={thStyle('100px')}>Chave Pix</th>
             <th style={thStyle()}>Contato</th>
+            <th style={thStyle('100px')}>WhatsApp</th>
             <th style={thStyle('150px')}>Tipo</th>
             <th style={thStyle('80px', true)}>Ações</th>
           </tr>
@@ -103,7 +153,7 @@ export default function FornecedoresTabela({
           {fornecedores.length === 0 ? (
             <tr>
               <td
-                colSpan={10}
+                colSpan={12}
                 style={{
                   textAlign: 'center',
                   padding: '32px',
@@ -166,26 +216,41 @@ export default function FornecedoresTabela({
                     {fornecedor.email || '—'}
                   </td>
 
+                  {/* Chave Pix — chave preferencial (Seção 3.1). SEM cor de
+                      fundo especial (só a coluna WhatsApp recebe, Seção 3.1) */}
+                  <td style={tdStyle('100px')}>
+                    {getChavePixDoFornecedor(fornecedor.id)}
+                  </td>
+
                   <td style={tdStyle()}>{fornecedor.contato || '—'}</td>
 
+                  {/* WhatsApp — telefone do contato favorito (Seção 3.1).
+                      Fundo verde claro — token reaproveitado de
+                      WhatsAppSection.tsx (#f0fdf4/#86efac), único já
+                      existente no app para o tema "WhatsApp" */}
+                  <td style={{ ...tdStyle('100px'), background: '#f0fdf4' }}>
+                    {getWhatsAppFavoritoDoFornecedor(fornecedor)}
+                  </td>
+
                   {/* Tipo de Fornecedor — select inline, salva ao trocar,
-                      sem precisar abrir o modal (Módulo Relatórios, 2.6) */}
+                      sem precisar abrir o modal (Módulo Relatórios, 2.6).
+                      MIGRADO (Seção 4.5): lista dinâmica de fornecedor_
+                      categorias em vez do enum fechado — value do <option>
+                      vira string no DOM, por isso o Number() na conversão */}
                   <td style={{ ...tdStyle('150px'), whiteSpace: 'normal' }}>
                     <select
-                      value={fornecedor.tipo_fornecedor ?? ''}
+                      value={fornecedor.tipo_fornecedor_id ?? ''}
                       onChange={e => {
                         const valor = e.target.value
-                        onAlterarTipo(fornecedor, valor === '' ? null : (valor as TipoFornecedor))
+                        onAlterarTipo(fornecedor, valor === '' ? null : Number(valor))
                       }}
                       style={selectInlineStyle}
                       aria-label={`Tipo de fornecedor: ${fornecedor.fantasia || fornecedor.razao}`}
                     >
                       <option value="">Não classificado</option>
-                      {(Object.entries(TIPO_FORNECEDOR_LABELS) as [TipoFornecedor, string][]).map(
-                        ([valor, rotulo]) => (
-                          <option key={valor} value={valor}>{rotulo}</option>
-                        )
-                      )}
+                      {categorias.map(categoria => (
+                        <option key={categoria.id} value={categoria.id}>{categoria.nome}</option>
+                      ))}
                     </select>
                   </td>
 

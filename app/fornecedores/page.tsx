@@ -15,8 +15,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { resolverUsernameExibicao } from '@/lib/authUsername'
-import { buscarFornecedores, contarFornecedores, excluirFornecedor, atualizarTipoFornecedor } from '@/lib/fornecedoresService'
-import type { Fornecedor, FiltrosFornecedores, ModoModal, TipoFornecedor } from '@/types/fornecedores'
+import {
+  buscarFornecedores,
+  contarFornecedores,
+  excluirFornecedor,
+  atualizarTipoFornecedor,
+  listarCategorias,
+  listarChavesPixPreferenciais,
+} from '@/lib/fornecedoresService'
+import type { Fornecedor, FiltrosFornecedores, ModoModal, FornecedorCategoria, ChavePix } from '@/types/fornecedores'
 
 // Layout — componentes globais, reutilizados sem alteração
 import Topbar from '@/components/layout/Topbar'
@@ -52,6 +59,16 @@ export default function FornecedoresPage() {
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [total, setTotal] = useState(0)
   const [carregando, setCarregando] = useState(true)
+
+  // Categorias de fornecedor (Seção 4) — buscadas UMA VEZ aqui e
+  // repassadas por prop para FornecedoresModal, FornecedoresTabela e
+  // FornecedoresMobileList, evitando 3 fetches redundantes na mesma tela
+  const [categorias, setCategorias] = useState<FornecedorCategoria[]>([])
+
+  // Chaves Pix preferenciais de todos os fornecedores (Seção 3.1) —
+  // dado que NÃO está embutido no objeto Fornecedor (tabela separada),
+  // necessário para a coluna "Chave Pix" da listagem
+  const [chavesPixPreferenciais, setChavesPixPreferenciais] = useState<ChavePix[]>([])
 
   const [filtros, setFiltros] = useState<FiltrosFornecedores>(FILTROS_INICIAIS)
 
@@ -112,6 +129,47 @@ export default function FornecedoresPage() {
   }, [authCarregando, carregarFornecedores])
 
   // ============================================================
+  // carregarCategorias
+  // Busca a lista de categorias ativas — chamada uma vez após o login
+  // e novamente sempre que CategoriasModal.tsx reporta uma alteração
+  // (criação/rename/exclusão), via onCategoriasAlteradas repassado
+  // adiante através de FornecedoresModal.tsx
+  // ============================================================
+  const carregarCategorias = useCallback(async () => {
+    try {
+      const lista = await listarCategorias()
+      setCategorias(lista)
+    } catch (err) {
+      console.error('[FornecedoresPage] carregarCategorias error:', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!authCarregando) carregarCategorias() // eslint-disable-line react-hooks/set-state-in-effect
+  }, [authCarregando, carregarCategorias])
+
+  // ============================================================
+  // carregarChavesPixPreferenciais
+  // Busca as chaves Pix preferenciais de todos os fornecedores — usada
+  // pela coluna "Chave Pix" da listagem (Seção 3.1). Chamada uma vez
+  // após o login e de novo ao fechar o modal (handleFecharModal),
+  // porque a troca de chave preferencial grava imediatamente no banco
+  // (Seção 1.5) e pode acontecer sem o usuário clicar em "Gravar"
+  // ============================================================
+  const carregarChavesPixPreferenciais = useCallback(async () => {
+    try {
+      const lista = await listarChavesPixPreferenciais()
+      setChavesPixPreferenciais(lista)
+    } catch (err) {
+      console.error('[FornecedoresPage] carregarChavesPixPreferenciais error:', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!authCarregando) carregarChavesPixPreferenciais() // eslint-disable-line react-hooks/set-state-in-effect
+  }, [authCarregando, carregarChavesPixPreferenciais])
+
+  // ============================================================
   // Handlers do modal
   // ============================================================
   function handleNovoFornecedor() {
@@ -141,16 +199,19 @@ export default function FornecedoresPage() {
 
   // ============================================================
   // handleAlterarTipo
-  // Classificação rápida de tipo_fornecedor via select inline
+  // Classificação rápida de tipo_fornecedor_id via select inline
   // (FornecedoresTabela.tsx / FornecedoresMobileList.tsx). Atualiza
   // o registro em fornecedores[] no lugar, em vez de chamar
   // carregarFornecedores() de novo — evita recarregar a lista inteira
   // (e perder posição de scroll/filtro) a cada classificação, já que
   // o objetivo é classificar os 19 fornecedores em sequência rápida
+  // MIGRADO (Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md,
+  // Seção 4.5): parâmetro `tipo` (enum fechado) virou `categoriaId`
+  // (FK numérica para fornecedor_categorias, ou null p/ "Não classificado")
   // ============================================================
-  async function handleAlterarTipo(fornecedor: Fornecedor, tipo: TipoFornecedor | null) {
+  async function handleAlterarTipo(fornecedor: Fornecedor, categoriaId: number | null) {
     try {
-      const atualizado = await atualizarTipoFornecedor(fornecedor.id, tipo)
+      const atualizado = await atualizarTipoFornecedor(fornecedor.id, categoriaId)
       setFornecedores(prev =>
         prev.map(f => (f.id === atualizado.id ? atualizado : f))
       )
@@ -160,9 +221,22 @@ export default function FornecedoresPage() {
     }
   }
 
+  // ============================================================
+  // handleFecharModal
+  // Além de fechar o modal, re-busca fornecedores e chaves Pix
+  // preferenciais — Chaves Pix (Seção 1.5) e favorito WhatsApp
+  // (Seção 2.3) gravam IMEDIATAMENTE no banco, independente do botão
+  // "Gravar", então a listagem (colunas Chave Pix/WhatsApp) pode
+  // ficar desatualizada se o usuário só fechar o modal sem salvar o
+  // restante do formulário. carregarFornecedores() já traz o
+  // contato_whatsapp atualizado; carregarChavesPixPreferenciais()
+  // cobre o dado que mora na tabela separada
+  // ============================================================
   function handleFecharModal() {
     setModoModal(null)
     setFornecedorSelecionado(null)
+    carregarFornecedores()
+    carregarChavesPixPreferenciais()
   }
 
   function handleSalvo() {
@@ -243,6 +317,8 @@ export default function FornecedoresPage() {
               onVisualizar={handleVisualizar}
               onExcluir={handleExcluir}
               onAlterarTipo={handleAlterarTipo}
+              categorias={categorias}
+              chavesPixPreferenciais={chavesPixPreferenciais}
             />
           )}
         </main>
@@ -252,6 +328,8 @@ export default function FornecedoresPage() {
           fornecedor={fornecedorSelecionado}
           onFechar={handleFecharModal}
           onSalvo={handleSalvo}
+          categorias={categorias}
+          onCategoriasAlteradas={carregarCategorias}
         />
       </div>
     )
@@ -308,6 +386,8 @@ export default function FornecedoresPage() {
             onVisualizar={handleVisualizar}
             onExcluir={handleExcluir}
             onAlterarTipo={handleAlterarTipo}
+            categorias={categorias}
+            chavesPixPreferenciais={chavesPixPreferenciais}
           />
         )}
       </main>
@@ -328,6 +408,8 @@ export default function FornecedoresPage() {
         fornecedor={fornecedorSelecionado}
         onFechar={handleFecharModal}
         onSalvo={handleSalvo}
+        categorias={categorias}
+        onCategoriasAlteradas={carregarCategorias}
       />
     </div>
   )

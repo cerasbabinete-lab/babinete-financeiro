@@ -314,16 +314,21 @@ export interface DrillDownProdutoAbc {
 // ────────────────────────────────────────────────────────────
 // ============================================================
 
-// Reexporta o tipo já definido em types/fornecedores.ts (fonte
-// única de verdade do enum) — aqui só adiciona o grupo virtual
-// "Não classificado" que este relatório precisa exibir sempre
-// visível (Seção 2.6: "nunca ser omitidos silenciosamente")
-export type { TipoFornecedor } from '@/types/fornecedores'
-export type TipoFornecedorOuNaoClassificado =
-  import('@/types/fornecedores').TipoFornecedor | 'nao_classificado'
+// Antes reexportava o enum fechado TipoFornecedor de types/fornecedores.ts
+// — removido nesta revisão (Especificacao_Fornecedores_Pix_Categorias_
+// WhatsApp.md, Seção 4.7): tipo_fornecedor virou tabela dinâmica
+// (fornecedor_categorias), então o agrupamento passa a ser pela FK
+// numérica (tipo_fornecedor_id) em vez de um union de strings fechado.
+// 'nao_classificado' continua sendo o grupo virtual sempre visível
+// (Seção 2.6: "nunca ser omitidos silenciosamente")
+export type TipoFornecedorOuNaoClassificado = number | 'nao_classificado'
 
 export interface GastoPorTipoFornecedor {
   tipo: TipoFornecedorOuNaoClassificado
+  rotulo: string  // Nome da categoria resolvido NO MOMENTO da geração do relatório
+                   // (lookup ao vivo contra fornecedor_categorias) — nunca armazenado
+                   // nem cacheado, conforme exigido pela Seção 4.7 ("must always
+                   // reflect the current category name at generation time")
   total: number
 }
 

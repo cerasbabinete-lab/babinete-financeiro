@@ -13,8 +13,17 @@
 // Armazenado como array JSONB no campo contato_whatsapp
 // ============================================================
 export interface ContatoWhatsApp {
-  name: string   // Nome do contato WhatsApp
-  phone: string  // Número do telefone (ex: 44999990000)
+  name: string        // Nome do contato WhatsApp
+  phone: string       // Número do telefone (ex: 44999990000)
+  favorito?: boolean  // Contato favorito — campo adicionado por
+                       // Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md
+                       // (Seção 2.2) para uso do lado Fornecedores, via
+                       // WhatsAppSection.tsx (componente compartilhado que
+                       // vive fisicamente aqui). INERTE para Clientes nesta
+                       // entrega — nenhuma tela de Clientes passa
+                       // suportaFavorito={true} nem lê este campo. Ativação
+                       // do lado Clientes é escopo de um documento e sessão
+                       // separados (Especificacao_Clientes_WhatsApp_Favorito.md).
 }
 
 // ============================================================

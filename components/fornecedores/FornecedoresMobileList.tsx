@@ -4,16 +4,20 @@
 // Módulo: Fornecedores
 // Função: Lista mobile simplificada de fornecedores
 //         Clone de ClientesMobileList.tsx — SEM linha de Lista
-//         Cada item mostra Nome Fantasia, Cidade/UF, botões de ação
-// Conecta com: app/fornecedores/page.tsx (fornecedores, onEditar, onVisualizar, onExcluir)
-//              types/fornecedores.ts (Fornecedor)
+//         Cada item mostra Nome Fantasia, Cidade/UF, Chave Pix,
+//         WhatsApp (fundo verde), botões de ação — Chave Pix/
+//         WhatsApp e select de Tipo dinâmico adicionados por
+//         Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md,
+//         Seções 3.2 e 4
+// Conecta com: app/fornecedores/page.tsx (fornecedores, onEditar,
+//              onVisualizar, onExcluir, categorias, chavesPixPreferenciais)
+//              types/fornecedores.ts (Fornecedor, FornecedorCategoria, ChavePix)
 // ============================================================
 
 'use client'
 
 import { useState } from 'react'
-import type { Fornecedor, TipoFornecedor } from '@/types/fornecedores'
-import { TIPO_FORNECEDOR_LABELS } from '@/types/fornecedores'
+import type { Fornecedor, FornecedorCategoria, ChavePix } from '@/types/fornecedores'
 
 // ============================================================
 // Props
@@ -25,7 +29,10 @@ interface FornecedoresMobileListProps {
   onExcluir: (fornecedor: Fornecedor) => void
   // Classificação rápida inline (Módulo Relatórios, 2.6) — mesmo
   // mecanismo de FornecedoresTabela.tsx, versão mobile
-  onAlterarTipo: (fornecedor: Fornecedor, tipo: TipoFornecedor | null) => void
+  // MIGRADO (Seção 4.5): parâmetro passa a ser o id da categoria (FK)
+  onAlterarTipo: (fornecedor: Fornecedor, categoriaId: number | null) => void
+  categorias: FornecedorCategoria[]   // Lista dinâmica — buscada uma vez em app/fornecedores/page.tsx (Seção 4)
+  chavesPixPreferenciais: ChavePix[]  // Todas as chaves preferenciais de todos os fornecedores (Seção 3.1/3.2)
 }
 
 // ============================================================
@@ -37,10 +44,37 @@ export default function FornecedoresMobileList({
   onVisualizar,
   onExcluir,
   onAlterarTipo,
+  categorias,
+  chavesPixPreferenciais,
 }: FornecedoresMobileListProps) {
 
   // id do fornecedor aguardando confirmação de exclusão (null = nenhum)
   const [confirmandoExcluirId, setConfirmandoExcluirId] = useState<number | null>(null)
+
+  // ============================================================
+  // getChavePixDoFornecedor / getWhatsAppFavoritoDoFornecedor
+  // Mesma lógica de FornecedoresTabela.tsx (Seção 3.1/3.2) — mantida
+  // duplicada aqui em vez de extraída para um helper compartilhado
+  // porque a spec não autoriza criar nenhum arquivo além de
+  // CategoriasModal.tsx nesta entrega (Seção 5)
+  // BUGFIX (confirmado por Maycon em produção, 01/09/2026): mesma
+  // causa e mesmo fix de FornecedoresTabela.tsx — fornecedores.id é
+  // BIGINT (vem como string do Supabase/PostgREST), fornecedor_
+  // chaves_pix.fornecedor_id é INTEGER (vem como number). Comparação
+  // via String() dos dois lados, imune a qual formato vier
+  // ============================================================
+  function getChavePixDoFornecedor(fornecedorId: number): string {
+    const chave = chavesPixPreferenciais.find(c => String(c.fornecedor_id) === String(fornecedorId))
+    return chave?.valor_chave ?? '—'
+  }
+
+  function getWhatsAppFavoritoDoFornecedor(fornecedor: Fornecedor): string {
+    const contatos = fornecedor.contato_whatsapp ?? []
+    const favorito = contatos.find(c => c.favorito)
+    if (favorito) return favorito.phone
+    if (contatos.length === 1) return contatos[0].phone
+    return '—'
+  }
 
   if (fornecedores.length === 0) {
     return (
@@ -108,24 +142,48 @@ export default function FornecedoresMobileList({
             </div>
 
             {/* Tipo de Fornecedor — select inline, salva ao trocar
-                (Módulo Relatórios, 2.6) */}
+                (Módulo Relatórios, 2.6). MIGRADO (Seção 4.5): lista
+                dinâmica de fornecedor_categorias em vez do enum fechado */}
             <select
-              value={fornecedor.tipo_fornecedor ?? ''}
+              value={fornecedor.tipo_fornecedor_id ?? ''}
               onChange={e => {
                 const valor = e.target.value
-                onAlterarTipo(fornecedor, valor === '' ? null : (valor as TipoFornecedor))
+                onAlterarTipo(fornecedor, valor === '' ? null : Number(valor))
               }}
               onClick={e => e.stopPropagation()} // não deve disparar nenhum toque no card
               style={selectMobileStyle}
               aria-label={`Tipo de fornecedor: ${fornecedor.fantasia || fornecedor.razao}`}
             >
               <option value="">Não classificado</option>
-              {(Object.entries(TIPO_FORNECEDOR_LABELS) as [TipoFornecedor, string][]).map(
-                ([valor, rotulo]) => (
-                  <option key={valor} value={valor}>{rotulo}</option>
-                )
-              )}
+              {categorias.map(categoria => (
+                <option key={categoria.id} value={categoria.id}>{categoria.nome}</option>
+              ))}
             </select>
+
+            {/* Chave Pix — chave preferencial (Seção 3.2). Sem cor de
+                fundo especial (só a linha WhatsApp recebe, mesma regra
+                da versão desktop, Seção 3.1) */}
+            <div style={{ fontSize: '9px', color: '#5a84a6', marginTop: '4px' }}>
+              Pix: {getChavePixDoFornecedor(fornecedor.id)}
+            </div>
+
+            {/* WhatsApp — telefone do contato favorito (Seção 3.2).
+                Fundo verde claro — mesmo token de WhatsAppSection.tsx
+                (#f0fdf4/#86efac), reaproveitado na versão desktop também */}
+            <div
+              style={{
+                fontSize: '9px',
+                color: '#15803d',
+                marginTop: '4px',
+                background: '#f0fdf4',
+                border: '1px solid #86efac',
+                borderRadius: '3px',
+                padding: '2px 5px',
+                display: 'inline-block',
+              }}
+            >
+              WhatsApp: {getWhatsAppFavoritoDoFornecedor(fornecedor)}
+            </div>
 
           </div>
 

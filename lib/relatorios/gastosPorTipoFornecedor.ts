@@ -3,13 +3,14 @@
 // Projeto: Ceras Babinete — Gestão Financeira
 // Módulo: Relatórios
 // Função: Calcula o relatório "Gastos por tipo de fornecedor" (2.6)
-//         — despesas agrupadas por fornecedores.tipo_fornecedor,
-//         por mês. Fornecedor sem tipo_fornecedor preenchido cai no
-//         grupo visível "Não classificado" (Seção 2.6 — nunca
+//         — despesas agrupadas por fornecedores.tipo_fornecedor_id,
+//         por mês. Fornecedor sem tipo_fornecedor_id preenchido cai
+//         no grupo visível "Não classificado" (Seção 2.6 — nunca
 //         omitido do total).
 // Conecta com: types/relatorios.ts (RelatorioGastosPorTipoFornecedor),
 //              pages/api/relatorios/gastos-por-tipo-fornecedor.ts,
-//              sql/fornecedores.sql (tipo_fornecedor, Fase 0 deste build),
+//              sql/fornecedores.sql (fornecedor_categorias,
+//              tipo_fornecedor_id),
 //              lib/relatorios/paginacao.ts (paginarConsulta, dividirEmLotes)
 // Referência: Especificacao_Modulo_Relatorios.md, Seção 2.6
 //
@@ -49,6 +50,22 @@
 // (2.3 Retiradas), e misturar contaminaria a leitura de gasto
 // operacional real por tipo de fornecedor, que é o propósito deste
 // relatório especificamente.
+//
+// MIGRAÇÃO (Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md,
+// Seção 4.7) — tipo_fornecedor (enum fechado, TEXT) virou
+// tipo_fornecedor_id (FK para fornecedor_categorias, tabela editável
+// pelo usuário). Consequências neste arquivo:
+//   - Agrupamento passa a ser pela FK numérica, não mais por string
+//   - O antigo dicionário estático ROTULO_TIPO (export removido) foi
+//     substituído por um lookup AO VIVO contra fornecedor_categorias,
+//     feito a cada geração de relatório — nunca armazenado nem
+//     cacheado (exigência explícita da Seção 4.7: "must always
+//     reflect the current category name at generation time"). O nome
+//     resolvido agora viaja em cada linha agregada (campo `rotulo`,
+//     types/relatorios.ts) em vez de um dicionário externo indexado
+//     pelo antigo enum — os consumidores (GastosPorTipoFornecedorRelatorio.tsx,
+//     pages/api/relatorios/gastos-por-tipo-fornecedor.ts) leem
+//     `linha.rotulo` diretamente.
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
@@ -63,7 +80,15 @@ import type {
 import { paginarConsulta, dividirEmLotes } from '@/lib/relatorios/paginacao'
 import { limiteSuperiorIntervalo } from '@/lib/relatorios/formatadores'
 
-const NAO_CLASSIFICADO: TipoFornecedorOuNaoClassificado = 'nao_classificado'
+// Grupo virtual "Não classificado" — não existe como linha em
+// fornecedor_categorias, por isso precisa de um rótulo fixo à parte.
+// Tipado como literal (não como TipoFornecedorOuNaoClassificado, que é
+// mais amplo) DE PROPÓSITO: só assim o `tipo === NAO_CLASSIFICADO` em
+// rotuloDoTipo() consegue estreitar `tipo` para `number` no branch
+// seguinte — com o tipo largo, o TypeScript não estreita a comparação
+// e mapaRotulo.get(tipo) (Map<number, string>) rejeita o argumento
+const NAO_CLASSIFICADO = 'nao_classificado' as const
+const ROTULO_NAO_CLASSIFICADO = 'Não classificado'
 
 interface LinhaDespesa {
   fornecedor_id: number
@@ -114,7 +139,7 @@ export async function gerarRelatorioGastosPorTipoFornecedor(
   // — concatenar não duplica nenhuma linha
   const linhasNoIntervalo = [...comDataEmissao, ...semDataEmissao]
 
-  // ── 2. Busca tipo_fornecedor só dos fornecedores que aparecem
+  // ── 2. Busca tipo_fornecedor_id só dos fornecedores que aparecem
   // no período filtrado (evita puxar a tabela fornecedores inteira) ──
   const idsFornecedores = Array.from(new Set(linhasNoIntervalo.map(d => d.fornecedor_id)))
   const mapaTipo = new Map<number, TipoFornecedorOuNaoClassificado>()
@@ -124,16 +149,51 @@ export async function gerarRelatorioGastosPorTipoFornecedor(
   // o número de fornecedores distintos cresce com o negócio
   for (const lote of dividirEmLotes(idsFornecedores)) {
     if (lote.length === 0) continue
-    const fornecedoresDoLote = await paginarConsulta<{ id: number; tipo_fornecedor: string | null }>((inicio, fim) =>
+    const fornecedoresDoLote = await paginarConsulta<{ id: number; tipo_fornecedor_id: number | null }>((inicio, fim) =>
       client
         .from('fornecedores')
-        .select('id, tipo_fornecedor')
+        .select('id, tipo_fornecedor_id')
         .in('id', lote)
         .range(inicio, fim),
     )
     for (const f of fornecedoresDoLote) {
-      mapaTipo.set(f.id, (f.tipo_fornecedor ?? NAO_CLASSIFICADO) as TipoFornecedorOuNaoClassificado)
+      mapaTipo.set(f.id, f.tipo_fornecedor_id ?? NAO_CLASSIFICADO)
     }
+  }
+
+  // ── 2b. Lookup AO VIVO dos nomes das categorias (Seção 4.7) —
+  // só busca as categorias que de fato aparecem no conjunto agregado
+  // deste relatório, nunca a tabela inteira. Nome NUNCA é armazenado
+  // nem cacheado entre gerações — cada chamada desta função refaz
+  // esta busca, garantindo que renomear uma categoria (CategoriasModal.tsx)
+  // reflita imediatamente no próximo relatório gerado ──
+  const idsCategoriasUsadas = Array.from(
+    new Set(Array.from(mapaTipo.values()).filter((t): t is number => typeof t === 'number'))
+  )
+  const mapaRotulo = new Map<number, string>()
+  for (const lote of dividirEmLotes(idsCategoriasUsadas)) {
+    if (lote.length === 0) continue
+    const categoriasDoLote = await paginarConsulta<{ id: number; nome: string }>((inicio, fim) =>
+      client
+        .from('fornecedor_categorias')
+        .select('id, nome')
+        .in('id', lote)
+        .range(inicio, fim),
+    )
+    for (const c of categoriasDoLote) {
+      mapaRotulo.set(c.id, c.nome)
+    }
+  }
+
+  // rotuloDoTipo — resolve o nome de exibição de um grupo. Fallback
+  // defensivo para "Não classificado" cobre o caso raro de uma
+  // categoria ter sido excluída entre a classificação do fornecedor
+  // e a geração deste relatório especificamente (janela de corrida
+  // teoricamente possível, embora excluir_categoria_fornecedor já
+  // reclassifique fornecedores antes de soft-deletar a categoria)
+  function rotuloDoTipo(tipo: TipoFornecedorOuNaoClassificado): string {
+    if (tipo === NAO_CLASSIFICADO) return ROTULO_NAO_CLASSIFICADO
+    return mapaRotulo.get(tipo) ?? ROTULO_NAO_CLASSIFICADO
   }
 
   // ── 3. Agregação por tipo (período inteiro) e por tipo+mês ───
@@ -153,13 +213,18 @@ export async function gerarRelatorioGastosPorTipoFornecedor(
   }
 
   const porTipo: GastoPorTipoFornecedor[] = Array.from(porTipoMap.entries())
-    .map(([tipo, total]) => ({ tipo, total }))
+    .map(([tipo, total]) => ({ tipo, rotulo: rotuloDoTipo(tipo), total }))
     .sort((a, b) => b.total - a.total)
 
   const porTipoPorMes: GastoPorTipoFornecedorMes[] = Array.from(porTipoPorMesMap.entries())
     .map(([chave, total]) => {
-      const [tipo, mes] = chave.split('|') as [TipoFornecedorOuNaoClassificado, string]
-      return { tipo, mes, total }
+      // tipo volta como string do template literal da chave composta —
+      // 'nao_classificado' fica como está, qualquer outro valor é o id
+      // numérico da categoria e precisa voltar a ser number
+      const [tipoStr, mes] = chave.split('|')
+      const tipo: TipoFornecedorOuNaoClassificado =
+        tipoStr === NAO_CLASSIFICADO ? NAO_CLASSIFICADO : Number(tipoStr)
+      return { tipo, rotulo: rotuloDoTipo(tipo), mes, total }
     })
     .sort((a, b) => a.mes.localeCompare(b.mes))
 
@@ -173,20 +238,7 @@ export async function gerarRelatorioGastosPorTipoFornecedor(
     totalGeral,
     grafico: {
       tipo: 'pizza',
-      pontos: porTipo.map(t => ({ rotulo: ROTULO_TIPO[t.tipo], valor: t.total })),
+      pontos: porTipo.map(t => ({ rotulo: t.rotulo, valor: t.total })),
     },
   }
-}
-
-// ============================================================
-// ROTULO_TIPO — rótulo amigável, incluindo o grupo virtual
-// "Não classificado" que não existe em TIPO_FORNECEDOR_LABELS
-// (esse é só dos 4 valores reais do CHECK do banco)
-// ============================================================
-export const ROTULO_TIPO: Record<TipoFornecedorOuNaoClassificado, string> = {
-  materia_prima_insumo: 'Matéria-prima / Insumo',
-  embalagem: 'Embalagem',
-  servicos: 'Serviços',
-  outros: 'Outros',
-  nao_classificado: 'Não classificado',
 }
