@@ -344,8 +344,12 @@ export async function definirChavePixPreferencial(
   chaveId: number,
 ): Promise<void> {
   const { error } = await supabase.rpc('set_chave_pix_preferencial', {
-    p_fornecedor_id: fornecedorId, // nome do parâmetro deve bater com a assinatura SQL do RPC
-    p_chave_id: chaveId,
+    // fornecedorId pode chegar aqui como string ("1"), não number — fornecedores.id
+    // é BIGINT e o Supabase serializa BIGINT como string no JSON de resposta (mesma
+    // causa-raiz do bug da coluna "Chave Pix" na listagem, ver Seção 3.3 do handoff).
+    // Number() garante o tipo correto antes de enviar ao RPC.
+    p_fornecedor_id: Number(fornecedorId), // nome do parâmetro deve bater com a assinatura SQL do RPC
+    p_chave_id: Number(chaveId),
   })
 
   if (error) {
