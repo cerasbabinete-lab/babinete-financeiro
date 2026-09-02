@@ -18,6 +18,22 @@
 // Referência: Especificacao_Modulo_Relatorios.md, Seção 1.5
 //             (tabela de tipo de gráfico por relatório; paleta
 //             aprovada do Pareto: barras #378ADD, linha #993c1d)
+//
+// EDIÇÃO (Especificacao_Modulo_Dashboard.md, Seção 4 — único arquivo
+// de Relatórios que este módulo tem autorização de editar, Seção 10):
+// GraficoBarrasAgrupadas ganhou (1) rótulo de valor acima de cada
+// barra, requisito travado da Seção 4, e (2) props corA/corB
+// opcionais para o Dashboard poder passar verde/vermelho em vez das
+// cores fixas do Fluxo de Caixa. Decisão confirmada com Maycon: o
+// rótulo de valor é incondicional — o Fluxo de Caixa também passa a
+// exibi-lo a partir desta mudança, não é um comportamento exclusivo
+// do Dashboard nem controlado por prop. Formato/orientação final dos
+// rótulos ajustado numa segunda rodada, depois de um teste visual
+// com 30 dias de dados reprovado por Maycon (rótulo horizontal
+// sobrepondo): rótulos agora são desenhados na VERTICAL (rotate
+// -90°) e usam formatarValorBarraAgrupada() — formato próprio,
+// distinto de formatarMoedaCompacta, sempre com "R$" e abreviação
+// "k" (não "mil") — em vez do formato/orientação da primeira versão.
 // ============================================================
 
 'use client'
@@ -43,6 +59,14 @@ interface GraficoSvgProps {
   dados: DadosGrafico
   titulo?: string
   altura?: number // padrão 260 — largura sempre 100% do container via viewBox responsivo
+  // corA/corB — NOVO (Especificacao_Modulo_Dashboard.md, Seção 4):
+  // override de cor só usado quando dados.tipo === 'barras_agrupadas'.
+  // Sem valor informado, GraficoBarrasAgrupadas cai no próprio default
+  // (COR_PRIMARIA/COR_LINHA_ACUMULADA, aparência atual do Fluxo de
+  // Caixa, byte-a-byte igual a antes desta mudança). Dashboard passa
+  // explicitamente verde (a receber) e vermelho (a pagar)
+  corA?: string
+  corB?: string
 }
 
 // ============================================================
@@ -58,9 +82,28 @@ function formatarMoedaCompacta(valor: number): string {
 }
 
 // ============================================================
+// formatarValorBarraAgrupada
+// Formato NOVO, exclusivo dos rótulos de valor de GraficoBarrasAgrupadas
+// (Especificacao_Modulo_Dashboard.md — decisão confirmada com Maycon
+// nesta sessão): "R$" sempre presente (nunca omitido), abreviação
+// "k" em vez de "mil" a partir de R$ 1.000, valor cheio com centavos
+// abaixo disso (ex: "R$ 890,00"). Deliberadamente um formatador
+// separado de formatarMoedaCompacta acima — aquele é usado pelo modo
+// 'barras' single-série (Relatórios) e não deve mudar de
+// comportamento por causa de uma decisão visual específica do
+// Dashboard
+// ============================================================
+function formatarValorBarraAgrupada(valor: number): string {
+  if (Math.abs(valor) >= 1000) {
+    return `R$ ${(valor / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k`
+  }
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+// ============================================================
 // GraficoSvg
 // ============================================================
-export default function GraficoSvg({ dados, titulo, altura = 260 }: GraficoSvgProps) {
+export default function GraficoSvg({ dados, titulo, altura = 260, corA, corB }: GraficoSvgProps) {
   const LARGURA_VIEWBOX = 680
   const ALTURA_VIEWBOX = altura
 
@@ -91,6 +134,8 @@ export default function GraficoSvg({ dados, titulo, altura = 260 }: GraficoSvgPr
             legendaB={dados.legendaB}
             largura={LARGURA_VIEWBOX}
             altura={ALTURA_VIEWBOX}
+            corA={corA}
+            corB={corB}
           />
         )}
         {dados.tipo === 'pareto' && (
@@ -208,12 +253,20 @@ function GraficoBarrasAgrupadas({
   legendaB,
   largura,
   altura,
+  // Default nos próprios parâmetros — se o chamador não passar
+  // corA/corB (caso do Fluxo de Caixa, único consumidor existente
+  // antes desta mudança), o valor cai exatamente nas constantes que
+  // já eram usadas hardcoded aqui, preservando a aparência atual
+  corA = COR_PRIMARIA,
+  corB = COR_LINHA_ACUMULADA,
 }: {
   pontos: { rotulo: string; valorA: number; valorB: number }[]
   legendaA: string
   legendaB: string
   largura: number
   altura: number
+  corA?: string
+  corB?: string
 }) {
   if (pontos.length === 0) return <SemDados largura={largura} altura={altura} />
 
@@ -229,10 +282,11 @@ function GraficoBarrasAgrupadas({
     <g>
       <LinhaBase largura={largura} altura={altura} margem={MARGEM} />
 
-      {/* Legenda */}
-      <rect x={MARGEM.esquerda} y={6} width={9} height={9} fill={COR_PRIMARIA} />
+      {/* Legenda — usa corA/corB (parâmetro com default), não mais a
+          constante fixa direto, pra bater com a cor real das barras */}
+      <rect x={MARGEM.esquerda} y={6} width={9} height={9} fill={corA} />
       <text x={MARGEM.esquerda + 13} y={14} fontSize="9" fill={COR_TEXTO_EIXO}>{legendaA}</text>
-      <rect x={MARGEM.esquerda + 90} y={6} width={9} height={9} fill={COR_LINHA_ACUMULADA} />
+      <rect x={MARGEM.esquerda + 90} y={6} width={9} height={9} fill={corB} />
       <text x={MARGEM.esquerda + 103} y={14} fontSize="9" fill={COR_TEXTO_EIXO}>{legendaB}</text>
 
       {pontos.map((p, i) => {
@@ -247,8 +301,43 @@ function GraficoBarrasAgrupadas({
 
         return (
           <g key={p.rotulo + i}>
-            <rect x={xA} y={yA} width={larguraBarra} height={alturaA} fill={COR_PRIMARIA} rx={2} />
-            <rect x={xB} y={yB} width={larguraBarra} height={alturaB} fill={COR_LINHA_ACUMULADA} rx={2} />
+            <rect x={xA} y={yA} width={larguraBarra} height={alturaA} fill={corA} rx={2} />
+            <rect x={xB} y={yB} width={larguraBarra} height={alturaB} fill={corB} rx={2} />
+            {/* Rótulo de valor da barra A — vertical (rotate -90°),
+                ancorado 3px à direita do centro da barra e 4px acima
+                do topo dela, lendo de baixo pra cima. Decisão
+                confirmada com Maycon nesta sessão: a primeira versão
+                (rótulo horizontal) foi reprovada por sobreposição em
+                31 dias × 2 barras — rotacionar resolve sem precisar
+                aumentar MARGEM.topo (testado visualmente, Versão A
+                aprovada). Só desenha quando valorA > 0, pra não
+                poluir dias sem título nenhum */}
+            {p.valorA > 0 && (
+              <text
+                x={xA + larguraBarra / 2 + 3}
+                y={yA - 4}
+                textAnchor="start"
+                fontSize="9"
+                fill={COR_TEXTO_EIXO}
+                transform={`rotate(-90, ${xA + larguraBarra / 2 + 3}, ${yA - 4})`}
+              >
+                {formatarValorBarraAgrupada(p.valorA)}
+              </text>
+            )}
+            {/* Rótulo de valor da barra B — mesmo raciocínio do
+                rótulo A acima, só troca xA/yA por xB/yB */}
+            {p.valorB > 0 && (
+              <text
+                x={xB + larguraBarra / 2 + 3}
+                y={yB - 4}
+                textAnchor="start"
+                fontSize="9"
+                fill={COR_TEXTO_EIXO}
+                transform={`rotate(-90, ${xB + larguraBarra / 2 + 3}, ${yB - 4})`}
+              >
+                {formatarValorBarraAgrupada(p.valorB)}
+              </text>
+            )}
             <text x={grupoX + passoX / 2} y={altura - MARGEM.baixo + 16} textAnchor="middle" fontSize="9" fill={COR_TEXTO_EIXO}>
               {p.rotulo}
             </text>
