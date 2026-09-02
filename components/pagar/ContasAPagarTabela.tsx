@@ -25,9 +25,10 @@ interface ContasAPagarTabelaProps {
   onEditar:     (t: ContaAPagar) => void
   onCancelar:   (t: ContaAPagar) => void
   onBaixar:     (t: ContaAPagar) => void  // abre o modal já no modo de baixa manual
+  onGerarBoletoAvulso: (t: ContaAPagar) => void // dispara a geração/abertura da 2ª via
 }
 
-export default function ContasAPagarTabela({ titulos, onVisualizar, onEditar, onCancelar, onBaixar }: ContasAPagarTabelaProps) {
+export default function ContasAPagarTabela({ titulos, onVisualizar, onEditar, onCancelar, onBaixar, onGerarBoletoAvulso }: ContasAPagarTabelaProps) {
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [acaoConfirmando, setAcaoConfirmando] = useState<{ id: string; tipo: 'cancelar' } | null>(null)
 
@@ -97,6 +98,14 @@ export default function ContasAPagarTabela({ titulos, onVisualizar, onEditar, on
                       {!cancelado && (
                         <>
                           <button onClick={() => onEditar(t)} title="Editar" style={btnIcone()}><i className="ti ti-writing" /></button>
+                          <button
+                            onClick={() => (t.linha_digitavel && t.nosso_numero) && onGerarBoletoAvulso(t)}
+                            disabled={!t.linha_digitavel || !t.nosso_numero}
+                            title={(t.linha_digitavel && t.nosso_numero) ? 'Gerar 2ª Via' : 'Sem Linha Digitável/Nosso Número cadastrados'}
+                            style={btnIcone((t.linha_digitavel && t.nosso_numero) ? '#1a6094' : '#c3ccd3')}
+                          >
+                            <i className="ti ti-barcode" />
+                          </button>
                           {t.status !== 'pago' && (
                             <button onClick={() => onBaixar(t)} title="Baixar" style={btnIcone('#166534')}><i className="ti ti-cash" /></button>
                           )}

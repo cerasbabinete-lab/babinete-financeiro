@@ -18,6 +18,8 @@ import { useState, useEffect } from 'react'
 import type { ContaAPagar, ModoModalPagar, FormaBaixaPagar } from '@/types/contasAPagar'
 import { STATUS_LABELS_PAGAR } from '@/types/contasAPagar'
 import { formatarCnpjCpf, formatarMoeda, formatarDataBR } from '@/lib/contasAPagarService'
+// Client Supabase do browser — mesmo import usado em app/pagar/page.tsx
+import { supabase } from '@/lib/supabase'
 
 interface ContasAPagarModalProps {
   titulo:        ContaAPagar | null
@@ -58,6 +60,7 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
   const [valorBaixa, setValorBaixa] = useState<number>(0)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [gerandoBoleto, setGerandoBoleto] = useState(false)
 
   useEffect(() => {
     setObservacoes(titulo?.observacoes ?? '')
@@ -106,6 +109,34 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
       setErro(err instanceof Error ? err.message : 'Erro ao registrar baixa')
     } finally {
       setSalvando(false)
+    }
+  }
+
+  async function handleGerarBoletoAvulso() {
+    if (!titulo) return
+    setGerandoBoleto(true)
+    setErro(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) throw new Error('Sessão expirada — faça login novamente.')
+
+      const resp = await fetch(`/api/pagar/gerar-boleto-avulso?id=${titulo.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (!resp.ok) {
+        const corpo = await resp.json().catch(() => ({}))
+        throw new Error(corpo.erro ?? 'Erro ao gerar boleto')
+      }
+
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+    } catch (err: unknown) {
+      setErro(err instanceof Error ? err.message : 'Erro ao gerar 2ª via')
+    } finally {
+      setGerandoBoleto(false)
     }
   }
 
@@ -242,6 +273,27 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
         {erro && <div style={{ marginTop: '10px', color: '#d32f2f', fontSize: '11px' }}>{erro}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' }}>
+          <button
+            onClick={handleGerarBoletoAvulso}
+            disabled={gerandoBoleto || !titulo.linha_digitavel || !titulo.nosso_numero}
+            title={!titulo.linha_digitavel || !titulo.nosso_numero ? 'Título sem Linha Digitável e/ou Nosso Número cadastrados' : 'Gerar 2ª via do boleto'}
+            style={{
+              border: '1px solid #1a6094',
+              background: 'transparent',
+              color: (!titulo.linha_digitavel || !titulo.nosso_numero) ? '#a9b7c2' : '#1a6094',
+              borderColor: (!titulo.linha_digitavel || !titulo.nosso_numero) ? '#dde8f0' : '#1a6094',
+              borderRadius: '6px',
+              padding: '8px 14px',
+              fontSize: '12px',
+              cursor: (gerandoBoleto || !titulo.linha_digitavel || !titulo.nosso_numero) ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginRight: 'auto',
+            }}
+          >
+            <i className="ti ti-barcode" /> {gerandoBoleto ? 'Gerando...' : 'Gerar 2ª Via'}
+          </button>
           {cancelado && (
             <button onClick={() => onReabrir(titulo.id)} style={{ border: '1px solid #1a6094', background: 'transparent', color: '#1a6094', borderRadius: '6px', padding: '8px 14px', fontSize: '12px', cursor: 'pointer' }}>
               Reabrir

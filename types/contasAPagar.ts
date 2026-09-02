@@ -112,6 +112,12 @@ export interface ContaAPagar {
   favorecido_nome:        string        // Nome do favorecido no momento da emissão
   favorecido_cnpj_cpf?:   string | null // CNPJ/CPF sem pontuação, formatado na exibição
   favorecido_endereco?:   string | null
+  // Banco/agência/conta do favorecido, quando o título trouxer essa
+  // informação — texto livre porque o formato varia por documento.
+  // Alimentado pelo Motor Universal (Despesas), não por este módulo.
+  // NULL até lá — usado por lib/pagar/gerarBoletoAvulso.ts: presente
+  // → entra no PDF da 2ª via; NULL → campo fica em branco.
+  favorecido_dados_bancarios?: string | null
 
   observacoes?:        string | null // Campo livre
 

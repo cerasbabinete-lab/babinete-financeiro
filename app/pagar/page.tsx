@@ -325,6 +325,25 @@ export default function ContasAPagarPage() {
     carregarPendentesAnteriores()
   }
 
+  // ── Gerar 2ª via avulsa de boleto ──
+  async function handleGerarBoletoAvulso(t: ContaAPagar) {
+    setMsgErro(null)
+    try {
+      const token = await obterToken()
+      const res = await fetch(`/api/pagar/gerar-boleto-avulso?id=${t.id}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.erro ?? 'Erro ao gerar boleto')
+      }
+      const blob = await res.blob()
+      window.open(URL.createObjectURL(blob), '_blank')
+    } catch (err: unknown) {
+      setMsgErro(err instanceof Error ? err.message : 'Erro ao gerar 2ª via')
+    }
+  }
+
   // ── Import: Relatório BB ──
   async function handleSelecionarRelatorio(file: File) {
     setImportando(true)
@@ -652,7 +671,7 @@ export default function ContasAPagarPage() {
             {isMobile ? (
               <ContasAPagarMobileList titulos={titulosPendentesAnteriores} onVisualizar={handleVisualizar} onEditar={handleEditar} onCancelar={(t) => handleCancelar(t.id)} onBaixar={handleBaixarClick} />
             ) : (
-              <ContasAPagarTabela titulos={titulosPendentesAnteriores} onVisualizar={handleVisualizar} onEditar={handleEditar} onCancelar={(t) => handleCancelar(t.id)} onBaixar={handleBaixarClick} />
+              <ContasAPagarTabela titulos={titulosPendentesAnteriores} onVisualizar={handleVisualizar} onEditar={handleEditar} onCancelar={(t) => handleCancelar(t.id)} onBaixar={handleBaixarClick} onGerarBoletoAvulso={handleGerarBoletoAvulso} />
             )}
           </div>
         )}
@@ -668,7 +687,7 @@ export default function ContasAPagarPage() {
         ) : isMobile ? (
           <ContasAPagarMobileList titulos={titulos} onVisualizar={handleVisualizar} onEditar={handleEditar} onCancelar={(t) => handleCancelar(t.id)} onBaixar={handleBaixarClick} />
         ) : (
-          <ContasAPagarTabela titulos={titulos} onVisualizar={handleVisualizar} onEditar={handleEditar} onCancelar={(t) => handleCancelar(t.id)} onBaixar={handleBaixarClick} />
+          <ContasAPagarTabela titulos={titulos} onVisualizar={handleVisualizar} onEditar={handleEditar} onCancelar={(t) => handleCancelar(t.id)} onBaixar={handleBaixarClick} onGerarBoletoAvulso={handleGerarBoletoAvulso} />
         )}
       </main>
 
