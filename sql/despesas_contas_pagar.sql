@@ -17,7 +17,12 @@
 --              lib/despesas/*.ts, lib/pagar/*.ts,
 --              lib/despesasService.ts, lib/contasAPagarService.ts,
 --              pages/api/despesas/*.ts, pages/api/pagar/*.ts
--- Revisão desta versão (fusão, aprovada por Maycon, 14/08/2026):
+-- Revisão desta versão (02/09/2026, aprovada por Maycon):
+--   - Nova coluna contas_a_pagar.favorecido_dados_bancarios (TEXT,
+--     nullable) — suporte à geração de 2ª via avulsa de boleto
+--     (lib/pagar/gerarBoletoAvulso.ts). Alimentada pelo Motor
+--     Universal (Despesas), não por este módulo.
+-- Revisão anterior (fusão, aprovada por Maycon, 14/08/2026):
 --   - QA fix: 4 constraints atualizadas pra DROP+ADD incondicional
 --     (não mais "IF NOT EXISTS ... WHERE conname" — esse padrão só
 --     checa o NOME da constraint, não a definição; ficou provado na
@@ -270,6 +275,14 @@ CREATE TABLE IF NOT EXISTS contas_a_pagar (
 
   CONSTRAINT contas_a_pagar_pkey PRIMARY KEY (id)
 );
+
+-- Dados bancários (banco/agência/conta) do favorecido, quando o
+-- título trouxer essa informação — texto livre porque o formato
+-- varia por documento/fornecedor. Alimentado pelo Motor Universal
+-- (extração de Despesas), NÃO por este módulo. Usado pela geração
+-- de 2ª via avulsa (lib/pagar/gerarBoletoAvulso.ts): quando presente,
+-- entra no PDF; quando NULL, o campo fica em branco no documento.
+ALTER TABLE contas_a_pagar ADD COLUMN IF NOT EXISTS favorecido_dados_bancarios TEXT;
 
 DO $$
 BEGIN
