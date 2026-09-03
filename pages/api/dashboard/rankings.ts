@@ -147,20 +147,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (authError || !user) return res.status(401).json({ erro: 'Não autorizado' })
 
   try {
-    const { primeiroDiaMes, ultimoDiaMes, hojeIso } = calcularPeriodoMesCorrente()
+    const { hojeIso } = calcularPeriodoMesCorrente()
 
     // ── Parâmetros de período — cada ranking tem seu próprio filtro
     // e seu próprio default (Seções 7 e 8), por isso query params
     // com prefixo diferente pra cada um, não um filtro único
     // compartilhado ────────────────────────────────────────────
+    // Default alterado (decisão confirmada com Maycon nesta sessão):
+    // era mês corrente (Seção 7 original da spec), agora últimos 6
+    // meses — mesmo piso do ranking de Inativos (subtrairMeses(hojeIso,
+    // 6)), pra manter os dois rankings no mesmo período por padrão.
+    // "Personalizado" continua funcionando igual, sem mudança.
     const topClientesDataInicial =
       typeof req.query.topClientesDataInicial === 'string' && req.query.topClientesDataInicial !== ''
         ? req.query.topClientesDataInicial
-        : primeiroDiaMes
+        : subtrairMeses(hojeIso, 6)
     const topClientesDataFinal =
       typeof req.query.topClientesDataFinal === 'string' && req.query.topClientesDataFinal !== ''
         ? req.query.topClientesDataFinal
-        : ultimoDiaMes
+        : hojeIso
 
     const inativosDataInicial =
       typeof req.query.inativosDataInicial === 'string' && req.query.inativosDataInicial !== ''
