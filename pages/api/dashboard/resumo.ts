@@ -231,13 +231,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // título") — soma eventos, não o campo `valor` do título, porque
     // um título pago_parcial não tem o valor pago guardado em nenhum
     // campo direto na tabela contas_a_pagar (só nos eventos)
-    const fimDeHojeIso = `${hojeIso}T23:59:59.999`
+    // Fim do dia de hoje em São Paulo, com offset explícito -03:00 — evento.created_at
+    // vem do Postgres como ISO UTC ('Z'), então comparar strings com offsets diferentes
+    // por ordem lexicográfica não reflete ordem cronológica real (mesmo raciocínio de
+    // dataDentroDoIntervalo() em lib/relatorios/formatadores.ts). Aqui comparamos por
+    // timestamp (getTime()), não por string, evitando o bug do Audit §3.1 — pagamentos
+    // registrados entre ~21h e 23:59:59 BRT ficavam de fora do total até a virada do dia
+    const fimDeHojeMs = new Date(`${hojeIso}T23:59:59.999-03:00`).getTime()
     let totalPagoAteHoje = 0
     for (const titulo of titulosPagarMes) {
       for (const evento of titulo.eventos ?? []) {
         if (
           (evento.tipo === 'baixa_parcial' || evento.tipo === 'baixa_total') &&
-          evento.created_at <= fimDeHojeIso
+          new Date(evento.created_at).getTime() <= fimDeHojeMs
         ) {
           totalPagoAteHoje += Number(evento.valor_pago) || 0
         }

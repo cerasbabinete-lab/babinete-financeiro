@@ -165,6 +165,32 @@ export async function verificarDuplicidadeFornecedor(
 }
 
 // ============================================================
+// normalizarDocumentos()
+// Converte string vazia ('') para null nos campos cpf e cnpj antes de
+// gravar no banco. Necessário porque a coluna cpf tem UNIQUE constraint
+// (fornecedores_cpf_key): o Postgres permite múltiplos NULL (tratados
+// como distintos entre si), mas bloqueia múltiplos '' (string vazia é
+// um valor igual a outro) — sem essa normalização, o segundo fornecedor
+// salvo com CPF em branco colide com o primeiro e o INSERT/UPDATE falha
+// com "duplicate key value violates unique constraint fornecedores_cpf_key".
+// Mesma normalização aplicada a cnpj por simetria/precaução, já que a
+// coluna segue o mesmo padrão (fornecedores_cnpj_key).
+// Genérico em T para servir tanto FornecedorInsert quanto os campos de
+// FornecedorUpdate (após desestruturar o id) sem duplicar a função.
+// Chamado por: criarFornecedor(), editarFornecedor()
+// ============================================================
+function normalizarDocumentos<T extends { cpf?: string | null; cnpj?: string | null }>(
+  campos: T
+): T {
+  return {
+    ...campos, // preserva todos os demais campos do objeto sem alteração
+    // string vazia vira null — valores já null ou preenchidos passam intactos
+    cpf: campos.cpf === '' ? null : campos.cpf,
+    cnpj: campos.cnpj === '' ? null : campos.cnpj,
+  }
+}
+
+// ============================================================
 // criarFornecedor()
 // Insere um novo fornecedor e retorna o registro criado
 // Chamado por: FornecedoresModal.tsx ao clicar em 💾 Gravar (modo novo)
@@ -172,7 +198,7 @@ export async function verificarDuplicidadeFornecedor(
 export async function criarFornecedor(fornecedor: FornecedorInsert): Promise<Fornecedor> {
   const { data, error } = await supabase
     .from(TABELA)
-    .insert(fornecedor)
+    .insert(normalizarDocumentos(fornecedor)) // cpf/cnpj vazios ('') viram null antes de gravar
     .select()
     .single()
 
@@ -195,7 +221,7 @@ export async function editarFornecedor(fornecedor: FornecedorUpdate): Promise<Fo
 
   const { data, error } = await supabase
     .from(TABELA)
-    .update(campos)
+    .update(normalizarDocumentos(campos)) // cpf/cnpj vazios ('') viram null antes de gravar
     .eq('id', id)
     .select()
     .single()

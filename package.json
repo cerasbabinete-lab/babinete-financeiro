@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/bwip-js": "^3.2.3",
     "@types/node": "^20",
     "@types/nodemailer": "^6.4.17",
     "@types/papaparse": "^5.5.2",

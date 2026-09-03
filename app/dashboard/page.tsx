@@ -24,7 +24,16 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { resolverUsernameExibicao } from '@/lib/authUsername'
+
+// Componentes de layout congelados — mesmo padrão de app/page.tsx,
+// app/clientes/page.tsx, app/fornecedores/page.tsx etc. — NÃO modificar
+import Topbar from '@/components/layout/Topbar'
+import TopbarMobile from '@/components/layout/TopbarMobile'
+import NavBar from '@/components/layout/NavBar'
+import Drawer from '@/components/layout/Drawer'
 
 import CardReceitas from '@/components/dashboard/CardReceitas'
 import CardDespesas from '@/components/dashboard/CardDespesas'
@@ -83,6 +92,21 @@ async function getToken(): Promise<string> {
 }
 
 export default function DashboardPage() {
+  // Router para redirect em caso de sessão inválida — mesmo padrão de app/page.tsx
+  const router = useRouter()
+
+  // Nome do usuário extraído do email — passado para Topbar/TopbarMobile/Drawer
+  const [usuario, setUsuario] = useState<string>('')
+
+  // Controla se a verificação de autenticação ainda está em andamento
+  const [authCarregando, setAuthCarregando] = useState(true)
+
+  // Resultado da detecção de viewport — null enquanto não resolvido (evita flash de layout errado)
+  const [isMobile, setIsMobile] = useState<boolean | null>(null)
+
+  // Controla a abertura do Drawer lateral no layout mobile
+  const [drawerAberto, setDrawerAberto] = useState(false)
+
   const [resumo, setResumo] = useState<DashboardResumoResponse | null>(null)
   const [titulosResp, setTitulosResp] = useState<DashboardTitulosResponse | null>(null)
   const [rankingsResp, setRankingsResp] = useState<DashboardRankingsResponse | null>(null)
@@ -181,11 +205,56 @@ export default function DashboardPage() {
       .catch((err: unknown) => setErro(err instanceof Error ? err.message : 'Erro ao carregar rankings'))
   }, [])
 
-  // Carga inicial — uma vez, ao montar a tela
+  // ============================================================
+  // useEffect — Detecção de viewport (mobile / desktop)
+  // Padrão idêntico ao de app/page.tsx, app/clientes/page.tsx e
+  // app/fornecedores/page.tsx. Breakpoint: 768px (max-width → mobile)
+  // ============================================================
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)')
+    setIsMobile(mq.matches) // eslint-disable-line react-hooks/set-state-in-effect
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+
+  // ============================================================
+  // useEffect — Verificação de autenticação
+  // Padrão aprovado (FIX-05): getUser() valida JWT server-side.
+  // SIGNED_OUT listener garante redirect imediato ao expirar sessão.
+  // Idêntico ao de app/page.tsx
+  // ============================================================
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user }, error }) => {
+      if (!user || error) {
+        router.push('/login')
+        return
+      }
+      const email = user.email ?? ''
+      setUsuario(resolverUsernameExibicao(email)) // eslint-disable-line react-hooks/set-state-in-effect
+      setAuthCarregando(false) // eslint-disable-line react-hooks/set-state-in-effect
+    }).catch(() => {
+      router.push('/login')
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') router.push('/login')
+    })
+
+    return () => subscription.unsubscribe()
+  }, [router])
+
+  // Carga inicial — uma vez, ao montar a tela.
+  // Fix Audit §3.3 (Handoff_Modulo_Dashboard_Audit_para_QA.md): antes,
+  // este efeito também chamava carregarTitulos() e carregarRankings(),
+  // duplicando as chamadas GET /api/dashboard/titulos e /rankings —
+  // os dois useEffects dependency-tracked logo abaixo JÁ rodam uma vez
+  // no mount independente de dependência ter mudado (comportamento
+  // padrão do React), então eles sozinhos cobrem a carga inicial dessas
+  // duas listas. Só carregarResumo() fica aqui — não é duplicado por
+  // nenhum outro efeito
   useEffect(() => {
     carregarResumo()
-    carregarTitulos(vencimentoDe, vencimentoAte)
-    carregarRankings('', '', '', '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -228,18 +297,42 @@ export default function DashboardPage() {
     color: COR_TEXTO_MUTED,
   }
 
+  // Guard de autenticação — evita flash de conteúdo não autorizado antes do redirect
+  if (authCarregando) return null
+
+  // Guard de viewport — evita flash do layout desktop em dispositivos móveis
+  if (isMobile === null) return null
+
   return (
     <div
       style={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100vh',
         fontFamily: 'Tahoma, Geneva, Verdana, sans-serif',
         background: '#f0f4f7',
+      }}
+    >
+      {/* Cabeçalho padrão do sistema — desktop: Topbar + NavBar / mobile: TopbarMobile */}
+      {isMobile ? (
+        <TopbarMobile usuario={usuario} onOpenDrawer={() => setDrawerAberto(true)} />
+      ) : (
+        <>
+          <Topbar usuario={usuario} />
+          <NavBar />
+        </>
+      )}
+
+    <div
+      style={{
         padding: '20px',
         color: '#233240',
         maxWidth: '1180px',
         margin: '0 auto',
+        width: '100%',
       }}
     >
-      {/* Barra superior */}
+      {/* Sub-cabeçalho do Dashboard — título do módulo + data, mantido abaixo do cabeçalho padrão */}
       <div
         style={{
           display: 'flex',
@@ -251,7 +344,6 @@ export default function DashboardPage() {
         }}
       >
         <div>
-          <div style={{ fontSize: '12px', color: COR_TEXTO_MUTED, letterSpacing: '0.2px' }}>Ceras Babinete — Gestão Financeira</div>
           <div style={{ fontSize: '20px', fontWeight: 'bold', color: COR_PRIMARIA, marginTop: '2px' }}>Dashboard</div>
         </div>
         <div style={{ fontSize: '13px', color: COR_TEXTO_MUTED }}>{dataCabecalhoFormatada()}</div>
@@ -340,6 +432,19 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+    </div>
+
+      {/* Drawer lateral — mobile only. usuario removido — DrawerProps
+          (components/layout/Drawer.tsx, congelado) não declara essa prop;
+          TS2322 apareceu porque o padrão foi copiado de app/page.tsx, que
+          tem o mesmo problema pré-existente (fora do escopo desta correção
+          — Drawer.tsx não pode ser modificado) */}
+      {isMobile && (
+        <Drawer
+          isOpen={drawerAberto}
+          onClose={() => setDrawerAberto(false)}
+        />
+      )}
     </div>
   )
 }
