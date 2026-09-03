@@ -3,13 +3,13 @@
 // Projeto: Ceras Babinete — Gestão Financeira
 // Módulo: Dashboard (NOVO)
 // Função: Card Verde — Receitas (Especificacao_Modulo_Dashboard.md,
-//         Seção 2). REESCRITO nesta sessão pra seguir fielmente o
-//         mockup aprovado (mockup_dashboard.html, produzido na sessão
-//         de entrevista/brain) — cores, bordas, raio, tipografia e o
-//         layout de 2 colunas das linhas 2/3 vêm direto de lá, não
-//         mais de julgamento próprio (a primeira versão deste
-//         arquivo, antes desta revisão, foi construída sem acesso ao
-//         mockup).
+//         Seção 2). REVISADO nesta sessão (Opção A do mockup de
+//         revisão): vira grid 2×2 — Linha 1 (bruto | líquido, fonte
+//         27px) e Linha 2 (recebido | repasse de frete, fonte 16px)
+//         — sem mais a linha "Faturamento total". No mobile
+//         (prop isMobile nova) empilha em 1 coluna, ordem bruto →
+//         líquido → recebido → repasse, mesmos tamanhos de fonte do
+//         desktop (Maycon pediu explicitamente pra não reduzir).
 // Conecta com: types/dashboard.ts (DashboardCardReceitas),
 //              lib/contasAPagarService.ts (formatarMoeda),
 //              app/dashboard/page.tsx (renderiza este componente)
@@ -51,9 +51,58 @@ function mesReferenciaAtual(): string {
 interface CardReceitasProps {
   // null enquanto pages/api/dashboard/resumo.ts ainda não respondeu
   dados: DashboardCardReceitas | null
+  // MUDANÇA DESTA SESSÃO — controla grid 2×2 (desktop, false) vs.
+  // empilhado 1 coluna (mobile, true). Vem de app/dashboard/page.tsx,
+  // mesmo state/guard `isMobile` (null → matchMedia) já usado pelo
+  // resto do sistema (Topbar/TopbarMobile etc.) — por isso o tipo
+  // aqui é `boolean`, não `boolean | null`: quem chama este
+  // componente só o renderiza depois do guard `if (isMobile === null)
+  // return null` já ter passado
+  isMobile: boolean
 }
 
-export default function CardReceitas({ dados }: CardReceitasProps) {
+export default function CardReceitas({ dados, isMobile }: CardReceitasProps) {
+  // Linha 1 (fonte maior, 27px, mesmo tamanho de hoje — Maycon pediu
+  // pra não reduzir fonte no mobile): bruto à esquerda, líquido à
+  // direita no desktop; empilhados bruto → líquido no mobile
+  const linha1 = (
+    <>
+      <div>
+        <div style={{ fontSize: '12px', color: COR_TEXTO_LABEL }}>A receber no mês</div>
+        <div style={{ fontSize: '27px', fontWeight: 'bold', color: COR_VERDE_ESCURO }}>
+          {dados ? formatarMoeda(dados.valorAReceberMes) : '—'}
+        </div>
+      </div>
+      <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
+        <div style={{ fontSize: '12px', color: COR_TEXTO_LABEL }}>A receber no mês (líquido)</div>
+        <div style={{ fontSize: '27px', fontWeight: 'bold', color: COR_VERDE_ESCURO }}>
+          {dados ? formatarMoeda(dados.valorAReceberMesLiquido) : '—'}
+        </div>
+      </div>
+    </>
+  )
+
+  // Linha 2 (fonte menor, 16px, mesmo tamanho de hoje): recebido à
+  // esquerda, repasse de frete à direita no desktop; empilhados
+  // recebido → repasse no mobile — ordem final: bruto, líquido,
+  // recebido, repasse (confirmada com Maycon)
+  const linha2 = (
+    <>
+      <div>
+        <div style={{ fontSize: '11px', color: COR_TEXTO_LABEL }}>Recebido até hoje</div>
+        <div style={{ fontSize: '16px', fontWeight: 'bold', color: COR_TEXTO_VALOR }}>
+          {dados ? formatarMoeda(dados.valorRecebidoAteHoje) : '—'}
+        </div>
+      </div>
+      <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
+        <div style={{ fontSize: '11px', color: COR_TEXTO_LABEL }}>Valor de repasse de frete</div>
+        <div style={{ fontSize: '16px', fontWeight: 'bold', color: COR_TEXTO_VALOR }}>
+          {dados ? formatarMoeda(dados.valorRepasseFrete) : '—'}
+        </div>
+      </div>
+    </>
+  )
+
   return (
     <div
       style={{
@@ -78,36 +127,30 @@ export default function CardReceitas({ dados }: CardReceitasProps) {
         Receitas — {mesReferenciaAtual()}
       </div>
 
-      {/* Linha 1 (fonte maior) — valor a receber no mês, títulos
-          em_aberto (Seção 2, decisão de status confirmada) */}
-      <div style={{ marginBottom: '10px' }}>
-        <div style={{ fontSize: '12px', color: COR_TEXTO_LABEL }}>A receber no mês</div>
-        <div style={{ fontSize: '27px', fontWeight: 'bold', color: COR_VERDE_ESCURO }}>
-          {dados ? formatarMoeda(dados.valorAReceberMes) : '—'}
-        </div>
-      </div>
-
-      {/* Linhas 2 e 3 lado a lado — layout do mockup, não empilhado */}
+      {/* Linha 1 — grid 2 colunas no desktop, empilhado no mobile */}
       <div
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+          gap: isMobile ? '10px' : '12px',
+          marginBottom: '10px',
+        }}
+      >
+        {linha1}
+      </div>
+
+      {/* Linha 2 — mesmo padrão de grid, com borda superior separando
+          da Linha 1 */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+          gap: isMobile ? '10px' : '12px',
           borderTop: `1px solid ${COR_BORDA_INTERNA}`,
           paddingTop: '8px',
         }}
       >
-        <div>
-          <div style={{ fontSize: '11px', color: COR_TEXTO_LABEL }}>Recebido até hoje</div>
-          <div style={{ fontSize: '16px', fontWeight: 'bold', color: COR_TEXTO_VALOR }}>
-            {dados ? formatarMoeda(dados.valorRecebidoAteHoje) : '—'}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: '11px', color: COR_TEXTO_LABEL }}>Faturamento total (líquido de frete)</div>
-          <div style={{ fontSize: '16px', fontWeight: 'bold', color: COR_TEXTO_VALOR }}>
-            {dados ? formatarMoeda(dados.faturamentoLiquidoFrete) : '—'}
-          </div>
-        </div>
+        {linha2}
       </div>
     </div>
   )

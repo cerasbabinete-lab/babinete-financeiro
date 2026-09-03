@@ -50,45 +50,74 @@ import type { TipoChavePix } from '@/types/fornecedores'
 // ────────────────────────────────────────────────────────────
 // ============================================================
 
-// Dados das 3 linhas do Card Verde — Seção 2 da spec. Nomes de campo
-// seguem a ordem das linhas da tabela da spec (linha 1 = maior fonte)
+// Dados das 4 linhas do Card Verde — Seção 2 da spec, REDEFINIDAS
+// nesta sessão (revisão de fórmulas confirmada com Maycon). Grid 2×2
+// no desktop (Opção A do mockup — sem a linha "Faturamento total"),
+// empilhado 1 coluna no mobile.
 export interface DashboardCardReceitas {
-  // Linha 1 (fonte maior) — valor a receber no mês corrente, títulos
-  // de Contas a Receber com vencimento no mês, status ainda não
-  // liquidado. Bruto — SEM dedução de frete (regra travada, Seção 2)
+  // Linha 1, coluna esquerda (fonte maior) — "A receber no mês".
+  // Bruto total de todos os títulos de Contas a Receber com
+  // vencimento no mês corrente, somando em_aberto + pago +
+  // recebido_pix_ted — SEM filtrar por status, EXCETO 'protestado' e
+  // 'enviado_cartorio', que ficam de fora até serem efetivamente
+  // liquidados (aí mudam de status e entram na soma naturalmente,
+  // sem tratamento especial — ver pages/api/dashboard/resumo.ts,
+  // titulosReceberMesParaCard). Só cresce (novas vendas com
+  // vencimento até o fim do mês) e nunca deduz o que já foi
+  // recebido. "Recebido até hoje" tende a se aproximar deste valor
+  // ao longo do mês, os dois nunca se cancelam
   valorAReceberMes: number
-  // Linha 2 — valor já recebido até hoje, dentro do mês corrente.
-  // Bruto — SEM dedução de frete (mesma regra travada da linha 1)
+  // Linha 1, coluna direita (fonte maior) — "A receber no mês
+  // (líquido)". MUDANÇA DESTA SESSÃO: valorAReceberMes − valorRepasseFrete
+  // (bruto novo menos o repasse de frete). Substitui a antiga linha
+  // "Faturamento total (líquido de frete)", que usava uma fonte de
+  // dado diferente (gerarRelatorioFaturamento) — removida nesta
+  // revisão (Opção A do mockup, confirmada com Maycon)
+  valorAReceberMesLiquido: number
+  // Linha 2, coluna esquerda — valor já recebido até hoje, dentro do
+  // mês corrente. Exibido cru, NUNCA abate de valorAReceberMes
+  // (regra travada original, mantida)
   valorRecebidoAteHoje: number
-  // Linha 3 — faturamento total do mês, LÍQUIDO de frete (única
-  // linha do card que sofre a dedução, Seção 2: "frete deduction
-  // applies ONLY to line 3"). Igual à Receita Bruta do relatório
-  // Faturamento por período (lib/relatorios/faturamento.ts),
-  // subtraindo SUM(receitas.valor_frete) do mesmo período
-  faturamentoLiquidoFrete: number
+  // Linha 2, coluna direita — "Valor de repasse de frete". Para cada
+  // título de Contas a Receber com vencimento no mês (mesma
+  // população de valorAReceberMes — todos os status, exceto
+  // 'protestado'/'enviado_cartorio'), soma o valor_frete da receita
+  // de origem dividido pelo número de títulos ativos que essa
+  // receita gerou no total. Dinâmico: toda venda nova lançada com
+  // vencimento até o fim do mês, com ou sem frete, entra
+  // automaticamente no próximo carregamento da tela, sem ação manual
+  valorRepasseFrete: number
 }
 
-// Dados das 3 linhas do Card Vermelho — Seção 3 da spec
+// Dados das 4 linhas do Card Vermelho — Seção 3 da spec, linha 3
+// REDEFINIDA nesta sessão (badge de 2 colunas, Opção B do mockup)
 export interface DashboardCardDespesas {
-  // Linha 1 (fonte maior) — total de despesas/títulos de Contas a
-  // Pagar lançados no mês corrente (soma de todos os títulos
-  // em_aberto + pago_parcial + pago com vencimento no mês — decisão
-  // confirmada com Maycon: "em aberto" para este card inclui
-  // pago_parcial; "lançado no mês" em si não filtra por status,
-  // conta todo título do mês independente de já ter sido pago)
+  // Linha 1 (fonte maior) — "Lançado no mês": total de todos os
+  // títulos de Contas a Pagar com vencimento no mês corrente, SEM
+  // filtrar por status (em_aberto + pago_parcial + pago) — já
+  // funcionava assim antes desta sessão, comportamento preservado.
+  // Só cresce conforme entram despesas novas até o fim do mês, nunca
+  // deduz o que já foi pago
   totalLancadoMes: number
   // Linha 2 — total já pago até hoje, dentro do mês corrente (soma
   // dos valores efetivamente baixados, não do valor de face do
-  // título)
+  // título). Se aproxima de totalLancadoMes ao longo do mês, mesmo
+  // raciocínio de valorRecebidoAteHoje no Card Verde
   totalPagoAteHoje: number
-  // Linha 3 (informativa, NUNCA somada nas linhas 1/2 nem em nenhum
-  // outro total do card — regra travada, Seção 3) — SUM(valor_frete)
-  // das notas de Receitas emitidas no mês corrente. Mesmo número da
-  // dedução usada em DashboardCardReceitas.faturamentoLiquidoFrete,
-  // exibido aqui só para visibilidade, sem duplicar o total de
-  // despesa (o boleto real da transportadora já entra como despesa
-  // normal quando chega, por outro caminho)
-  valorFretesMes: number
+  // Linha 3, coluna esquerda do badge — "Frete no mês". MUDANÇA
+  // DESTA SESSÃO: total de TODOS os títulos de Contas a Pagar do mês
+  // (qualquer status) cuja despesa de origem tem categoria_financeira
+  // = 'transporte_frete' — inclui fretes novos lançados até o fim do
+  // mês. Substitui a antiga fonte (SUM(receitas.valor_frete), sempre
+  // zerada na prática). Puramente informativa — NUNCA somada em
+  // totalLancadoMes nem em nenhum outro total do card (regra travada
+  // original, mantida)
+  valorFreteNoMes: number
+  // Linha 3, coluna direita do badge — "Frete pago no mês": mesmo
+  // filtro de categoria acima, mas só a soma dos valores efetivamente
+  // baixados até hoje (mesmo raciocínio de totalPagoAteHoje, filtrado
+  // por categoria_financeira = 'transporte_frete')
+  valorFretePagoMes: number
 }
 
 // ============================================================

@@ -355,9 +355,12 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-        <CardReceitas dados={resumo?.cardReceitas ?? null} />
+      {/* Cards — MUDANÇA DESTA SESSÃO: 1 coluna no mobile, Receitas
+          em cima e Despesas embaixo (ordem confirmada com Maycon).
+          isMobile já é boolean garantido aqui (guard `if (isMobile
+          === null) return null` acima, antes deste JSX) */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+        <CardReceitas dados={resumo?.cardReceitas ?? null} isMobile={isMobile} />
         <CardDespesas dados={resumo?.cardDespesas ?? null} />
       </div>
 
@@ -391,7 +394,7 @@ export default function DashboardPage() {
             titulo="Top 10 — clientes que mais compraram"
             itens={itensTopClientes}
             opcoesPeriodo={[
-              { value: 'padrao', label: 'Mês corrente' },
+              { value: 'padrao', label: 'Últimos 6 meses' },
               { value: 'personalizado', label: 'Personalizado' },
             ]}
             periodoSelecionado={modoTopClientes}

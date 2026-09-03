@@ -104,29 +104,40 @@ export default function CardDespesas({ dados }: CardDespesasProps) {
         </div>
       </div>
 
-      {/* Linha 3 — fretes, PURAMENTE INFORMATIVA (Seção 3, regra
-          travada: nunca somada em nenhum total do card). Badge bege
-          com ícone de caminhão — tratamento visual deliberadamente
-          diferente das linhas 1/2, exatamente como no mockup */}
+      {/* Linha 3 — fretes, PURAMENTE INFORMATIVA (regra travada:
+          nunca somada em nenhum total do card). MUDANÇA DESTA SESSÃO:
+          badge bege com ícone de caminhão, agora com 2 colunas
+          internas (Opção B do mockup de revisão, confirmada) — total
+          do mês à esquerda, pago até hoje à direita */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '6px',
+          gap: '10px',
           background: COR_FRETE_FUNDO,
           borderRadius: '5px',
-          padding: '6px 10px',
+          padding: '8px 12px',
         }}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={COR_FRETE_TEXTO} strokeWidth={2} aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={COR_FRETE_TEXTO} strokeWidth={2} aria-hidden="true" style={{ flexShrink: 0 }}>
           <rect x="1" y="7" width="14" height="9" rx="1" />
           <path d="M15 10h4l3 3v3h-7z" />
           <circle cx="6" cy="18" r="1.6" />
           <circle cx="18.5" cy="18" r="1.6" />
         </svg>
-        <div style={{ fontSize: '11px', color: COR_FRETE_TEXTO }}>
-          Valor de fretes (informativo — não soma ao total):{' '}
-          <b>{dados ? formatarMoeda(dados.valorFretesMes) : '—'}</b>
+        <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1, gap: '10px' }}>
+          <div>
+            <div style={{ fontSize: '10px', color: COR_FRETE_TEXTO }}>Frete no mês</div>
+            <div style={{ fontSize: '14px', fontWeight: 'bold', color: COR_FRETE_TEXTO }}>
+              {dados ? formatarMoeda(dados.valorFreteNoMes) : '—'}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: '10px', color: COR_FRETE_TEXTO }}>Frete pago no mês</div>
+            <div style={{ fontSize: '14px', fontWeight: 'bold', color: COR_FRETE_TEXTO }}>
+              {dados ? formatarMoeda(dados.valorFretePagoMes) : '—'}
+            </div>
+          </div>
         </div>
       </div>
     </div>

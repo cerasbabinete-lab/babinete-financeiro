@@ -161,7 +161,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       vencimentoDe,
       vencimentoAte,
       status: 'em_aberto',
-    })
+    }, supabaseAdmin)
     const titulosReceber = titulosReceberBrutos.filter(t => !t.deleted_at)
 
     const resposta: DashboardTitulosResponse = {

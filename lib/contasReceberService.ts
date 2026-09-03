@@ -12,6 +12,7 @@
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   ContaReceber,
   ContaReceberInsert,
@@ -57,9 +58,24 @@ const TABELA_REMESSA = 'remessas_importadas'      // Registro de arquivos import
 // Ordenado por data_vencimento ASC (vence mais cedo primeiro)
 // Chamado por: app/receber/page.tsx no useEffect e filtros
 // ============================================================
-export async function buscarTitulos(filtros: FiltrosContasReceber): Promise<ContaReceber[]> {
+export async function buscarTitulos(
+  filtros: FiltrosContasReceber,
+  // Client injetável — default preserva o comportamento atual (client
+  // anônimo) para todo caller existente que não passa esse argumento.
+  // Necessário pra callers server-side (ex: pages/api/dashboard/*.ts)
+  // passarem supabaseAdmin: contas_receber tem RLS ativo com policy de
+  // SELECT restrita à role 'authenticated' — o client anônimo, chamado
+  // do servidor sem sessão de usuário, cai na role 'anon' e o Postgres
+  // bloqueia a leitura silenciosamente (zero erro, zero linha). Mesma
+  // classe de problema que somaFreteReceitasMes() e
+  // gerarRelatorioFaturamento() já contornam recebendo supabaseAdmin
+  // diretamente em pages/api/dashboard/resumo.ts. contas_a_pagar não
+  // tem esse problema porque está com RLS desligado (item registrado
+  // à parte, fora do escopo desta correção)
+  client: SupabaseClient = supabase,
+): Promise<ContaReceber[]> {
   // Monta query base com join de eventos ordenados por created_at
-  let query = supabase
+  let query = client
     .from(TABELA)
     .select(`
       *,

@@ -7,22 +7,32 @@
 //         agrupadas "Fluxo do Mês" (a receber x a pagar, por dia),
 //         numa chamada só (Especificacao_Modulo_Dashboard.md, Seção
 //         10: "cards + daily chart data, one call").
-//         100% leitura — não grava nada. Reaproveita
-//         buscarTitulos() de Contas a Pagar e Contas a Receber
-//         (chamados como estão, sem parâmetro novo — Seção 0, regra
-//         4) e gerarRelatorioFaturamento() de Relatórios (Seção 2).
-//         A única agregação nova deste arquivo é: (1) a soma de
-//         valor_frete de receitas (não existe função pronta pra
-//         isso) e (2) o agrupamento dia-a-dia do gráfico (Seção 4:
-//         "This is new aggregation logic").
+//         100% leitura — não grava nada. Reaproveita buscarTitulos()
+//         de Contas a Pagar e Contas a Receber. buscarTitulosPagar()
+//         é chamada como está, sem parâmetro novo. buscarTitulosReceber()
+//         RECEBE supabaseAdmin como 2º argumento (fix desta sessão —
+//         ver nota abaixo) — contas_receber tem RLS ativo restrito a
+//         'authenticated', e o client anônimo (usado sem esse
+//         argumento) roda como 'anon' no servidor, sem sessão, e é
+//         bloqueado silenciosamente (zero erro, zero linha). Mesmo
+//         bug já corrigido em pages/api/dashboard/titulos.ts e na
+//         própria lib/contasReceberService.ts::buscarTitulos()
+//         (parâmetro client opcional, default preserva compatibilidade
+//         com todo caller existente que não passa esse argumento).
+//         REVISÃO DE FÓRMULAS (sessão desta entrega, confirmada com
+//         Maycon): "A receber no mês" e "Lançado no mês" passam a
+//         ser bruto total (todos os status, sem dedução — só
+//         crescem, nunca deduzem o que já foi pago/recebido). O
+//         frete deixou de vir de receitas.valor_frete/
+//         gerarRelatorioFaturamento (sempre zerado na prática) — ver
+//         calcularFreteMes() (Despesas, filtra despesas por
+//         categoria_financeira = 'transporte_frete') e
+//         calcularRepasseFreteMes() (Receitas, rateia valor_frete da
+//         receita de origem pelo nº de parcelas ativas) abaixo.
 // Conecta com: lib/contasAPagarService.ts (buscarTitulos,
 //              formatarMoeda — não usado aqui, só citado por
 //              referência), lib/contasReceberService.ts
-//              (buscarTitulos), lib/relatorios/faturamento.ts
-//              (gerarRelatorioFaturamento), lib/relatorios/
-//              formatadores.ts (limiteSuperiorIntervalo — mesma
-//              correção de fuso do Finding §6.4 do módulo
-//              Relatórios), lib/relatorios/paginacao.ts
+//              (buscarTitulos), lib/relatorios/paginacao.ts
 //              (paginarConsulta — mesma correção do Finding
 //              Critical §2.2, PostgREST corta em 1000 linhas sem
 //              .range()), types/dashboard.ts,
@@ -46,17 +56,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // disponíveis tanto no client quanto no server em Next.js
 import { buscarTitulos as buscarTitulosPagar } from '@/lib/contasAPagarService'
 import { buscarTitulos as buscarTitulosReceber } from '@/lib/contasReceberService'
-
-// Reaproveita a MESMA agregação de Receita Bruta já usada pelo
-// relatório Faturamento por período — Seção 2, "reuse this function,
-// do not reimplement the aggregation"
-import { gerarRelatorioFaturamento } from '@/lib/relatorios/faturamento'
-
-// Mesmo helper de limite superior de intervalo com fuso explícito já
-// usado em todo o módulo Relatórios (Finding §6.4) — reaproveitado
-// aqui pela consulta nova de SUM(valor_frete), que não existe em
-// nenhum arquivo de serviço pronto
-import { limiteSuperiorIntervalo } from '@/lib/relatorios/formatadores'
 
 // Mesmo helper de paginação já usado em todo o módulo Relatórios
 // (Finding Critical §2.2 — sem .range(), PostgREST corta
@@ -141,29 +140,120 @@ function calcularPeriodoMesCorrente(): PeriodoMesCorrente {
 }
 
 // ============================================================
-// somaFreteReceitasMes()
-// SUM(receitas.valor_frete) no período informado — agregação NOVA,
-// nenhuma função de serviço existente devolve esse campo (Seção 2:
-// "receitas.valor_frete já existe, zero mudança de schema
-// necessária" — mas nenhum arquivo de lib/relatorios/ SELECIONA essa
-// coluna hoje). Usada tanto na Linha 3 do Card Verde (dedução) quanto
-// na Linha 3 do Card Vermelho (mesmo número, informativo) — Seção 2 e
-// 3 confirmam explicitamente que é "the same underlying number"
+// calcularFreteMes()
+// MUDANÇA DESTA SESSÃO — substitui somaFreteReceitasMes() (fonte
+// antiga, receitas.valor_frete, sempre zerada na prática). Filtra os
+// títulos de Contas a Pagar do mês (titulosPagarMes, já buscados uma
+// vez pelo handler) pela categoria_financeira da despesa de origem
+// ('transporte_frete') e devolve dois números na mesma passada, sem
+// consulta nova ao banco além da busca de categoria:
+//   - valorFreteNoMes: soma de TODOS esses títulos (qualquer status)
+//     — "Frete no mês", cresce com fretes novos lançados até o fim
+//     do mês
+//   - valorFretePagoMes: soma só dos eventos de baixa até hoje —
+//     mesmo raciocínio de totalPagoAteHoje, filtrado por categoria
+// Ambos puramente informativos — nunca somados em totalLancadoMes/
+// totalPagoAteHoje (regra travada original, mantida)
 // ============================================================
-async function somaFreteReceitasMes(
+async function calcularFreteMes(
   client: SupabaseClient,
-  primeiroDiaMes: string,
-  ultimoDiaMes: string,
-): Promise<number> {
-  const linhas = await paginarConsulta<{ valor_frete: number }>((inicio, fim) =>
-    client
-      .from('receitas')
-      .select('valor_frete')
-      .gte('data_emissao', primeiroDiaMes)
-      .lte('data_emissao', limiteSuperiorIntervalo(ultimoDiaMes))
-      .range(inicio, fim),
+  titulosPagarMes: ContaAPagar[],
+  fimDeHojeMs: number,
+): Promise<{ valorFreteNoMes: number; valorFretePagoMes: number }> {
+  const despesaIds = Array.from(
+    new Set(titulosPagarMes.map(t => t.despesa_id).filter((id): id is string => Boolean(id))),
   )
-  return linhas.reduce((soma, r) => soma + (Number(r.valor_frete) || 0), 0)
+  if (despesaIds.length === 0) return { valorFreteNoMes: 0, valorFretePagoMes: 0 }
+
+  const { data: despesasLinhas, error } = await client
+    .from('despesas')
+    .select('id, categoria_financeira')
+    .in('id', despesaIds)
+  if (error) throw error
+
+  const idsFrete = new Set(
+    (despesasLinhas ?? [])
+      .filter(d => d.categoria_financeira === 'transporte_frete')
+      .map(d => d.id as string),
+  )
+  if (idsFrete.size === 0) return { valorFreteNoMes: 0, valorFretePagoMes: 0 }
+
+  let valorFreteNoMes = 0
+  let valorFretePagoMes = 0
+  for (const titulo of titulosPagarMes) {
+    if (!titulo.despesa_id || !idsFrete.has(titulo.despesa_id)) continue
+    valorFreteNoMes += Number(titulo.valor) || 0
+    for (const evento of titulo.eventos ?? []) {
+      if (
+        (evento.tipo === 'baixa_parcial' || evento.tipo === 'baixa_total') &&
+        new Date(evento.created_at).getTime() <= fimDeHojeMs
+      ) {
+        valorFretePagoMes += Number(evento.valor_pago) || 0
+      }
+    }
+  }
+  return { valorFreteNoMes, valorFretePagoMes }
+}
+
+// ============================================================
+// calcularRepasseFreteMes()
+// Para cada título de Contas a Receber do mês (MUDANÇA DESTA SESSÃO:
+// recebe titulosReceberMes — TODOS os status, não só 'em_aberto',
+// acompanhando a mudança de valorAReceberMes deixar de filtrar
+// status), busca a receita de origem (contas_receber.receita_id) e
+// divide o valor_frete dela pelo número de títulos a receber ATIVOS
+// (não deletados) que essa receita gerou NO TOTAL — não só os deste
+// mês, porque uma receita parcelada pode ter parcelas vencendo em
+// meses diferentes, e o frete se reparte pelo total de parcelas
+// dela, não só pelas que caem neste mês
+// ============================================================
+async function calcularRepasseFreteMes(
+  client: SupabaseClient,
+  titulosReceberMes: ContaReceber[],
+): Promise<number> {
+  const receitaIds = Array.from(
+    new Set(titulosReceberMes.map(t => t.receita_id).filter((id): id is string => Boolean(id))),
+  )
+  if (receitaIds.length === 0) return 0
+
+  const { data: receitasLinhas, error: erroReceitas } = await client
+    .from('receitas')
+    .select('id, valor_frete')
+    .in('id', receitaIds)
+  if (erroReceitas) throw erroReceitas
+  const freteReceitaPorId = new Map<string, number>(
+    (receitasLinhas ?? []).map(r => [r.id as string, Number(r.valor_frete) || 0]),
+  )
+
+  // Conta TODAS as parcelas ativas de cada receita envolvida (não só
+  // as deste mês) — .range() via paginarConsulta pra não cortar em
+  // 1000 linhas em bases maiores
+  const linhasParcelas = await paginarConsulta<{ receita_id: string | null; deleted_at: string | null }>(
+    (inicio, fim) =>
+      client
+        .from('contas_receber')
+        .select('receita_id, deleted_at')
+        .in('receita_id', receitaIds)
+        .range(inicio, fim),
+  )
+  const parcelasAtivasPorReceita = new Map<string, number>()
+  for (const linha of linhasParcelas) {
+    if (linha.deleted_at || !linha.receita_id) continue
+    parcelasAtivasPorReceita.set(
+      linha.receita_id,
+      (parcelasAtivasPorReceita.get(linha.receita_id) ?? 0) + 1,
+    )
+  }
+
+  let total = 0
+  for (const titulo of titulosReceberMes) {
+    if (!titulo.receita_id) continue
+    const freteTotalReceita = freteReceitaPorId.get(titulo.receita_id) ?? 0
+    if (freteTotalReceita === 0) continue
+    const numParcelas = parcelasAtivasPorReceita.get(titulo.receita_id) ?? 1
+    total += freteTotalReceita / numParcelas
+  }
+  return total
 }
 
 // ============================================================
@@ -214,7 +304,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       vencimentoDe: primeiroDiaMes,
       vencimentoAte: ultimoDiaMes,
       status: '',
-    })
+    }, supabaseAdmin)
     const titulosReceberMes = titulosReceberMesBruto.filter(t => !t.deleted_at)
 
     // ── 2. Card Vermelho — Despesas (Seção 3) ────────────────────
@@ -250,63 +340,76 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // Linha 3 — valor de fretes das notas EMITIDAS no mês corrente
-    // (Seção 3: "for notes issued in the current month") — puramente
-    // informativo, nunca somado nas linhas 1/2 (regra travada)
-    const valorFretesMes = await somaFreteReceitasMes(supabaseAdmin, primeiroDiaMes, ultimoDiaMes)
+    // Linha 3 (badge 2 colunas) — MUDANÇA DESTA SESSÃO: frete no mês
+    // (total) + frete pago no mês, ambos filtrados por
+    // categoria_financeira = 'transporte_frete' — ver calcularFreteMes()
+    // acima. Puramente informativo, nunca somado nas linhas 1/2
+    // (regra travada mantida)
+    const { valorFreteNoMes, valorFretePagoMes } = await calcularFreteMes(supabaseAdmin, titulosPagarMes, fimDeHojeMs)
 
     const cardDespesas: DashboardCardDespesas = {
       totalLancadoMes,
       totalPagoAteHoje,
-      valorFretesMes,
+      valorFreteNoMes,
+      valorFretePagoMes,
     }
 
     // ── 3. Card Verde — Receitas (Seção 2) ───────────────────────
 
-    // Linha 1 — valor a receber no mês: só status 'em_aberto'
-    // (decisão confirmada com Maycon nesta sessão — exclui
-    // protestado/enviado_cartorio, tratados como bucket jurídico à
-    // parte, fora do Card/gráfico/lista)
-    const valorAReceberMes = titulosReceberMes
-      .filter(t => t.status === 'em_aberto')
+    // Linha 1, coluna esquerda — "A receber no mês": bruto total,
+    // SEM filtro de status, EXCETO 'protestado' e 'enviado_cartorio'
+    // — decisão confirmada com Maycon: título nesses dois status fica
+    // de fora do bruto até ser efetivamente liquidado (aí muda de
+    // status pra 'pago'/'recebido_pix_ted' e entra na soma
+    // naturalmente, sem tratamento especial — os status são mutuamente
+    // exclusivos, StatusTitulo confirma). Fora essa exclusão, soma
+    // em_aberto + pago + recebido_pix_ted — só cresce (novas vendas
+    // com vencimento até o fim do mês), nunca deduz o que já foi
+    // recebido. Mesma população usada no repasse de frete abaixo
+    // (Linha 1 direita), pra bruto e líquido ficarem consistentes
+    const titulosReceberMesParaCard = titulosReceberMes.filter(
+      t => t.status !== 'protestado' && t.status !== 'enviado_cartorio',
+    )
+    const valorAReceberMes = titulosReceberMesParaCard
       .reduce((soma, t) => soma + (Number(t.valor) || 0), 0)
 
-    // Linha 2 — valor já recebido até hoje, dentro do mês: títulos
-    // liquidados (status 'pago' OU 'recebido_pix_ted' — os dois são
-    // formas de liquidação em Contas a Receber, StatusTitulo não tem
-    // pago_parcial neste módulo, diferente de Pagar — confirmado em
-    // types/contasReceber.ts), com data_baixa até hoje
+    // Linha 1, coluna direita — "A receber no mês (líquido)": bruto
+    // novo menos o repasse de frete, calculado sobre a MESMA
+    // população acima (exclui protestado/enviado_cartorio, pelo mesmo
+    // motivo — não faz sentido ratear frete de título que nem está
+    // contando no bruto)
+    const valorRepasseFrete = await calcularRepasseFreteMes(supabaseAdmin, titulosReceberMesParaCard)
+    const valorAReceberMesLiquido = valorAReceberMes - valorRepasseFrete
+
+    // Linha 2, coluna esquerda — valor já recebido até hoje, dentro
+    // do mês: títulos liquidados (status 'pago' OU 'recebido_pix_ted'
+    // — os dois são formas de liquidação em Contas a Receber,
+    // StatusTitulo não tem pago_parcial neste módulo, diferente de
+    // Pagar — confirmado em types/contasReceber.ts), com data_baixa
+    // até hoje. Comportamento inalterado nesta sessão
     const valorRecebidoAteHoje = titulosReceberMes
       .filter(t => (t.status === 'pago' || t.status === 'recebido_pix_ted') && (!t.data_baixa || t.data_baixa <= hojeIso))
       .reduce((soma, t) => soma + (Number(t.valor) || 0), 0)
 
-    // Linha 3 — faturamento do mês, líquido de frete. Reaproveita
-    // gerarRelatorioFaturamento() (mesma Receita Bruta do relatório
-    // Faturamento por período, Seção 2: "reuse this function, do not
-    // reimplement the aggregation") e subtrai o mesmo valorFretesMes
-    // já calculado acima pro Card Vermelho — é o MESMO número (Seção
-    // 2: "same underlying number as... Card Vermelho line 3")
-    const relatorioFaturamentoMes = await gerarRelatorioFaturamento(
-      { dataInicial: primeiroDiaMes, dataFinal: ultimoDiaMes },
-      supabaseAdmin,
-    )
-    const faturamentoLiquidoFrete = relatorioFaturamentoMes.totalizador.receitaBruta - valorFretesMes
-
     const cardReceitas: DashboardCardReceitas = {
       valorAReceberMes,
+      valorAReceberMesLiquido,
       valorRecebidoAteHoje,
-      faturamentoLiquidoFrete,
+      valorRepasseFrete,
     }
 
     // ── 4. Gráfico de barras agrupadas — Fluxo do Mês (Seção 4) ──
-    // Agregação nova (agrupamento por dia) — "a receber" usa a MESMA
-    // lógica de status da Linha 1 do Card Verde (em_aberto), "a
-    // pagar" usa a mesma lógica de status confirmada pra Lista a
-    // Pagar (em_aberto + pago_parcial) — não a Linha 1 do Card
-    // Vermelho (que não filtra status). Confirmado com Maycon: o
-    // gráfico mostra o que ainda está EM ABERTO por dia, não o total
-    // lançado — visão tática de "o que ainda precisa de ação",
-    // coerente com o propósito do módulo (Seção 1)
+    // Agregação nova (agrupamento por dia) — filtro de status
+    // INALTERADO nesta sessão (a mudança de fórmula desta sessão foi
+    // só nos Cards, não no gráfico): "a receber" usa status
+    // 'em_aberto', "a pagar" usa a mesma lógica confirmada pra Lista
+    // a Pagar (em_aberto + pago_parcial). Gráfico mostra o que ainda
+    // está EM ABERTO por dia, não o total lançado — visão tática de
+    // "o que ainda precisa de ação", coerente com o propósito do
+    // módulo (Seção 1). Diferente agora das Linhas 1 dos dois Cards
+    // (bruto total, sem filtro de status) — divergência intencional,
+    // confirmada com Maycon: gráfico é ação pendente, Card é visão
+    // total do mês
     const pontos: PontoGraficoAgrupado[] = []
     for (let dia = 1; dia <= diasNoMes; dia++) {
       const dataDoDia = `${primeiroDiaMes.slice(0, 8)}${pad2(dia)}` // 'YYYY-MM-' + dia
