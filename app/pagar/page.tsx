@@ -586,9 +586,9 @@ export default function ContasAPagarPage() {
             de módulo no mobile, diferente do padrão usado em Contas a
             Receber/Receitas (fix a pedido do Maycon, 03/09/2026) */}
         {isMobile && (
-          <div style={{ marginBottom: '10px' }}>
-            <div style={{ fontSize: '18px', fontWeight: 700, color: '#1a1a1a' }}>Contas a Pagar</div>
-            <div style={{ fontSize: '12px', color: '#5a6b7a' }}>{total} títulos</div>
+          <div style={{ marginBottom: '8px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: '#1a6094' }}>Contas a Pagar</div>
+            <div style={{ fontSize: '9px', color: '#5a84a6' }}>{total} título{total !== 1 ? 's' : ''}</div>
           </div>
         )}
 
