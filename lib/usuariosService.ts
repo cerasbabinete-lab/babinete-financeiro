@@ -215,6 +215,24 @@ export async function usernameDisponivel(
 }
 
 // ============================================================
+// gerarUsernameVisitante()
+// Gera um username único no formato "visitante-XXXXXX" (6 dígitos
+// aleatórios) — usado pelo fluxo de criação de Visitante, que não
+// pede username manual do Admin. Tenta algumas vezes até achar um
+// disponível (colisão é rara, mas não impossível com 6 dígitos).
+// ============================================================
+export async function gerarUsernameVisitante(client: SupabaseClient): Promise<string> {
+  for (let tentativa = 0; tentativa < 10; tentativa++) {
+    const sufixo = Math.floor(100000 + Math.random() * 900000) // sempre 6 dígitos
+    const candidato = `visitante-${sufixo}`
+    if (await usernameDisponivel(candidato, client)) {
+      return candidato
+    }
+  }
+  throw new Error('Não foi possível gerar um username único para o visitante — tente novamente.')
+}
+
+// ============================================================
 // criarUsuario()
 // Função 1 da Especificação (§5) — orquestra, na ordem exata
 // documentada:
@@ -239,6 +257,12 @@ export async function criarUsuario(
   dados: UsuarioInsert,
   client: SupabaseClient,   // Client admin — necessário tanto para as tabelas quanto para client.auth.admin.*
 ): Promise<{ usuario: Usuario }> {
+  // Visitante não tem username digitado pelo Admin — gera um
+  // automático único (VisitanteFormModal.tsx não pede esse campo)
+  if (dados.tipo_usuario === 'visitante' && !dados.username) {
+    dados = { ...dados, username: await gerarUsernameVisitante(client) }
+  }
+
   // Normaliza username para minúsculas — evita "Sheli" e "sheli"
   // coexistindo como usuários distintos (DECISION-02, Handoff_
   // Modulo_Usuarios_Audit_para_QA.md). Ponto único de normalização:
@@ -273,17 +297,27 @@ export async function criarUsuario(
   const authUserId = authData.user.id
 
   // Passo 4 — insere a linha em usuarios
+  // expira_em é calculado AQUI, a partir de agora no servidor — nunca
+  // confia num timestamp vindo do cliente (evita um visitante ou bug
+  // de UI manipular a própria data de expiração)
+  const tipoUsuario = dados.tipo_usuario ?? 'normal'
+  const expiraEm = tipoUsuario === 'visitante' && dados.expiraEmMinutos
+    ? new Date(Date.now() + dados.expiraEmMinutos * 60_000).toISOString()
+    : null
+
   const { data: usuarioInserido, error: erroInsertUsuario } = await client
     .from(TABELA_USUARIOS)
     .insert({
       nome_completo: dados.nome_completo,
       username: dados.username,
       email_tecnico: emailTecnico,
-      cpf_cnpj: dados.cpf_cnpj,
-      data_nascimento: dados.data_nascimento,
-      celular_whatsapp: dados.celular_whatsapp,
-      email_pessoal: dados.email_pessoal,
+      cpf_cnpj: dados.cpf_cnpj ?? null,
+      data_nascimento: dados.data_nascimento ?? null,
+      celular_whatsapp: dados.celular_whatsapp ?? null,
+      email_pessoal: dados.email_pessoal ?? null,
       status: dados.status,
+      tipo_usuario: tipoUsuario,
+      expira_em: expiraEm,
       auth_user_id: authUserId,
     })
     .select()

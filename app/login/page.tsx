@@ -72,6 +72,38 @@ export default function LoginPage() {
       return
     }
 
+    // Checa se é um Visitante já expirado — a autenticação em si
+    // teve sucesso (senha certa), mas o acesso não é mais permitido.
+    // Feito ANTES do log de sucesso e da navegação: se expirado,
+    // desfaz o login imediatamente (signOut) e trata como acesso
+    // negado, não como sessão válida.
+    try {
+      const respostaStatus = await fetch('/api/usuarios/status-visitante', {
+        headers: { Authorization: `Bearer ${data.session?.access_token}` },
+      })
+      if (respostaStatus.ok) {
+        const status = await respostaStatus.json()
+        if (status.tipoUsuario === 'visitante' && status.expirado) {
+          await supabase.auth.signOut()
+
+          fetch('/api/logs/registrar-login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: usernameLogin.trim(), sucesso: false }),
+            keepalive: true,
+          }).catch(() => {})
+
+          setErro('Acesso de visitante expirado. Contate o Administrador para um novo acesso.')
+          setCarregando(false)
+          return
+        }
+      }
+    } catch {
+      // Falha ao checar status (rede) — não bloqueia o login por
+      // isso; o proxy.ts e o contador do Topbar continuam
+      // protegendo a sessão de qualquer forma
+    }
+
     // Log de auditoria (login_sucesso) — AGUARDA terminar antes de
     // navegar: keepalive não é garantia suficiente contra o
     // window.location.href logo abaixo matar a requisição no meio

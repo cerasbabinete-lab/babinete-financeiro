@@ -39,7 +39,7 @@ const TABELA_CATEGORIAS = 'fornecedor_categorias'  // Especificacao_Fornecedores
 // Chamado por: app/fornecedores/page.tsx
 // ============================================================
 export async function buscarFornecedores(filtros: FiltrosFornecedores): Promise<Fornecedor[]> {
-  let query = supabase.from(TABELA).select('*')
+  let query = supabase.from(TABELA).select('*').is('deleted_at', null) // soft-delete — nunca lista os excluídos
 
   if (filtros.busca && filtros.busca.trim() !== '') {
     const termo = `%${filtros.busca.trim()}%`
@@ -70,6 +70,7 @@ export async function contarFornecedores(): Promise<number> {
   const { count, error } = await supabase
     .from(TABELA)
     .select('*', { count: 'exact', head: true })
+    .is('deleted_at', null) // soft-delete — não conta os excluídos
 
   if (error) {
     console.error('[fornecedoresService] contarFornecedores error:', error)
@@ -89,6 +90,7 @@ export async function buscarFornecedorPorId(id: number): Promise<Fornecedor | nu
     .from(TABELA)
     .select('*')
     .eq('id', id)
+    .is('deleted_at', null) // soft-delete — não retorna um excluído
     .single()
 
   if (error) {
@@ -582,14 +584,18 @@ export async function definirContatoWhatsAppFavorito(
 
 // ============================================================
 // excluirFornecedor()
-// Remove permanentemente um fornecedor pelo id
+// Soft delete de um fornecedor — nunca DELETE físico (convenção do
+// projeto, mesmo padrão de excluirChavePix()). DELETE físico falhava
+// com "duplicate key/foreign key constraint" sempre que o fornecedor
+// tinha despesas vinculadas (despesas.fornecedor_id), já que a FK
+// bloqueia apagar uma linha ainda referenciada.
 // Chamado por: FornecedoresTabela.tsx / FornecedoresMobileList.tsx
 //              após confirmação inline do usuário
 // ============================================================
 export async function excluirFornecedor(id: number): Promise<void> {
   const { error } = await supabase
     .from(TABELA)
-    .delete()
+    .update({ deleted_at: new Date().toISOString() }) // soft-delete
     .eq('id', id)
 
   if (error) {

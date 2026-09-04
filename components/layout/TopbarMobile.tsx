@@ -12,6 +12,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useVisitanteCountdown, formatarContagem } from '@/lib/useVisitanteCountdown'
 
 interface TopbarMobileProps {
   usuario?: string
@@ -21,6 +22,7 @@ interface TopbarMobileProps {
 export default function TopbarMobile({ usuario = '', onOpenDrawer }: TopbarMobileProps) {
 
   const [agora, setAgora] = useState(new Date())
+  const segundosRestantes = useVisitanteCountdown()
 
   useEffect(() => {
     const timer = setInterval(() => setAgora(new Date()), 1000)
@@ -119,8 +121,23 @@ export default function TopbarMobile({ usuario = '', onOpenDrawer }: TopbarMobil
           fontFamily: 'Tahoma, Geneva, sans-serif',
         }}
       >
-        {/* Espaço vazio à esquerda para balancear */}
-        <div style={{ flex: 1 }} />
+        {/* Esquerda — badge do Visitante (quando aplicável); vazio pra
+            todo mundo, balanceando o layout, do contrário */}
+        <div style={{ flex: 1, display: 'flex' }}>
+          {segundosRestantes !== null && (
+            <span
+              title="Acesso de Visitante — tempo restante"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 7px', borderRadius: '10px',
+                background: segundosRestantes <= 300 ? '#dc2626' : 'rgba(26,96,148,0.12)',
+                color: segundosRestantes <= 300 ? '#ffffff' : '#1a6094', fontSize: '9px', fontWeight: 700, fontFamily: 'monospace',
+              }}
+            >
+              <i className="ti ti-clock" aria-hidden="true" />
+              {formatarContagem(segundosRestantes)}
+            </span>
+          )}
+        </div>
 
         {/* Centro — Gestão Financeira */}
         <span style={{ fontSize: '13px', fontWeight: 700, color: '#1a6094', whiteSpace: 'nowrap' }}>

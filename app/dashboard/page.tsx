@@ -56,26 +56,13 @@ const COR_PRIMARIA = '#1a6094'
 
 // ============================================================
 // hojeSaoPauloIso() — duplicado mais uma vez, mesmo raciocínio de
-// todos os outros arquivos deste módulo. Aqui usado só pra: (1)
-// prefixo do vencimentoAte inicial das duas listas ("hoje +
-// atrasados", Seção 5.2/6) e (2) o texto do cabeçalho ("Segunda-
-// feira, 31 de agosto de 2026")
+// todos os outros arquivos deste módulo. Usado como prefixo do
+// vencimentoAte inicial das duas listas ("hoje + atrasados", Seção
+// 5.2/6)
 // ============================================================
 function hojeSaoPauloIso(): string {
   const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' })
   return fmt.format(new Date())
-}
-
-function dataCabecalhoFormatada(): string {
-  const fmt = new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  })
-  const texto = fmt.format(new Date()) // ex: "segunda-feira, 31 de agosto de 2026"
-  return texto.charAt(0).toUpperCase() + texto.slice(1)
 }
 
 // ============================================================
@@ -332,21 +319,20 @@ export default function DashboardPage() {
         width: '100%',
       }}
     >
-      {/* Sub-cabeçalho do Dashboard — título do módulo + data, mantido abaixo do cabeçalho padrão */}
+      {/* Sub-cabeçalho do Dashboard — só o título do módulo, seguindo
+          o mesmo padrão de fonte usado nos outros módulos (ex:
+          ContasReceberHeader.tsx: 15px desktop / 12px mobile, peso
+          700, mesma cor). Data por extenso removida — informação
+          redundante, já aparece no Topbar/TopbarMobile padrão do
+          sistema (ex: TopbarMobile.tsx) */}
       <div
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'baseline',
           marginBottom: '18px',
           paddingBottom: '14px',
           borderBottom: `1px solid ${COR_BORDA_TOPO}`,
         }}
       >
-        <div>
-          <div style={{ fontSize: '20px', fontWeight: 'bold', color: COR_PRIMARIA, marginTop: '2px' }}>Dashboard</div>
-        </div>
-        <div style={{ fontSize: '13px', color: COR_TEXTO_MUTED }}>{dataCabecalhoFormatada()}</div>
+        <span style={{ fontSize: isMobile ? '12px' : '15px', fontWeight: 700, color: COR_PRIMARIA }}>Dashboard</span>
       </div>
 
       {erro && (
@@ -369,8 +355,11 @@ export default function DashboardPage() {
         <GraficoFluxoDiario dados={resumo?.graficoFluxoDiario ?? null} />
       </div>
 
-      {/* Listas */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+      {/* Listas — MUDANÇA DESTA SESSÃO: 1 coluna no mobile (mesmo
+          padrão isMobile já usado no grid dos Cards acima), Títulos a
+          pagar em cima e Títulos a receber embaixo, ordem garantida
+          pela ordem dos componentes no JSX */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
         <ListaTitulosPagar
           titulos={titulosResp?.titulosPagar ?? null}
           vencimentoDe={vencimentoDe}
@@ -387,8 +376,11 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Rankings */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+      {/* Rankings — MUDANÇA DESTA SESSÃO: 1 coluna no mobile, mesmo
+          padrão isMobile do resto da tela. "Top 10 que mais
+          compraram" em cima, "Top 10 sem comprar" embaixo, ordem
+          garantida pela ordem dos componentes no JSX */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
         <div>
           <RankingClientes
             titulo="Top 10 — clientes que mais compraram"

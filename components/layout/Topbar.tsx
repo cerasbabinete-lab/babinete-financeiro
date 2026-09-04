@@ -15,6 +15,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { registrarLogoutClient } from '@/lib/logsClient'
+import { useVisitanteCountdown, formatarContagem } from '@/lib/useVisitanteCountdown'
 import { useRouter } from 'next/navigation'
 
 interface TopbarProps {
@@ -24,6 +25,7 @@ interface TopbarProps {
 export default function Topbar({ usuario = '' }: TopbarProps) {
 
   const router = useRouter()
+  const segundosRestantes = useVisitanteCountdown()
 
   async function handleTrocar() {
     await registrarLogoutClient()
@@ -84,6 +86,20 @@ export default function Topbar({ usuario = '' }: TopbarProps) {
         {usuario && (
           <span style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>
             Olá! {usuario}
+          </span>
+        )}
+
+        {segundosRestantes !== null && (
+          <span
+            title="Acesso de Visitante — tempo restante"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '12px',
+              background: segundosRestantes <= 300 ? '#dc2626' : 'rgba(255,255,255,0.15)',
+              color: '#ffffff', fontSize: '11px', fontWeight: 700, fontFamily: 'monospace',
+            }}
+          >
+            <i className="ti ti-clock" aria-hidden="true" />
+            Visitante · {formatarContagem(segundosRestantes)}
           </span>
         )}
 

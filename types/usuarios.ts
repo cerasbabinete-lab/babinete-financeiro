@@ -45,6 +45,15 @@ export type AcaoPermissao =
   | 'visualizar'
 
 // ============================================================
+// TipoUsuario
+// 'normal' = pessoa real, cadastro completo. 'visitante' = acesso
+// demo temporário, criado por VisitanteFormModal.tsx, somente
+// leitura em todo o sistema (proxy.ts), sem CPF/data/celular/e-mail
+// pessoal, com expira_em obrigatório.
+// ============================================================
+export type TipoUsuario = 'normal' | 'visitante'
+
+// ============================================================
 // StatusUsuario
 // Valores válidos para o campo status de usuarios — flag manual
 // só organizacional/visual, NÃO relacionada a deleted_at (soft-
@@ -99,6 +108,8 @@ export interface Usuario {
   celular_whatsapp: string           // Só contato — sem envio automatizado neste v1
   email_pessoal: string              // E-mail real da pessoa — destino dos e-mails de recuperação/reset de senha
   status: StatusUsuario              // 'ativo' | 'inativo' — flag manual, não bloqueia login
+  tipo_usuario: TipoUsuario          // 'normal' | 'visitante' — ver TipoUsuario acima
+  expira_em: string | null           // Timestamp ISO — só preenchido para tipo_usuario='visitante'; NULL para 'normal' (nunca expira)
   auth_user_id: string               // UUID do registro correspondente em auth.users (Supabase Auth)
   deleted_at: string | null          // Soft-delete — NULL quando ativo
   created_at: string                 // Timestamp de criação
@@ -115,11 +126,13 @@ export interface UsuarioInsert {
   nome_completo: string
   username: string                   // Usado para derivar email_tecnico em usuariosService.ts, não enviado como está pro banco
   senha: string                      // Digitada pelo Admin — sistema não sorteia mais senha (decisão revertida em 26/08/2026, ver lib/usuariosService.ts)
-  cpf_cnpj: string
-  data_nascimento: string
-  celular_whatsapp: string
-  email_pessoal: string
+  cpf_cnpj?: string                  // Obrigatório para tipo_usuario='normal' (validado em UsuarioFormModal.tsx/criar.ts); omitido para 'visitante'
+  data_nascimento?: string           // Mesma regra acima
+  celular_whatsapp?: string          // Mesma regra acima
+  email_pessoal?: string             // Mesma regra acima
   status: StatusUsuario
+  tipo_usuario?: TipoUsuario         // Omitido = 'normal' (default do banco). 'visitante' exige expiraEmMinutos.
+  expiraEmMinutos?: number           // Só para tipo_usuario='visitante' — minutos a partir de AGORA (calculado no servidor, não confia em timestamp vindo do cliente)
 }
 
 // ============================================================
@@ -175,6 +188,18 @@ export interface PermissaoTogglePayload {
 export interface UsuarioComPermissoes {
   usuario: Usuario
   permissoes: UsuarioPermissao[]     // Sempre 50 linhas (10 módulos x 5 ações), na ordem fixa da Seção 2.1
+}
+
+// ============================================================
+// StatusVisitanteResultado
+// Retorno de pages/api/usuarios/status-visitante.ts — usado tanto
+// no gate de login (app/login/page.tsx) quanto no contador
+// regressivo do Topbar (components/layout/Topbar.tsx)
+// ============================================================
+export interface StatusVisitanteResultado {
+  tipoUsuario: TipoUsuario
+  expiraEm: string | null            // ISO — só presente se tipoUsuario='visitante'
+  expirado: boolean                  // Calculado no servidor (now() > expira_em) — nunca confiar em cálculo feito no cliente
 }
 
 // ============================================================

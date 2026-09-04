@@ -36,6 +36,7 @@ import Drawer from '@/components/layout/Drawer'
 // Módulo Usuários
 import UsuariosTabela from '@/components/usuarios/UsuariosTabela'
 import UsuarioFormModal from '@/components/usuarios/UsuarioFormModal'
+import VisitanteFormModal from '@/components/usuarios/VisitanteFormModal'
 import LogAcessoTabela from '@/components/usuarios/LogAcessoTabela'
 
 type ModoModal = 'novo' | 'editar' | null
@@ -58,6 +59,7 @@ export default function UsuariosPage() {
   const [erroLista, setErroLista] = useState<string | null>(null)
 
   const [modoModal, setModoModal] = useState<ModoModal>(null)
+  const [modalVisitanteAberto, setModalVisitanteAberto] = useState(false)
   const [usuarioSelecionado, setUsuarioSelecionado] = useState<Usuario | null>(null)
   const [permissoesSelecionadas, setPermissoesSelecionadas] = useState<UsuarioPermissao[] | null>(null)
 
@@ -259,16 +261,28 @@ export default function UsuariosPage() {
           <div style={{ fontSize: '10px', color: '#5a84a6' }}>{usuarios.length} usuário{usuarios.length === 1 ? '' : 's'} cadastrado{usuarios.length === 1 ? '' : 's'}</div>
         </div>
         {abaAtiva === 'usuarios' && (
-          <button
-            onClick={handleNovoUsuario}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '5px', padding: '7px 14px', fontSize: '12px', fontWeight: 700,
-              fontFamily: 'Tahoma, Geneva, sans-serif', background: '#1a6094', color: '#ffffff', border: '1px solid #1a6094',
-              borderRadius: '5px', cursor: 'pointer',
-            }}
-          >
-            <i className="ti ti-plus" aria-hidden="true" /> Novo Usuário
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => setModalVisitanteAberto(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '5px', padding: '7px 14px', fontSize: '12px', fontWeight: 700,
+                fontFamily: 'Tahoma, Geneva, sans-serif', background: '#ffffff', color: '#1a6094', border: '1px solid #1a6094',
+                borderRadius: '5px', cursor: 'pointer',
+              }}
+            >
+              <i className="ti ti-eye" aria-hidden="true" /> Novo Visitante
+            </button>
+            <button
+              onClick={handleNovoUsuario}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '5px', padding: '7px 14px', fontSize: '12px', fontWeight: 700,
+                fontFamily: 'Tahoma, Geneva, sans-serif', background: '#1a6094', color: '#ffffff', border: '1px solid #1a6094',
+                borderRadius: '5px', cursor: 'pointer',
+              }}
+            >
+              <i className="ti ti-plus" aria-hidden="true" /> Novo Usuário
+            </button>
+          </div>
         )}
       </div>
 
@@ -368,6 +382,12 @@ export default function UsuariosPage() {
             onSalvo={handleSalvo}
           />
         )}
+        {modalVisitanteAberto && (
+          <VisitanteFormModal
+            onFechar={() => setModalVisitanteAberto(false)}
+            onSalvo={handleSalvo}
+          />
+        )}
         {dialogReset}
       </div>
     )
@@ -404,6 +424,12 @@ export default function UsuariosPage() {
           usuarioInicial={usuarioSelecionado}
           permissoesIniciais={permissoesSelecionadas}
           onFechar={handleFecharModal}
+          onSalvo={handleSalvo}
+        />
+      )}
+      {modalVisitanteAberto && (
+        <VisitanteFormModal
+          onFechar={() => setModalVisitanteAberto(false)}
           onSalvo={handleSalvo}
         />
       )}

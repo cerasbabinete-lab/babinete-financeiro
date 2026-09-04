@@ -44,15 +44,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const dados = req.body as UsuarioInsert
+  const tipoUsuario = dados?.tipo_usuario ?? 'normal'
 
   // Passo 1 — valida campos obrigatórios (Especificação §5, Função 1, passo 1)
-  const camposObrigatorios: (keyof UsuarioInsert)[] = [
-    'nome_completo', 'username', 'senha', 'cpf_cnpj', 'data_nascimento',
-    'celular_whatsapp', 'email_pessoal', 'status',
-  ]
+  // Visitante (fluxo novo, 27/08/2026): não é uma pessoa real, não tem
+  // CPF/data de nascimento/celular/e-mail pessoal nem username digitado
+  // — exige só nome, senha, status e expiraEmMinutos.
+  const camposObrigatorios: (keyof UsuarioInsert)[] = tipoUsuario === 'visitante'
+    ? ['nome_completo', 'senha', 'status']
+    : ['nome_completo', 'username', 'senha', 'cpf_cnpj', 'data_nascimento', 'celular_whatsapp', 'email_pessoal', 'status']
   const faltando = camposObrigatorios.filter((campo) => !dados?.[campo] || String(dados[campo]).trim() === '')
   if (faltando.length > 0) {
     return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}` })
+  }
+
+  if (tipoUsuario === 'visitante' && (!dados.expiraEmMinutos || dados.expiraEmMinutos <= 0)) {
+    return res.status(400).json({ erro: 'expiraEmMinutos é obrigatório e deve ser maior que zero para visitante.' })
   }
 
   // Senha digitada pelo Admin (não gerada mais pelo sistema — decisão
@@ -61,14 +68,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ erro: 'A senha precisa ter pelo menos 6 caracteres.' })
   }
 
-  // Passo 4 — valida formato de email_pessoal (Especificação §5, Função 1, passo 4)
-  if (!emailValido(dados.email_pessoal)) {
-    return res.status(400).json({ erro: 'E-mail pessoal em formato inválido.' })
-  }
-
-  // Passo 3 — valida formato de cpf_cnpj por dígito verificador (FIX-15)
-  if (!validarCpfCnpj(dados.cpf_cnpj)) {
-    return res.status(400).json({ erro: 'CPF/CNPJ em formato inválido.' })
+  // Passos 3 e 4 — validação de formato de e-mail pessoal e CPF/CNPJ
+  // só se aplicam a usuário normal (visitante não tem esses campos)
+  if (tipoUsuario === 'normal') {
+    if (!emailValido(dados.email_pessoal!)) {
+      return res.status(400).json({ erro: 'E-mail pessoal em formato inválido.' })
+    }
+    if (!validarCpfCnpj(dados.cpf_cnpj!)) {
+      return res.status(400).json({ erro: 'CPF/CNPJ em formato inválido.' })
+    }
   }
 
   // Passos de unicidade de username, email_tecnico, Auth, insert

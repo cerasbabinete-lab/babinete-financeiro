@@ -25,6 +25,22 @@ import type { Usuario } from '@/types/usuarios'
 import { senhaValida, gerarSenhaAleatoria } from '@/lib/validacoesUsuarios'
 
 // ============================================================
+// formatarTempoRestante()
+// Só usado no badge da linha do Visitante na lista — cálculo
+// simples pra exibição, não é fonte de verdade (quem decide de
+// verdade se expirou é sempre o servidor, ver pages/api/usuarios/
+// status-visitante.ts e proxy.ts)
+// ============================================================
+function formatarTempoRestante(expiraEm: string): string {
+  const restanteMs = new Date(expiraEm).getTime() - Date.now()
+  if (restanteMs <= 0) return 'expirado'
+  const horas = Math.floor(restanteMs / 3_600_000)
+  const minutos = Math.floor((restanteMs % 3_600_000) / 60_000)
+  if (horas > 0) return `${horas}h ${minutos}min restantes`
+  return `${minutos}min restantes`
+}
+
+// ============================================================
 // Props
 // ============================================================
 interface UsuariosTabelaProps {
@@ -161,7 +177,24 @@ export default function UsuariosTabela({
                     {usuario.nome_completo}
                   </td>
 
-                  <td style={tdStyle()}>{usuario.username}</td>
+                  <td style={tdStyle()}>
+                    {usuario.username}
+                    {usuario.tipo_usuario === 'visitante' && (
+                      <div style={{ marginTop: '2px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{
+                          display: 'inline-block', padding: '1px 6px', borderRadius: '8px', fontSize: '9px',
+                          fontWeight: 700, background: '#fff7e6', color: '#b45309',
+                        }}>
+                          Visitante
+                        </span>
+                        {usuario.expira_em && (
+                          <span style={{ fontSize: '9px', color: '#7a8a99' }}>
+                            {formatarTempoRestante(usuario.expira_em)}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </td>
 
                   <td style={{ ...tdStyle('100px'), textAlign: 'center' }}>
                     <span
@@ -253,9 +286,10 @@ export default function UsuariosTabela({
                       <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
                         <button
                           onClick={() => onEditar(usuario)}
-                          title="Editar usuário"
+                          disabled={usuario.tipo_usuario === 'visitante'}
+                          title={usuario.tipo_usuario === 'visitante' ? 'Visitante não é editável' : 'Editar usuário'}
                           aria-label={`Editar ${usuario.nome_completo}`}
-                          style={btnAcaoStyle}
+                          style={{ ...btnAcaoStyle, opacity: usuario.tipo_usuario === 'visitante' ? 0.4 : 1 }}
                           onMouseEnter={e => (e.currentTarget.style.background = '#e0ecf7')}
                           onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                         >
@@ -264,9 +298,10 @@ export default function UsuariosTabela({
 
                         <button
                           onClick={() => setConfirmando({ id: usuario.id, acao: 'resetar' })}
-                          title="Resetar senha"
+                          disabled={usuario.tipo_usuario === 'visitante'}
+                          title={usuario.tipo_usuario === 'visitante' ? 'Senha do visitante não é redefinível — exclua e crie um novo' : 'Resetar senha'}
                           aria-label={`Resetar senha de ${usuario.nome_completo}`}
-                          style={btnAcaoStyle}
+                          style={{ ...btnAcaoStyle, opacity: usuario.tipo_usuario === 'visitante' ? 0.4 : 1 }}
                           onMouseEnter={e => (e.currentTarget.style.background = '#e0ecf7')}
                           onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                         >

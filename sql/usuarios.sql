@@ -60,6 +60,26 @@ CREATE TABLE IF NOT EXISTS usuarios (
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
+-- Usuario Visitante (27/08/2026): acesso demo, somente leitura,
+-- multiplos simultaneos, com prazo proprio por visitante. Ver
+-- proxy.ts (bloqueio de escrita + expiracao) e
+-- components/usuarios/VisitanteFormModal.tsx (criacao).
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS tipo_usuario TEXT NOT NULL DEFAULT 'normal';
+ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_tipo_usuario_check;
+ALTER TABLE usuarios ADD CONSTRAINT usuarios_tipo_usuario_check
+  CHECK (tipo_usuario IN ('normal', 'visitante'));
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS expira_em TIMESTAMPTZ;
+
+-- Visitante nao tem CPF/CNPJ, data de nascimento, celular nem
+-- e-mail pessoal reais (nao e uma pessoa cadastravel) - relaxado
+-- apenas no banco; o formulario de usuario normal continua exigindo
+-- estes campos na camada de aplicacao (UsuarioFormModal.tsx,
+-- pages/api/usuarios/criar.ts).
+ALTER TABLE usuarios ALTER COLUMN cpf_cnpj DROP NOT NULL;
+ALTER TABLE usuarios ALTER COLUMN data_nascimento DROP NOT NULL;
+ALTER TABLE usuarios ALTER COLUMN celular_whatsapp DROP NOT NULL;
+ALTER TABLE usuarios ALTER COLUMN email_pessoal DROP NOT NULL;
+
 ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_status_check;
 ALTER TABLE usuarios ADD CONSTRAINT usuarios_status_check
   CHECK (status IN ('ativo', 'inativo'));
@@ -68,6 +88,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS usuarios_username_ativo_key
   ON usuarios (username) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS usuarios_email_tecnico_ativo_key
   ON usuarios (email_tecnico) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS usuarios_tipo_usuario_idx ON usuarios (tipo_usuario) WHERE deleted_at IS NULL;
 
 CREATE OR REPLACE FUNCTION set_updated_at_usuarios()
 RETURNS TRIGGER AS $$
