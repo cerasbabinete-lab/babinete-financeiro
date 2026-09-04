@@ -581,6 +581,17 @@ export default function ContasAPagarPage() {
           />
         )}
 
+        {/* Título do módulo no mobile — ContasAPagarHeader (acima) só
+            renderiza no desktop; sem isto a tela ficava sem cabeçalho
+            de módulo no mobile, diferente do padrão usado em Contas a
+            Receber/Receitas (fix a pedido do Maycon, 03/09/2026) */}
+        {isMobile && (
+          <div style={{ marginBottom: '10px' }}>
+            <div style={{ fontSize: '18px', fontWeight: 700, color: '#1a1a1a' }}>Contas a Pagar</div>
+            <div style={{ fontSize: '12px', color: '#5a6b7a' }}>{total} títulos</div>
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px', fontSize: '11px' }}>
           <Pill cor="#166534" bg="#dcfce7" label={`Em Aberto: ${contadores.emAberto}`} />
           <Pill cor="#b45309" bg="#fef3c7" label={`Atrasados: ${contadores.atrasados}`} />
