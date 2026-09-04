@@ -373,23 +373,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const valorAReceberMes = titulosReceberMesParaCard
       .reduce((soma, t) => soma + (Number(t.valor) || 0), 0)
 
-    // Linha 1, coluna direita — "A receber no mês (líquido)": bruto
-    // novo menos o repasse de frete, calculado sobre a MESMA
-    // população acima (exclui protestado/enviado_cartorio, pelo mesmo
-    // motivo — não faz sentido ratear frete de título que nem está
-    // contando no bruto)
-    const valorRepasseFrete = await calcularRepasseFreteMes(supabaseAdmin, titulosReceberMesParaCard)
-    const valorAReceberMesLiquido = valorAReceberMes - valorRepasseFrete
-
     // Linha 2, coluna esquerda — valor já recebido até hoje, dentro
     // do mês: títulos liquidados (status 'pago' OU 'recebido_pix_ted'
     // — os dois são formas de liquidação em Contas a Receber,
     // StatusTitulo não tem pago_parcial neste módulo, diferente de
     // Pagar — confirmado em types/contasReceber.ts), com data_baixa
-    // até hoje. Comportamento inalterado nesta sessão
+    // até hoje. Comportamento inalterado nesta sessão — só subiu de
+    // posição no arquivo porque o líquido (abaixo) passou a depender
+    // dele
     const valorRecebidoAteHoje = titulosReceberMes
       .filter(t => (t.status === 'pago' || t.status === 'recebido_pix_ted') && (!t.data_baixa || t.data_baixa <= hojeIso))
       .reduce((soma, t) => soma + (Number(t.valor) || 0), 0)
+
+    // Linha 1, coluna direita — "A receber no mês (líquido)". Fórmula
+    // corrigida nesta sessão (decisão confirmada com Maycon, fechada
+    // com números reais da tela dele: bruto R$25.184,73 + recebido
+    // R$5.118,92 − repasse R$271,67 = R$30.031,98): NÃO deduz mais o
+    // bruto puro — o bruto (coluna esquerda) continua intocado, e o
+    // líquido passa a SOMAR o que já foi recebido até hoje dentro do
+    // mês, subtraindo só o repasse de frete. Antes: bruto − frete
+    // (versão anterior, nunca commitada — o líquido ficava MENOR que
+    // o bruto mesmo já tendo recebido parte do valor, o que não fazia
+    // sentido pro caso de uso de decisão financeira do Maycon)
+    const valorRepasseFrete = await calcularRepasseFreteMes(supabaseAdmin, titulosReceberMesParaCard)
+    // Linha 1, coluna direita — "A receber no mês (líquido)". Fórmula
+    // final (decisão confirmada com Maycon): bruto MENOS o repasse de
+    // frete. Uma tentativa anterior nesta mesma sessão somou
+    // valorRecebidoAteHoje aqui também, partindo do pressuposto errado
+    // de que o bruto só contava título em_aberto — mas o bruto
+    // (valorAReceberMes, acima) já soma em_aberto + pago +
+    // recebido_pix_ted (ver comentário original dessa variável), ou
+    // seja, o recebido JÁ está embutido no bruto. Somar de novo
+    // duplicava o valor. Fórmula correta é simplesmente bruto − frete
+    // — o "acrescentar o valor recebido" que o Maycon pediu já
+    // acontece sozinho, porque o bruto nunca exclui o que foi pago
+    const valorAReceberMesLiquido = valorAReceberMes - valorRepasseFrete
 
     const cardReceitas: DashboardCardReceitas = {
       valorAReceberMes,
