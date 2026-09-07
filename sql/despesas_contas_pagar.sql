@@ -17,7 +17,24 @@
 --              lib/despesas/*.ts, lib/pagar/*.ts,
 --              lib/despesasService.ts, lib/contasAPagarService.ts,
 --              pages/api/despesas/*.ts, pages/api/pagar/*.ts
--- Revisão desta versão (02/09/2026, aprovada por Maycon):
+-- Revisão desta versão (07/09/2026, aprovada por Maycon):
+--   - Eliminado o status 'pago_parcial' EM contas_a_pagar.status e
+--     despesas_parcelas.status (título/parcela: nunca mais parcial,
+--     só em_aberto → pago). despesas.status_pagamento (agregado da
+--     Despesa) MANTÉM 'pago_parcial' normalmente — é o status
+--     correto quando uma Despesa parcelada tem parcelas mistas.
+--   - Migração de dado: títulos/parcelas pago_parcial existentes
+--     viram pago; despesas.status_pagamento recalculado por
+--     agregação real (nunca convertido em massa).
+--   - Roster: regras holerite_com_abatimento (Sheli) e
+--     acumulo_ate_valor_integral (Maycon-CNPJ) eliminadas — geravam
+--     pago_parcial automático e, em anomalias, Despesas sintéticas
+--     com valores irreais. Substituídas por sempre_manual: motor de
+--     conciliação nunca decide baixa sozinho pra esses 2, sempre cai
+--     em pendente_confirmacao (fila de confirmação manual já
+--     existente). despesa_automatica_baixada (Darci, Fábio,
+--     Maycon-CPF 985.286.969-87) inalterada.
+-- Revisão anterior (02/09/2026, aprovada por Maycon):
 --   - Nova coluna contas_a_pagar.favorecido_dados_bancarios (TEXT,
 --     nullable) — suporte à geração de 2ª via avulsa de boleto
 --     (lib/pagar/gerarBoletoAvulso.ts). Alimentada pelo Motor
@@ -181,10 +198,18 @@ BEGIN
       FOREIGN KEY (despesa_id) REFERENCES despesas (id);
   END IF;
 
-  -- QA fix (14/08/2026): mesmo motivo acima — + 'pago_parcial'
+  -- QA fix (07/09/2026, a pedido do Maycon — eliminação de
+  -- pago_parcial a nível de TÍTULO/PARCELA, mas não de Despesa
+  -- agregada): migra qualquer parcela ainda pago_parcial ANTES de
+  -- apertar a constraint abaixo, senão o ADD CONSTRAINT falha contra
+  -- linha existente. despesas.status_pagamento (agregado) mantém
+  -- pago_parcial normalmente — só é recalculado, não convertido em
+  -- massa, ver seção de correção pontual no fim deste arquivo.
+  UPDATE despesas_parcelas SET status = 'pago' WHERE status = 'pago_parcial';
+
   ALTER TABLE despesas_parcelas DROP CONSTRAINT IF EXISTS despesas_parcelas_status_check;
   ALTER TABLE despesas_parcelas ADD CONSTRAINT despesas_parcelas_status_check
-    CHECK (status IN ('em_aberto', 'pago_parcial', 'pago', 'cancelado'));
+    CHECK (status IN ('em_aberto', 'pago', 'cancelado'));
 END $$;
 
 CREATE INDEX IF NOT EXISTS despesas_parcelas_despesa_id_idx ON despesas_parcelas (despesa_id);
@@ -213,12 +238,28 @@ ALTER TABLE beneficiarios_pessoais ADD COLUMN IF NOT EXISTS despesa_gerada_subti
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'beneficiarios_pessoais_regra_conciliacao_pagar_check') THEN
-    ALTER TABLE beneficiarios_pessoais ADD CONSTRAINT beneficiarios_pessoais_regra_conciliacao_pagar_check
-      CHECK (regra_conciliacao_pagar IN (
-        'holerite_com_abatimento', 'despesa_automatica_baixada', 'acumulo_ate_valor_integral'
-      ));
-  END IF;
+  -- Migra QUALQUER linha ainda nos valores antigos antes de apertar a
+  -- constraint abaixo — sem isso, o ADD CONSTRAINT falha em qualquer
+  -- banco onde Sheli/Maycon-CNPJ ainda não passaram pelo UPDATE do
+  -- seed (a ordem de execução deste arquivo é de cima pra baixo, e o
+  -- seed fica no fim do arquivo — este UPDATE aqui é o que garante
+  -- que a constraint nunca vê uma linha desatualizada, seja qual for
+  -- o estado atual do banco em que este script rodar)
+  UPDATE beneficiarios_pessoais SET regra_conciliacao_pagar = 'sempre_manual'
+    WHERE regra_conciliacao_pagar IN ('holerite_com_abatimento', 'acumulo_ate_valor_integral');
+
+  -- QA fix (07/09/2026, DROP+ADD incondicional — mesmo motivo do
+  -- padrão já usado em despesas_categoria_financeira_check etc.:
+  -- IF NOT EXISTS por nome não pega mudança de DEFINIÇÃO):
+  -- holerite_com_abatimento e acumulo_ate_valor_integral eliminadas
+  -- (geravam pago_parcial automático com valores irreais — Sheli e
+  -- Maycon-CNPJ 44.739.377/0001-32 agora usam sempre_manual, que
+  -- nunca decide baixa sozinho, sempre cai em pendente_confirmacao)
+  ALTER TABLE beneficiarios_pessoais DROP CONSTRAINT IF EXISTS beneficiarios_pessoais_regra_conciliacao_pagar_check;
+  ALTER TABLE beneficiarios_pessoais ADD CONSTRAINT beneficiarios_pessoais_regra_conciliacao_pagar_check
+    CHECK (regra_conciliacao_pagar IN (
+      'sempre_manual', 'despesa_automatica_baixada'
+    ));
 
   -- QA fix: vinculo nunca teve CHECK. Valores confirmados nos
   -- comentários de types/despesas.ts (BeneficiarioPessoalRoster)
@@ -286,10 +327,21 @@ ALTER TABLE contas_a_pagar ADD COLUMN IF NOT EXISTS favorecido_dados_bancarios T
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'contas_a_pagar_status_check') THEN
-    ALTER TABLE contas_a_pagar ADD CONSTRAINT contas_a_pagar_status_check
-      CHECK (status IN ('em_aberto', 'pago', 'pago_parcial', 'cancelado'));
-  END IF;
+  -- QA fix (07/09/2026, a pedido do Maycon — eliminação de
+  -- pago_parcial): migra qualquer título ainda pago_parcial pra pago
+  -- ANTES de apertar a constraint abaixo, senão o ADD CONSTRAINT
+  -- falha contra linha existente. Título parcialmente pago passa a
+  -- contar como pago em Contas a Pagar — o controle de "quanto ainda
+  -- falta" fica só a nível de Despesa (status_pagamento agregado,
+  -- que continua com pago_parcial normalmente).
+  UPDATE contas_a_pagar SET status = 'pago' WHERE status = 'pago_parcial';
+
+  -- DROP+ADD incondicional (mesmo motivo do padrão já usado em
+  -- despesas_categoria_financeira_check etc.) — antes era só
+  -- IF NOT EXISTS por nome, que não pega mudança de definição
+  ALTER TABLE contas_a_pagar DROP CONSTRAINT IF EXISTS contas_a_pagar_status_check;
+  ALTER TABLE contas_a_pagar ADD CONSTRAINT contas_a_pagar_status_check
+    CHECK (status IN ('em_aberto', 'pago', 'cancelado'));
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'contas_a_pagar_forma_baixa_check') THEN
     ALTER TABLE contas_a_pagar ADD CONSTRAINT contas_a_pagar_forma_baixa_check
@@ -428,7 +480,7 @@ CREATE INDEX IF NOT EXISTS pagar_comprovantes_processados_contas_a_pagar_id_idx 
 
 UPDATE beneficiarios_pessoais SET
   cpf = '080.817.879-25',
-  regra_conciliacao_pagar = 'holerite_com_abatimento',
+  regra_conciliacao_pagar = 'sempre_manual',
   despesa_gerada_categoria = 'contabilidade',
   despesa_gerada_subtipo = 'folha_pro_labore'
 WHERE id = 'e21efc65-43c2-47f8-a421-b31ead37f18d';  -- Sheli de Almeida Aquotti
@@ -456,10 +508,18 @@ WHERE id = 'f2edc092-6bf4-4b3b-8555-8784681ff135';  -- Maycon Luiz Malaquias (CP
 
 INSERT INTO beneficiarios_pessoais (nome, cpf, cnpj, vinculo, regra_conciliacao_pagar, despesa_gerada_categoria, despesa_gerada_subtipo)
 SELECT 'Maycon Luiz Malaquias', NULL, '44.739.377/0001-32', 'prestador_mei',
-       'acumulo_ate_valor_integral', 'servicos_profissionais', NULL
+       'sempre_manual', 'servicos_profissionais', NULL
 WHERE NOT EXISTS (
   SELECT 1 FROM beneficiarios_pessoais WHERE cnpj = '44.739.377/0001-32'
 );
+
+-- QA fix (07/09/2026, a pedido do Maycon — eliminação de
+-- holerite_com_abatimento/acumulo_ate_valor_integral): o INSERT
+-- acima só roda quando a linha ainda NÃO existe — em produção ela já
+-- existe desde a sessão de seed original, então o UPDATE explícito
+-- abaixo é o que de fato atualiza a regra do banco já em uso.
+UPDATE beneficiarios_pessoais SET regra_conciliacao_pagar = 'sempre_manual'
+WHERE cnpj = '44.739.377/0001-32';
 
 
 -- ============================================================
@@ -497,3 +557,36 @@ FROM novos_titulos;
 -- (Seção "CORREÇÃO PONTUAL — Excedente do pagamento da Sheli" removida
 -- em 14/08/2026 — o valor de R$498,21 foi substituído duas vezes desde
 -- então, ver nota no cabeçalho do arquivo)
+
+
+-- ============================================================
+-- CORREÇÃO PONTUAL (07/09/2026) — Recalcula despesas.status_pagamento
+-- depois da migração de pago_parcial em contas_a_pagar/despesas_parcelas
+-- (acima). NÃO converte em massa pra 'pago' — recalcula por agregação
+-- real das parcelas de cada Despesa, mesma lógica de
+-- calcularStatusAgregadoDespesa() em contasAPagarService.ts: se TODAS
+-- as parcelas de uma Despesa viraram 'pago', a Despesa vira 'pago';
+-- se ainda sobra alguma parcela 'em_aberto' (outro vencimento do
+-- mesmo parcelamento), a Despesa CONTINUA 'pago_parcial' — esse
+-- status do agregado nunca foi eliminado, só o do título/parcela
+-- individual. Só toca Despesas que já estavam 'pago_parcial' —
+-- as demais não são afetadas por esta migração.
+-- ============================================================
+
+UPDATE despesas d
+SET status_pagamento = sub.status_calculado
+FROM (
+  SELECT
+    despesa_id,
+    CASE
+      WHEN bool_and(status = 'pago')      THEN 'pago'
+      WHEN bool_and(status = 'em_aberto') THEN 'em_aberto'
+      WHEN bool_and(status = 'cancelado') THEN 'cancelado'
+      ELSE 'pago_parcial'
+    END AS status_calculado
+  FROM despesas_parcelas
+  WHERE deleted_at IS NULL
+  GROUP BY despesa_id
+) sub
+WHERE d.id = sub.despesa_id
+  AND d.status_pagamento = 'pago_parcial';

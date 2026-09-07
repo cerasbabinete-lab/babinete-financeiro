@@ -196,11 +196,12 @@ export interface ExtensaoCategoria {
 // ============================================================
 export type StatusPagamentoDespesa =
   | 'em_aberto'    // Despesa lançada, parcela(s) ainda não paga(s)
-  | 'pago_parcial' // QA fix (sessão 13/07/2026): título vinculado em Contas a Pagar
-                    // foi parcialmente baixado (acúmulo automático ou baixa manual
-                    // parcial) — sem esse valor, sincronizarStatusDespesaDoTitulo()
-                    // (contasAPagarService.ts / motorConciliacao.ts) falha contra a
-                    // CHECK constraint do banco ao tentar propagar 'pago_parcial'
+  | 'pago_parcial' // QA fix (07/09/2026): status do AGREGADO da Despesa, não do
+                    // título/parcela individual (esse não tem mais pago_parcial —
+                    // ver StatusTituloPagar em types/contasAPagar.ts). Aparece
+                    // quando uma Despesa parcelada (ex: 3x) tem algumas parcelas
+                    // já pagas e outras ainda em_aberto — calcularStatusAgregadoDespesa()
+                    // em contasAPagarService.ts decide isso por agregação
   | 'pago'         // Liquidada (sem workflow de baixa automatizado nesta fase — ver spec seção 8)
   | 'cancelado'    // Soft-deleted — deleted_at preenchido
 
@@ -217,9 +218,11 @@ export type OrigemEntradaDespesa =
   | 'manual'         // Lançamento manual, sem documento de origem
   // Valor novo, autorizado por Maycon durante o build do módulo Contas
   // a Pagar: Despesa criada automaticamente pelo motor de conciliação
-  // (lib/pagar/motorConciliacao.ts), a partir de uma regra de roster
-  // (despesa_automatica_baixada / excedente de holerite_com_abatimento
-  // ou acumulo_ate_valor_integral) — nunca por documento de origem real
+  // (lib/pagar/motorConciliacao.ts), a partir da regra de roster
+  // despesa_automatica_baixada (Darci, Fábio, Maycon-CPF) — nunca por
+  // documento de origem real. QA fix (07/09/2026): holerite_com_abatimento
+  // e acumulo_ate_valor_integral eliminadas (ver RegraConciliacaoPagar
+  // em types/contasAPagar.ts) — não geram mais Despesa automática
   | 'motor_conciliacao_pagar'
 
 

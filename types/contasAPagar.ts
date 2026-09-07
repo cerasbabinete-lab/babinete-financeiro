@@ -34,9 +34,11 @@ import type { BeneficiarioPessoalRoster } from '@/types/despesas'
 // aplicam ao sentido "a pagar")
 // ============================================================
 export type StatusTituloPagar =
-  | 'em_aberto'    // Título gerado, aguardando pagamento
-  | 'pago'         // Baixado integralmente
-  | 'pago_parcial' // Em processo de acúmulo (casos Sheli e Maycon-PJ), ainda não fechou o valor total
+  | 'em_aberto'    // Título gerado, aguardando pagamento — inclui baixa parcial que
+                    // não fechou o valor total (QA fix 07/09/2026: pago_parcial
+                    // eliminado a nível de título/parcela — uma baixa menor que o
+                    // valor do título não muda o status, só o evento é registrado)
+  | 'pago'         // Baixado integralmente — valor total do título alcançado
   | 'cancelado'    // Soft-deleted — deleted_at preenchido
 
 
@@ -63,7 +65,7 @@ export type FormaBaixaPagar =
 export type TipoEventoPagar =
   | 'criado'                     // Título criado (a partir de despesas_parcela)
   | 'nosso_numero_vinculado'     // Nosso Número confirmado/vinculado via Relatório BB
-  | 'baixa_parcial'              // Baixa parcial aplicada (acumulo_ate_valor_integral ou holerite_com_abatimento, ainda não fechou)
+  | 'baixa_parcial'              // Baixa parcial registrada (valor menor que o título) — só o evento é gravado, status do título permanece em_aberto (QA fix 07/09/2026: pago_parcial eliminado)
   | 'baixa_total'                // Baixa que fechou o valor total do título (status final = pago)
   | 'baixa_manual'               // Baixa manual avulsa registrada pelo usuário (só para título pré-existente)
   | 'despesa_complementar_criada'// Evento registrado no título ORIGINAL quando um excedente gerou uma nova Despesa complementar
@@ -76,11 +78,17 @@ export type TipoEventoPagar =
 // Valores válidos para beneficiarios_pessoais.regra_conciliacao_pagar
 // Se a linha do roster tiver este campo NULL, o CPF/CNPJ é tratado
 // como fornecedor genérico (sem regra especial) — Especificação §2.1
+// QA fix (07/09/2026, a pedido do Maycon): holerite_com_abatimento
+// (Sheli) e acumulo_ate_valor_integral (Maycon-CNPJ) eliminadas —
+// geravam pago_parcial automático e, em anomalias (nenhum título
+// aberto correspondente), criavam Despesas sintéticas com valores
+// irreais sem nenhuma confirmação humana. sempre_manual substitui as
+// duas: motor de conciliação NUNCA decide baixa sozinho pra essas
+// pessoas, cai direto em pendente_confirmacao (fila que já existe).
 // ============================================================
 export type RegraConciliacaoPagar =
-  | 'holerite_com_abatimento'    // Acumula pagamentos até fechar o valor do holerite (caso Sheli)
+  | 'sempre_manual'              // Nunca decide baixa sozinho — sempre pendente_confirmacao (casos Sheli, Maycon-CNPJ)
   | 'despesa_automatica_baixada' // 100% automático e silencioso — cria Despesa já baixada (casos Darci, Fábio, Maycon-CPF)
-  | 'acumulo_ate_valor_integral' // Acumula pagamentos até fechar o valor da NF de serviço (caso Maycon-CNPJ)
 
 
 // ============================================================
@@ -159,8 +167,10 @@ export interface ContaAPagarEvento {
   descricao:   string          // Descrição legível em PT-BR gerada pela aplicação
   // Obrigatório em todo evento de baixa parcial/total — é a partir da
   // soma destes valores que o sistema calcula quanto já foi pago de
-  // um título em pago_parcial. NÃO existe valor_pago_acumulado na
-  // tabela contas_a_pagar — cálculo sempre feito somando os eventos
+  // um título ainda em_aberto (baixa parcial não muda o status —
+  // QA fix 07/09/2026, pago_parcial eliminado a nível de título).
+  // NÃO existe valor_pago_acumulado na tabela contas_a_pagar —
+  // cálculo sempre feito somando os eventos
   valor_pago?: number | null
   created_at:  string          // ISO timestamp — automático
 }
@@ -441,7 +451,6 @@ export type ModoModalPagar = 'editar' | 'visualizar' | null
 export const STATUS_LABELS_PAGAR: Record<StatusTituloPagar, string> = {
   em_aberto:    'Em Aberto',
   pago:         'Pago',
-  pago_parcial: 'Pago Parcial',
   cancelado:    'Cancelado',
 }
 
@@ -451,10 +460,9 @@ export const STATUS_LABELS_PAGAR: Record<StatusTituloPagar, string> = {
 // Cores de badge para cada status — usadas em ContasAPagarTabela
 // e ContasAPagarMobileList. Reaproveita a paleta já usada em
 // STATUS_CORES de types/contasReceber.ts onde o significado é
-// equivalente (em_aberto → mesmo verde; pago → mesmo verde;
-// cancelado → mesmo cinza). pago_parcial usa um tom âmbar,
-// coerente com "processo em andamento, ainda não concluído"
-// (Especificação §3.2 — não introduzir cor fora da paleta do projeto)
+// equivalente (em_aberto → mesmo azul; pago → mesmo verde;
+// cancelado → mesmo cinza). QA fix (07/09/2026): pago_parcial
+// removido — status eliminado a nível de título (ver StatusTituloPagar)
 // ============================================================
 export const STATUS_CORES_PAGAR: Record<StatusTituloPagar, { bg: string; text: string }> = {
   // QA fix (a pedido do Maycon): "Em Aberto" é azul em todo o sistema
@@ -465,6 +473,5 @@ export const STATUS_CORES_PAGAR: Record<StatusTituloPagar, { bg: string; text: s
   // desatualizada, de antes desse fix).
   em_aberto:    { bg: '#dbeafe', text: '#1a6094' }, // azul
   pago:         { bg: '#dcfce7', text: '#166534' }, // verde — mesmo de contas_receber.pago
-  pago_parcial: { bg: '#fef3c7', text: '#92400e' }, // âmbar — novo, processo em andamento
   cancelado:    { bg: '#f3f4f6', text: '#9ca3af' }, // cinza — mesmo de contas_receber.cancelado
 }

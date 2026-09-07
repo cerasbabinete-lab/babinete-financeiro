@@ -284,8 +284,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // exclui 'cancelado' automaticamente quando o status vem vazio
     // (cancelado = soft-delete, deleted_at preenchido — confirmado
     // lendo lib/contasAPagarService.ts). Resultado inclui
-    // em_aberto + pago_parcial + pago — exatamente a população da
-    // Linha 1 do Card Vermelho ("lançado no mês", sem filtrar status)
+    // em_aberto + pago — exatamente a população da Linha 1 do Card
+    // Vermelho ("lançado no mês", sem filtrar status). QA fix
+    // (07/09/2026): pago_parcial eliminado como status de título —
+    // título com baixa parcial continua em_aberto
     const titulosPagarMes: ContaAPagar[] = await buscarTitulosPagar({
       busca: '',
       vencimentoDe: primeiroDiaMes,
@@ -316,11 +318,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Linha 2 — total já pago até hoje: soma de valor_pago dos
     // eventos de baixa (parcial ou total) de cada título do mês,
     // limitado a hoje. Mesmo princípio do Fluxo de Caixa
-    // (Especificacao_Modulo_Relatorios.md, 2.2: "para pago_parcial,
-    // usar a soma de valor_pago dos eventos... não o valor total do
-    // título") — soma eventos, não o campo `valor` do título, porque
-    // um título pago_parcial não tem o valor pago guardado em nenhum
-    // campo direto na tabela contas_a_pagar (só nos eventos)
+    // (Especificacao_Modulo_Relatorios.md, 2.2: "usar a soma de
+    // valor_pago dos eventos, não o valor total do título") — soma
+    // eventos, não o campo `valor` do título, porque um título com
+    // baixa parcial (QA fix 07/09/2026: pago_parcial eliminado como
+    // status — o título permanece em_aberto) não tem o valor pago
+    // guardado em nenhum campo direto na tabela contas_a_pagar (só
+    // nos eventos)
     // Fim do dia de hoje em São Paulo, com offset explícito -03:00 — evento.created_at
     // vem do Postgres como ISO UTC ('Z'), então comparar strings com offsets diferentes
     // por ordem lexicográfica não reflete ordem cronológica real (mesmo raciocínio de
@@ -376,11 +380,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Linha 2, coluna esquerda — valor já recebido até hoje, dentro
     // do mês: títulos liquidados (status 'pago' OU 'recebido_pix_ted'
     // — os dois são formas de liquidação em Contas a Receber,
-    // StatusTitulo não tem pago_parcial neste módulo, diferente de
-    // Pagar — confirmado em types/contasReceber.ts), com data_baixa
-    // até hoje. Comportamento inalterado nesta sessão — só subiu de
-    // posição no arquivo porque o líquido (abaixo) passou a depender
-    // dele
+    // confirmado em types/contasReceber.ts), com data_baixa até hoje.
+    // Comportamento inalterado nesta sessão — só subiu de posição no
+    // arquivo porque o líquido (abaixo) passou a depender dele
     const valorRecebidoAteHoje = titulosReceberMes
       .filter(t => (t.status === 'pago' || t.status === 'recebido_pix_ted') && (!t.data_baixa || t.data_baixa <= hojeIso))
       .reduce((soma, t) => soma + (Number(t.valor) || 0), 0)
@@ -421,13 +423,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // INALTERADO nesta sessão (a mudança de fórmula desta sessão foi
     // só nos Cards, não no gráfico): "a receber" usa status
     // 'em_aberto', "a pagar" usa a mesma lógica confirmada pra Lista
-    // a Pagar (em_aberto + pago_parcial). Gráfico mostra o que ainda
-    // está EM ABERTO por dia, não o total lançado — visão tática de
-    // "o que ainda precisa de ação", coerente com o propósito do
-    // módulo (Seção 1). Diferente agora das Linhas 1 dos dois Cards
-    // (bruto total, sem filtro de status) — divergência intencional,
-    // confirmada com Maycon: gráfico é ação pendente, Card é visão
-    // total do mês
+    // a Pagar. QA fix (07/09/2026): pago_parcial eliminado como
+    // status de título — título com baixa parcial permanece
+    // em_aberto, então "em_aberto" sozinho já cobre o mesmo conjunto
+    // de antes. Gráfico mostra o que ainda está EM ABERTO por dia,
+    // não o total lançado — visão tática de "o que ainda precisa de
+    // ação", coerente com o propósito do módulo (Seção 1). Diferente
+    // agora das Linhas 1 dos dois Cards (bruto total, sem filtro de
+    // status) — divergência intencional, confirmada com Maycon:
+    // gráfico é ação pendente, Card é visão total do mês
     const pontos: PontoGraficoAgrupado[] = []
     for (let dia = 1; dia <= diasNoMes; dia++) {
       const dataDoDia = `${primeiroDiaMes.slice(0, 8)}${pad2(dia)}` // 'YYYY-MM-' + dia
@@ -437,7 +441,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .reduce((soma, t) => soma + (Number(t.valor) || 0), 0)
 
       const valorB = titulosPagarMes // "a pagar" — vermelho
-        .filter(t => (t.status === 'em_aberto' || t.status === 'pago_parcial') && t.data_vencimento === dataDoDia)
+        .filter(t => t.status === 'em_aberto' && t.data_vencimento === dataDoDia)
         .reduce((soma, t) => soma + (Number(t.valor) || 0), 0)
 
       pontos.push({ rotulo: pad2(dia), valorA, valorB })

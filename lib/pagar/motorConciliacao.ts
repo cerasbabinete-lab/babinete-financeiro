@@ -128,8 +128,8 @@ async function registrarEvento(
 // ------------------------------------------------------------
 // Função: sincronizarStatusDespesaDoTitulo
 // QA fix (bug real confirmado, sessão 12/07/2026 — caso SKY): toda
-// baixa automática deste motor (Passos 2, 3, 3B e processarAcumulo)
-// atualizava contas_a_pagar.status mas NUNCA propagava a mudança
+// baixa automática deste motor (Passos 2, 3, 3B) atualizava
+// contas_a_pagar.status mas NUNCA propagava a mudança
 // para despesas.status_pagamento nem despesas_parcelas.status —
 // resultado: o título aparecia "Pago" em Contas a Pagar e a mesma
 // Despesa continuava "Em Aberto" na tela de Despesas, os dois campos
@@ -137,7 +137,9 @@ async function registrarEvento(
 // contas_a_pagar.status neste arquivo. Nunca lança erro se o título
 // não tiver despesa_id vinculada (títulos sintéticos criados por
 // criarDespesaEContaAPagarAutomatica já nascem com os dois campos
-// sincronizados na criação, não passam por aqui).
+// sincronizados na criação, não passam por aqui). QA fix (07/09/2026):
+// processarSempreManual nunca chama esta função — nunca decide baixa
+// sozinho, só retorna pendente_confirmacao.
 //
 // QA fix 2 (bug real confirmado, sessão 13/07/2026 — caso Gráfica
 // Galvão, R$2.089,00 em 3 parcelas): a primeira versão copiava
@@ -152,7 +154,13 @@ async function registrarEvento(
 async function sincronizarStatusDespesaDoTitulo(
   supabaseAdmin: SupabaseClient,
   tituloId: string,
-  novoStatus: 'pago' | 'pago_parcial',
+  novoStatus: 'pago', // QA fix (07/09/2026): só 'pago' — título nunca mais fica
+                       // pago_parcial (processarAcumulo eliminada, era a única
+                       // chamadora com 'pago_parcial'). A agregação da Despesa
+                       // logo abaixo (statusAgregado) CONTINUA podendo resultar em
+                       // 'pago_parcial' normalmente — isso é o agregado de VÁRIOS
+                       // títulos/parcelas de uma mesma Despesa parcelada, conceito
+                       // diferente e que não foi eliminado (a pedido do Maycon)
 ): Promise<void> {
   const { data: titulo, error: erroTitulo } = await supabaseAdmin
     .from('contas_a_pagar')
@@ -262,9 +270,12 @@ async function buscarFornecedorPorDocumentoAdmin(
 // ------------------------------------------------------------
 // Função: criarDespesaEContaAPagarAutomatica
 // Cria uma Despesa + despesas_parcela + contas_a_pagar JÁ BAIXADO
-// (status 'pago'), usado tanto para o caso despesa_automatica_baixada
-// quanto para os excedentes de holerite_com_abatimento/
-// acumulo_ate_valor_integral. Resolve fornecedor_id via
+// (status 'pago'). Usada por processarDespesaAutomaticaBaixada
+// (regra 'despesa_automatica_baixada' — Darci, Fábio, Maycon-CPF).
+// QA fix (07/09/2026): antes também era usada por processarAcumulo()
+// para os excedentes de holerite_com_abatimento/acumulo_ate_valor_integral
+// — essa função foi eliminada (ver processarSempreManual), então esta
+// função agora tem um único chamador. Resolve fornecedor_id via
 // buscarOuCriarFornecedor (reaproveitado de Despesas).
 // ------------------------------------------------------------
 async function criarDespesaEContaAPagarAutomatica(
@@ -501,168 +512,64 @@ async function processarDespesaAutomaticaBaixada(
 
 
 // ------------------------------------------------------------
-// Função: processarAcumulo
-// Regras do roster 'holerite_com_abatimento' (Sheli) e
-// 'acumulo_ate_valor_integral' (Maycon-CNPJ) — ambas com o MESMO
-// comportamento (Especificação §5, passo 1): busca o título original
-// já em aberto vinculado a este documento, acumula o valor pago,
-// verifica se fecha o valor total, e trata excedente/anomalia
+// Função: processarSempreManual
+// Regra do roster 'sempre_manual' (Sheli, Maycon-CNPJ
+// 44.739.377/0001-32) — QA fix (07/09/2026, a pedido do Maycon):
+// substitui processarAcumulo() (removida), que gerava pago_parcial
+// automático e, quando não achava título aberto correspondente,
+// tratava como "anomalia" e criava uma Despesa nova do zero já paga,
+// sem nenhuma confirmação humana — isso inflava o total de contas a
+// pagar com valores irreais em produção.
+//
+// Comportamento novo, bem mais simples: NUNCA decide baixa sozinho
+// para essas 2 pessoas, nem por acúmulo nem pelo fallback genérico
+// de fornecedor+valor (Passo 3) — cai direto em pendente_confirmacao,
+// a mesma fila de confirmação manual já usada pelo Passo 3, com os
+// títulos em aberto candidatos já levantados pra usuário escolher na
+// tela (ImportarConciliacaoPreviewModal / confirmar-conciliacao.ts).
+// Reaproveita o mesmo critério de match exato por dígitos (elimina
+// falso positivo de substring do .ilike) já usado em
+// buscarFornecedorPorDocumentoAdmin e no antigo processarAcumulo.
 // ------------------------------------------------------------
-async function processarAcumulo(
+async function processarSempreManual(
   supabaseAdmin: SupabaseClient,
   beneficiario: BeneficiarioPessoalRosterPagar,
   registro: RegistroNormalizadoConciliacao,
+  registroOriginal: RegistroRelatorioBB | RegistroComprovantePdf | RegistroComprovanteTxt,
 ): Promise<ResultadoConciliacaoItem> {
-  // QA fix (M2) — mesmo motivo de processarDespesaAutomaticaBaixada:
-  // toda baixa aplicada por este caminho (holerite_com_abatimento /
-  // acumulo_ate_valor_integral) é automática via roster, nunca
-  // proveniente de Nosso Número ou fornecedor+valor exato
-  const formaBaixa: FormaBaixaPagar = 'acumulo_automatico'
   const documento = beneficiario.cnpj ?? beneficiario.cpf ?? ''
   const digitosDocumento = extrairSomenteDigitos(documento)
   const formatado = formatarComoCnpjOuCpf(digitosDocumento)
 
-  // Busca o título original em aberto/parcial vinculado a este
-  // documento — favorecido_cnpj_cpf é o vínculo usado (contas_a_pagar
-  // não tem beneficiario_id, ver Especificação §2.1 modelo de dados),
-  // pega o mais antigo em aberto se houver mais de um (default de
-  // engenharia — não especificado explicitamente, mas é o critério
-  // mais conservador: fecha o título mais antigo primeiro)
-  // QA fix (H1, Relatorio_Auditoria_Contas_a_Pagar_QA_Directive.md):
-  // o .ilike() abaixo é só um PRE-filtro (substring, pode dar falso
-  // positivo). O .limit(1) foi removido daqui — antes ele aceitava o
-  // primeiro match por substring sem checagem de dígito exato, o que
-  // podia baixar o título ERRADO silenciosamente. Agora busca todos os
-  // candidatos do pré-filtro e só depois aplica o mesmo padrão de
-  // match exato por dígitos já usado em buscarFornecedorPorDocumentoAdmin
-  // (mesmo arquivo) e em rosterConciliacaoPagar.ts —
-  // esta função era a única das três que não seguia esse padrão.
-  // QA fix (L1) — mesma avaliação de segurança do buscarFornecedorPorDocumentoAdmin acima
   const { data: titulosCandidatosBruto, error: erroTitulos } = await supabaseAdmin
     .from('contas_a_pagar')
     .select('*')
-    .in('status', ['em_aberto', 'pago_parcial'])
+    .eq('status', 'em_aberto')
     .is('deleted_at', null)
     .or(`favorecido_cnpj_cpf.ilike.%${digitosDocumento}%${formatado ? `,favorecido_cnpj_cpf.ilike.%${formatado}%` : ''}`)
     .order('data_vencimento', { ascending: true })
 
   if (erroTitulos) {
-    throw new Error(`Falha ao buscar título original para acúmulo (${beneficiario.nome}): ${erroTitulos.message}`)
+    throw new Error(`Falha ao buscar títulos em aberto para ${beneficiario.nome} (regra sempre_manual): ${erroTitulos.message}`)
   }
 
-  // Filtra para match EXATO de dígitos (elimina falso positivo de
-  // substring do .ilike acima) — só então pega o mais antigo em aberto
   const titulosCandidatos = (titulosCandidatosBruto ?? []).filter(
     (t: ContaAPagar) => extrairSomenteDigitos(t.favorecido_cnpj_cpf ?? '') === digitosDocumento,
   )
 
-  const titulo = titulosCandidatos[0] as ContaAPagar | undefined
-
-  // ── Anomalia: nenhum título original em aberto para este beneficiário ──
-  // Especificação §5: "trate como anomalia — registra o valor total
-  // deste pagamento diretamente como uma nova Despesa complementar já
-  // baixada (mesmo comportamento do excedente), já que não há título
-  // esperando"
-  if (!titulo) {
-    const descricaoAnomalia = `Pagamento de ${registro.valor} identificado para ${beneficiario.nome} (regra: ${beneficiario.regra_conciliacao_pagar}), mas nenhum título original em aberto foi encontrado — tratado como Despesa complementar automática (anomalia).`
-    const { despesaId, contaAPagarId } = await criarDespesaEContaAPagarAutomatica(
-      supabaseAdmin,
-      beneficiario,
-      registro.valor,
-      registro.data,
-      formaBaixa,
-      descricaoAnomalia,
-    )
-    return { tipo: 'despesa_criada_automaticamente', despesaId, contaAPagarId }
+  return {
+    tipo: 'pendente_confirmacao',
+    item: {
+      registroOriginal,
+      favorecidoIdentificado: registro.nomeFavorecido,
+      cnpjCpfIdentificado: registro.cnpjCpf ?? '',
+      valor: registro.valor,
+      data: registro.data,
+      origem: registro.origem,
+      titulosEmAbertoDoFornecedor: titulosCandidatos,
+      tituloEscolhidoId: null,
+    },
   }
-
-  // ── Soma os eventos de baixa já registrados neste título ──
-  const { data: eventosAnteriores, error: erroEventos } = await supabaseAdmin
-    .from('contas_a_pagar_eventos')
-    .select('valor_pago')
-    .eq('titulo_id', titulo.id)
-    .not('valor_pago', 'is', null)
-
-  if (erroEventos) {
-    throw new Error(`Falha ao somar eventos de baixa do título ${titulo.id}: ${erroEventos.message}`)
-  }
-
-  const somaAnterior = (eventosAnteriores ?? []).reduce((soma, evento) => soma + (evento.valor_pago ?? 0), 0)
-  const novaSoma = somaAnterior + registro.valor
-
-  // ── Caso 1: soma ainda menor que o valor do título → baixa parcial ──
-  if (novaSoma < titulo.valor - 0.01) {
-    const { error: erroUpdate } = await supabaseAdmin
-      .from('contas_a_pagar')
-      .update({ status: 'pago_parcial' })
-      .eq('id', titulo.id)
-
-    if (erroUpdate) {
-      throw new Error(`Falha ao atualizar título para pago_parcial (${titulo.id}): ${erroUpdate.message}`)
-    }
-
-    await sincronizarStatusDespesaDoTitulo(supabaseAdmin, titulo.id, 'pago_parcial')
-
-    await registrarEvento(
-      supabaseAdmin,
-      titulo.id,
-      'baixa_parcial',
-      `Baixa parcial de ${registro.valor} recebida via ${registro.origem} — acumulado ${novaSoma} de ${titulo.valor}.`,
-      registro.valor,
-    )
-
-    return { tipo: 'baixa_automatica', contaAPagarId: titulo.id, formaBaixa }
-  }
-
-  // ── Caso 2: soma fecha (ou ultrapassa) o valor do título → baixa total ──
-  const { error: erroUpdateTotal } = await supabaseAdmin
-    .from('contas_a_pagar')
-    .update({ status: 'pago', data_baixa: registro.data, forma_baixa: formaBaixa })
-    .eq('id', titulo.id)
-
-  if (erroUpdateTotal) {
-    throw new Error(`Falha ao atualizar título para pago (${titulo.id}): ${erroUpdateTotal.message}`)
-  }
-
-  await sincronizarStatusDespesaDoTitulo(supabaseAdmin, titulo.id, 'pago')
-
-  await registrarEvento(
-    supabaseAdmin,
-    titulo.id,
-    'baixa_total',
-    `Baixa total de ${registro.valor} recebida via ${registro.origem} — título fechado (acumulado ${novaSoma} de ${titulo.valor}).`,
-    registro.valor,
-  )
-
-  // ── Excedente: valor pago além do valor do título vira Despesa nova ──
-  const valorExcedente = Math.round((novaSoma - titulo.valor) * 100) / 100
-  let despesaComplementarId: string | undefined
-
-  if (valorExcedente > 0.01) {
-    const descricaoExcedente = `Excedente de ${valorExcedente} pago para ${beneficiario.nome} além do valor do título ${titulo.id} — lançado como Despesa complementar automática.`
-    const resultadoExcedente = await criarDespesaEContaAPagarAutomatica(
-      supabaseAdmin,
-      beneficiario,
-      valorExcedente,
-      registro.data,
-      formaBaixa,
-      descricaoExcedente,
-    )
-    despesaComplementarId = resultadoExcedente.contaAPagarId
-
-    // Evento no título ORIGINAL, referenciando o novo título gerado
-    // por texto na descrição (Especificação §2.1, tipo evento
-    // despesa_complementar_criada)
-    await registrarEvento(
-      supabaseAdmin,
-      titulo.id,
-      'despesa_complementar_criada',
-      `Excedente de ${valorExcedente} gerou a Despesa complementar / título ${resultadoExcedente.contaAPagarId}.`,
-      null,
-    )
-  }
-
-  return { tipo: 'baixa_automatica', contaAPagarId: titulo.id, formaBaixa, ...(despesaComplementarId ? { despesaComplementarId } : {}) }
 }
 
 
@@ -701,13 +608,12 @@ export async function conciliarRegistro(
       if (beneficiario.regra_conciliacao_pagar === 'despesa_automatica_baixada') {
         return processarDespesaAutomaticaBaixada(supabaseAdmin, beneficiario, registro)
       }
-      // 'holerite_com_abatimento' e 'acumulo_ate_valor_integral' têm o
-      // MESMO comportamento (Especificação §5, passo 1)
-      if (
-        beneficiario.regra_conciliacao_pagar === 'holerite_com_abatimento' ||
-        beneficiario.regra_conciliacao_pagar === 'acumulo_ate_valor_integral'
-      ) {
-        return processarAcumulo(supabaseAdmin, beneficiario, registro)
+      // QA fix (07/09/2026, a pedido do Maycon): sempre_manual — nunca
+      // decide baixa sozinho, sempre cai em pendente_confirmacao
+      // (substitui holerite_com_abatimento/acumulo_ate_valor_integral,
+      // eliminadas — ver processarSempreManual)
+      if (beneficiario.regra_conciliacao_pagar === 'sempre_manual') {
+        return processarSempreManual(supabaseAdmin, beneficiario, registro, registroOriginal)
       }
     }
     // Não encontrado no roster — segue para o passo 2 (não faz `else`

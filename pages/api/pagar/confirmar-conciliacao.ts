@@ -72,16 +72,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // QA fix (achado em uso real — pagamento da Sheli, sessão de
       // testes deste módulo): esta rota antes marcava SEMPRE 'pago'
+      // QA fix (achado em uso real — pagamento da Sheli, sessão de
+      // testes deste módulo): esta rota antes marcava SEMPRE 'pago'
       // com o valor escolhido, sem checar se o valor confirmado bate
       // com o valor de face do título. Isso causava dois problemas:
       // (a) pagamento MENOR que o título virava 'pago' igual assim
-      // mesmo (perdia o estado pago_parcial); (b) pagamento MAIOR
-      // que o título (excedente) tinha o valor extra simplesmente
-      // descartado, sem nenhum rastro.
+      // mesmo; (b) pagamento MAIOR que o título (excedente) tinha o
+      // valor extra simplesmente descartado, sem nenhum rastro.
       //
       // Busca o título para saber o valor de face e decidir o status
-      // correto — mesmo padrão de registrarBaixaManual() e de
-      // processarAcumulo() em motorConciliacao.ts
+      // correto — mesmo padrão de registrarBaixaManual() em
+      // contasAPagarService.ts
       const { data: tituloAtual, error: erroBusca } = await supabaseAdmin
         .from('contas_a_pagar')
         .select('valor')
@@ -99,18 +100,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const novaSoma = somaAnterior + escolha.valor
       const valorExcedente = Math.round((novaSoma - tituloAtual.valor) * 100) / 100
 
-      // ── Caso 1: soma ainda menor que o valor do título → baixa parcial ──
+      // ── Caso 1: soma ainda menor que o valor do título → baixa
+      // parcial. QA fix (07/09/2026, a pedido do Maycon): pago_parcial
+      // eliminado — não atualiza status (título permanece em_aberto),
+      // só registra o evento. O valor já pago continua visível
+      // somando os eventos (mesmo padrão de registrarBaixaManual()).
       if (novaSoma < tituloAtual.valor - 0.01) {
-        const { error: erroUpdateParcial } = await supabaseAdmin
-          .from('contas_a_pagar')
-          .update({ status: 'pago_parcial' })
-          .eq('id', escolha.tituloEscolhidoId)
-
-        if (erroUpdateParcial) {
-          erros.push(`Título ${escolha.tituloEscolhidoId}: ${erroUpdateParcial.message}`)
-          continue
-        }
-
         await registrarEvento(
           escolha.tituloEscolhidoId,
           'baixa_parcial',
@@ -137,15 +132,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Descrição do evento sinaliza o excedente explicitamente quando
       // houver — este caminho (confirmação manual de fornecedor
       // genérico) não tem contexto de roster (categoria/subtipo) para
-      // criar uma Despesa complementar automática como
-      // processarAcumulo() faz para os casos de sócio/prestador MEI.
-      // Em vez de descartar o valor excedente silenciosamente, ele
-      // fica registrado de forma explícita na descrição do evento
-      // para revisão manual — nunca inventa um lançamento sem ter
-      // categoria/subtipo confiável para ele.
+      // criar uma Despesa complementar automática. Em vez de descartar
+      // o valor excedente silenciosamente, ele fica registrado de
+      // forma explícita na descrição do evento para revisão manual —
+      // nunca inventa um lançamento sem ter categoria/subtipo confiável
+      // para ele.
       const descricaoBase = `Baixa confirmada manualmente pelo usuário — favorecido "${escolha.favorecidoIdentificado}", valor ${escolha.valor}, via ${escolha.origem}.`
       const descricao = valorExcedente > 0.01
-        ? `${descricaoBase} ATENÇÃO: valor pago excede o valor do título (${tituloAtual.valor}) em ${valorExcedente} — revisar se é necessário lançamento de Despesa complementar manual (este fluxo não cria automaticamente, diferente do roster de sócios/prestador).`
+        ? `${descricaoBase} ATENÇÃO: valor pago excede o valor do título (${tituloAtual.valor}) em ${valorExcedente} — revisar se é necessário lançamento de Despesa complementar manual (este fluxo não cria automaticamente).`
         : descricaoBase
 
       await registrarEvento(

@@ -21,11 +21,16 @@ interface RosterBeneficiariosModalProps {
   onSalvar:  (id: string, campos: Partial<Omit<BeneficiarioPessoalRosterPagar, 'id'>>) => Promise<void>
 }
 
+// QA fix (07/09/2026, a pedido do Maycon): holerite_com_abatimento
+// (Sheli) e acumulo_ate_valor_integral (Maycon-CNPJ) eliminadas —
+// geravam pago_parcial automático e Despesas sintéticas com valores
+// irreais em anomalias. sempre_manual substitui as duas: motor de
+// conciliação nunca decide baixa sozinho, sempre cai em
+// pendente_confirmacao (fila de confirmação manual já existente).
 const OPCOES_REGRA: { value: RegraConciliacaoPagar | ''; label: string }[] = [
   { value: '', label: '— sem regra especial —' },
-  { value: 'holerite_com_abatimento', label: 'Holerite com abatimento' },
+  { value: 'sempre_manual', label: 'Sempre manual (nunca decide sozinho)' },
   { value: 'despesa_automatica_baixada', label: 'Despesa automática baixada' },
-  { value: 'acumulo_ate_valor_integral', label: 'Acúmulo até valor integral' },
 ]
 
 export default function RosterBeneficiariosModal({ roster, onFechar, onSalvar }: RosterBeneficiariosModalProps) {

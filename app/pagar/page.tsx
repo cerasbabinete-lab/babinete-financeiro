@@ -135,7 +135,7 @@ export default function ContasAPagarPage() {
   const [titulos, setTitulos] = useState<ContaAPagar[]>([])
   const [total, setTotal] = useState(0)
   const [carregando, setCarregando] = useState(true)
-  const [contadores, setContadores] = useState<ContadoresTitulosPagar>({ emAberto: 0, atrasados: 0, pagoParcial: 0, pagos: 0, cancelados: 0 })
+  const [contadores, setContadores] = useState<ContadoresTitulosPagar>({ emAberto: 0, atrasados: 0, pagos: 0, cancelados: 0 })
 
   // ── Filtros ──
   const [filtros, setFiltros] = useState<FiltrosContasAPagar>(filtrosVazios)
@@ -613,7 +613,6 @@ export default function ContasAPagarPage() {
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px', fontSize: '11px' }}>
           <Pill cor="#166534" bg="#dcfce7" label={`Em Aberto: ${contadores.emAberto}`} />
           <Pill cor="#b45309" bg="#fef3c7" label={`Atrasados: ${contadores.atrasados}`} />
-          <Pill cor="#92400e" bg="#fef3c7" label={`Pago Parcial: ${contadores.pagoParcial}`} />
           <Pill cor="#166534" bg="#dcfce7" label={`Pagos: ${contadores.pagos}`} />
           <Pill cor="#9ca3af" bg="#f3f4f6" label={`Cancelados: ${contadores.cancelados}`} />
         </div>

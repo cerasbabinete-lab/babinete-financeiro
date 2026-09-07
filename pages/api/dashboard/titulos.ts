@@ -108,9 +108,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // buscarTitulos() sem status já exclui 'cancelado' (soft-delete)
     // automaticamente (confirmado em resumo.ts) — filtra em seguida,
-    // em memória, pra manter só em_aberto + pago_parcial (Seção 5.1:
-    // "status is still open" — decisão confirmada com Maycon: inclui
-    // pago_parcial, um título parcialmente pago ainda precisa de ação)
+    // em memória, pra manter só em_aberto (Seção 5.1: "status is
+    // still open"). QA fix (07/09/2026, a pedido do Maycon):
+    // pago_parcial eliminado como status de título — uma baixa menor
+    // que o valor do título agora mantém o título em_aberto, então
+    // "em_aberto" sozinho já cobre o mesmo conjunto que antes exigia
+    // checar os dois status (título parcialmente pago continua
+    // precisando de ação, exatamente a decisão original)
     const titulosPagarBrutos: ContaAPagar[] = await buscarTitulosPagar({
       busca: '',
       vencimentoDe,
@@ -118,7 +122,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       status: '',
     })
     const titulosPagarAbertos = titulosPagarBrutos.filter(
-      t => t.status === 'em_aberto' || t.status === 'pago_parcial',
+      t => t.status === 'em_aberto',
     )
 
     // Mapa fornecedor_id -> chave Pix preferencial, montado uma vez

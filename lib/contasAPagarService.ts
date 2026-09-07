@@ -179,13 +179,12 @@ export async function contarTitulos(): Promise<number> {
 // ============================================================
 // ContadoresTitulosPagar
 // Contagens por grupo de status para o painel de resumo — enum de
-// Contas a Pagar tem só 4 status (vs. 6 de Receber), sem
-// protesto/cartório (não se aplica ao sentido "a pagar")
+// Contas a Pagar tem só 3 status agora (QA fix 07/09/2026:
+// pago_parcial eliminado a nível de título)
 // ============================================================
 export interface ContadoresTitulosPagar {
   emAberto:     number  // status = 'em_aberto', não vencido
   atrasados:    number  // status = 'em_aberto', data_vencimento < hoje
-  pagoParcial:  number  // status = 'pago_parcial'
   pagos:        number  // status = 'pago'
   cancelados:   number  // deleted_at IS NOT NULL
 }
@@ -203,12 +202,12 @@ export async function buscarContadoresTitulos(): Promise<ContadoresTitulosPagar>
 
   if (error) {
     console.error('[contasAPagarService] buscarContadoresTitulos error:', error)
-    return { emAberto: 0, atrasados: 0, pagoParcial: 0, pagos: 0, cancelados: 0 }
+    return { emAberto: 0, atrasados: 0, pagos: 0, cancelados: 0 }
   }
 
   const registros = (data ?? []) as { status: string; deleted_at: string | null; data_vencimento: string }[]
 
-  let emAberto = 0, atrasados = 0, pagoParcial = 0, pagos = 0, cancelados = 0
+  let emAberto = 0, atrasados = 0, pagos = 0, cancelados = 0
 
   for (const r of registros) {
     if (r.deleted_at !== null) {
@@ -218,14 +217,12 @@ export async function buscarContadoresTitulos(): Promise<ContadoresTitulosPagar>
     if (r.status === 'em_aberto') {
       if (r.data_vencimento < hoje) atrasados++
       else emAberto++
-    } else if (r.status === 'pago_parcial') {
-      pagoParcial++
     } else if (r.status === 'pago') {
       pagos++
     }
   }
 
-  return { emAberto, atrasados, pagoParcial, pagos, cancelados }
+  return { emAberto, atrasados, pagos, cancelados }
 }
 
 // ============================================================
@@ -236,29 +233,27 @@ export async function buscarContadoresTitulos(): Promise<ContadoresTitulosPagar>
 // (Especificação de UI a pedido do Maycon, sessão 12/07/2026:
 // "X despesas com Y títulos em aberto em Contas a Pagar", mesmo
 // padrão do banner já existente em Receitas).
-// Única diferença deliberada do original: em Contas a Receber só
-// existe o status 'em_aberto' pra esse cálculo; aqui inclui também
-// 'pago_parcial', porque um título parcialmente pago ainda representa
-// dinheiro pendente — contá-lo como "em aberto" é o comportamento
-// esperado pro banner.
+// QA fix (07/09/2026): pago_parcial eliminado a nível de título —
+// só existe 'em_aberto' pra esse cálculo agora, mesmo critério já
+// usado em Contas a Receber.
 // ============================================================
 export interface ContadoresDespesasAberto {
-  despesasComAberto:    number  // Despesas distintas com ao menos 1 título em_aberto/pago_parcial
-  titulosEmAbertoPagar: number  // Total de títulos em_aberto + pago_parcial (inclui atrasados)
+  despesasComAberto:    number  // Despesas distintas com ao menos 1 título em_aberto
+  titulosEmAbertoPagar: number  // Total de títulos em_aberto (inclui atrasados)
 }
 
 // ============================================================
 // buscarContadoresDespesasAberto()
-// Conta Despesas distintas e títulos totais com status em_aberto ou
-// pago_parcial em contas_a_pagar — mesma query shape de
-// buscarContadoresReceitasAberto, adaptada pra este módulo
+// Conta Despesas distintas e títulos totais com status em_aberto em
+// contas_a_pagar — mesma query shape de buscarContadoresReceitasAberto,
+// adaptada pra este módulo
 // Chamado por: app/despesas/page.tsx para exibir o banner de resumo
 // ============================================================
 export async function buscarContadoresDespesasAberto(): Promise<ContadoresDespesasAberto> {
   const { data, error } = await supabase
     .from(TABELA)
     .select('despesa_id')
-    .in('status', ['em_aberto', 'pago_parcial'])
+    .eq('status', 'em_aberto')
     .is('deleted_at', null)
     .not('despesa_id', 'is', null)
 
@@ -311,7 +306,10 @@ export async function buscarTituloPorId(id: string): Promise<ContaAPagar | null>
 // Soma o valor_pago de todos os eventos de um título — única fonte
 // de verdade de "quanto já foi pago" (Especificação §2.1: NÃO existe
 // campo valor_pago_acumulado na tabela). Usado pela UI para mostrar
-// o progresso de títulos pago_parcial.
+// o progresso de um título ainda em_aberto que já recebeu baixa
+// parcial (QA fix 07/09/2026: pago_parcial eliminado como status —
+// o título continua em_aberto, mas o valor já pago continua visível
+// somando os eventos).
 // ============================================================
 export async function somarValorPagoEventos(tituloId: string): Promise<number> {
   const { data, error } = await supabase
@@ -450,10 +448,12 @@ async function sincronizarStatusDespesaDoTitulo(
 // calcularStatusAgregadoDespesa()
 // Helper local — dado o conjunto de status de todos os títulos
 // (contas_a_pagar) ativos vinculados a uma Despesa, decide o status
-// agregado correto pra despesas.status_pagamento. 'pago_parcial'
-// cobre tanto "1 de N títulos pago, resto em_aberto" quanto "algum
-// título está ele mesmo pago_parcial" — qualquer mistura que não
-// seja 100% pago nem 100% em_aberto é, por definição, parcial.
+// agregado correto pra despesas.status_pagamento. QA fix (07/09/2026):
+// título individual nunca mais é 'pago_parcial' (eliminado — ver
+// StatusTituloPagar), então 'pago_parcial' aqui é sempre e só o
+// agregado: Despesa parcelada (ex: 3x) com algum título 'pago' e
+// outro ainda 'em_aberto' — qualquer mistura que não seja 100% pago
+// nem 100% em_aberto é, por definição, parcial a nível de Despesa.
 // ============================================================
 function calcularStatusAgregadoDespesa(statusTitulos: StatusTituloPagar[]): StatusPagamentoDespesa {
   if (statusTitulos.every((s) => s === 'pago')) return 'pago'
@@ -606,13 +606,15 @@ export async function criarTitulosDePagar(params: {
 // registrarBaixaManual()
 // Baixa manual avulsa — SÓ para títulos já lançados via Despesas
 // (Especificação §7, Non-negotiable: "nunca cria Despesa nova a
-// partir desta tela"). Suporta acúmulo parcial: soma o valorBaixa
-// aos eventos já existentes, decide entre pago_parcial e pago —
-// MESMA lógica de acúmulo do motor de conciliação, mas SEM a etapa
-// de excedente/despesa complementar (restrição explícita da spec:
-// baixa manual nunca cria Despesa nova, então um excedente aqui
-// simplesmente não é criado como título novo — fica só registrado
-// no evento de baixa; UI deve orientar o usuário a não sobrepagar).
+// partir desta tela"). QA fix (07/09/2026, a pedido do Maycon):
+// pago_parcial eliminado — baixa menor que o valor do título NÃO
+// muda mais o status (continua em_aberto), só registra o evento;
+// o valor já pago fica visível somando os eventos
+// (somarValorPagoEventos). Só decide 'pago' quando a soma fecha (ou
+// ultrapassa) o valor de face do título. Sem etapa de excedente/
+// despesa complementar (restrição explícita da spec: baixa manual
+// nunca cria Despesa nova — um excedente aqui fica só registrado no
+// evento de baixa; UI deve orientar o usuário a não sobrepagar).
 // Chamado por: pages/api/pagar/baixar-manual.ts
 // ============================================================
 export async function registrarBaixaManual(
@@ -634,25 +636,26 @@ export async function registrarBaixaManual(
   const somaAnterior = await somarValorPagoEventosComClient(id, client)
   const novaSoma = somaAnterior + valorBaixa
   const dataBaixa = new Date().toISOString().slice(0, 10)
+  const totalmentePago = novaSoma >= tituloAtual.valor - 0.01
 
-  const novoStatus: StatusTituloPagar = novaSoma < tituloAtual.valor - 0.01 ? 'pago_parcial' : 'pago'
+  // Baixa parcial (novaSoma ainda menor que o valor) — não atualiza
+  // status nem despesa/parcela vinculada, só o evento abaixo. Título
+  // permanece em_aberto.
+  if (totalmentePago) {
+    const { error: erroUpdate } = await client
+      .from(TABELA)
+      .update({ status: 'pago', data_baixa: dataBaixa, forma_baixa: formaBaixa })
+      .eq('id', id)
 
-  const camposUpdate: Record<string, unknown> = { status: novoStatus }
-  if (novoStatus === 'pago') {
-    camposUpdate.data_baixa = dataBaixa
-    camposUpdate.forma_baixa = formaBaixa
+    if (erroUpdate) {
+      console.error('[contasAPagarService] registrarBaixaManual error:', erroUpdate)
+      throw new Error(erroUpdate.message)
+    }
+
+    await sincronizarStatusDespesaDoTitulo(id, 'pago', client)
   }
 
-  const { error: erroUpdate } = await client.from(TABELA).update(camposUpdate).eq('id', id)
-
-  if (erroUpdate) {
-    console.error('[contasAPagarService] registrarBaixaManual error:', erroUpdate)
-    throw new Error(erroUpdate.message)
-  }
-
-  await sincronizarStatusDespesaDoTitulo(id, novoStatus, client)
-
-  const tipoEvento: TipoEventoPagar = novoStatus === 'pago' ? 'baixa_total' : 'baixa_parcial'
+  const tipoEvento: TipoEventoPagar = totalmentePago ? 'baixa_total' : 'baixa_parcial'
   await registrarEvento(
     id,
     tipoEvento,
