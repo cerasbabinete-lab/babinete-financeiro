@@ -664,22 +664,23 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
           </div>
 
           {/* FEATURE (a pedido do usuário — 2ª via de DANFE): chave de
-              acesso, somente leitura — só aparece quando a despesa foi
-              importada por XML (nfe_compra ou nfse) e o parser conseguiu
-              extrair a chave. Nunca editável pelo usuário. */}
-          {chaveAcessoNfe && (
-            <div style={{ marginBottom: '14px' }}>
-              <label style={labelStyle}>Chave de Acesso (NFe/NFSe)</label>
-              <div style={{
-                ...inputStyle, background: '#f7fafc', color: '#3a6080',
-                fontFamily: 'monospace', letterSpacing: '0.03em', fontSize: '12px',
-                display: 'flex', alignItems: 'center',
-              }}>
-                {/* Agrupa de 4 em 4 dígitos, mesmo formato visual padrão de chave de acesso de NF-e */}
-                {chaveAcessoNfe.replace(/(\d{4})(?=\d)/g, '$1 ')}
-              </div>
+              acesso, somente leitura. Sempre visível (mesmo mode 'novo'),
+              a pedido explícito do usuário — não fica mais escondida
+              quando ausente, mostra "—" nesse caso. Preenchida
+              automaticamente só quando a despesa foi importada por XML
+              (nfe_compra ou nfse) e o parser conseguiu extrair a chave.
+              Nunca editável pelo usuário. */}
+          <div style={{ marginBottom: '14px' }}>
+            <label style={labelStyle}>Chave de Acesso (NFe/NFSe)</label>
+            <div style={{
+              ...inputStyle, background: '#f7fafc', color: chaveAcessoNfe ? '#3a6080' : '#a9bccb',
+              fontFamily: 'monospace', letterSpacing: '0.03em', fontSize: '12px',
+              display: 'flex', alignItems: 'center',
+            }}>
+              {/* Agrupa de 4 em 4 dígitos, mesmo formato visual padrão de chave de acesso de NF-e */}
+              {chaveAcessoNfe ? chaveAcessoNfe.replace(/(\d{4})(?=\d)/g, '$1 ') : '— (disponível apenas para despesas importadas por XML)'}
             </div>
-          )}
+          </div>
 
           {/* Origem (empresarial x pessoal) */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px', marginBottom: '14px' }}>
