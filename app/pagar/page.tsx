@@ -27,7 +27,6 @@ import {
   buscarTitulosPendentesAnteriores,
   contarTitulos,
   buscarContadoresTitulos,
-  buscarRosterCompleto,
   isTituloNearVencimento,
   type ContadoresTitulosPagar,
 } from '@/lib/contasAPagarService'
@@ -503,13 +502,30 @@ export default function ContasAPagarPage() {
   }
 
   // ── Roster ──
+  // QA fix (04/09/2026, a pedido do Maycon): antes chamava
+  // buscarRosterCompleto() direto do client, com o client anônimo do
+  // browser — inconsistente com handleSalvarRosterItem (abaixo), que
+  // já ia pela rota autenticada. Se RLS estiver habilitado sem
+  // política em beneficiarios_pessoais (mesmo incidente que já
+  // zerou contas_a_pagar numa sessão anterior), o client anônimo não
+  // retorna nada e o botão parece simplesmente não funcionar. Corrige
+  // indo pela rota /api/pagar/roster (GET) com Bearer token, mesmo
+  // padrão do PUT.
   async function handleAbrirRoster() {
     try {
-      const lista = await buscarRosterCompleto()
+      const token = await obterToken()
+      const res = await fetch('/api/pagar/roster', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.erro ?? 'Erro ao carregar roster')
+      }
+      const { roster: lista } = await res.json()
       setRoster(lista)
       setRosterAberto(true)
-    } catch {
-      setMsgErro('Erro ao carregar roster.')
+    } catch (err: unknown) {
+      setMsgErro(err instanceof Error ? err.message : 'Erro ao carregar roster.')
     }
   }
 
@@ -521,7 +537,9 @@ export default function ContasAPagarPage() {
       body: JSON.stringify({ id, campos }),
     })
     if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.erro ?? 'Erro ao salvar beneficiário') }
-    const lista = await buscarRosterCompleto()
+    const resGet = await fetch('/api/pagar/roster', { headers: { 'Authorization': `Bearer ${token}` } })
+    if (!resGet.ok) { const j = await resGet.json().catch(() => ({})); throw new Error(j.erro ?? 'Erro ao recarregar roster') }
+    const { roster: lista } = await resGet.json()
     setRoster(lista)
   }
 
