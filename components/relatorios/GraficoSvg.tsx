@@ -101,11 +101,86 @@ function formatarValorBarraAgrupada(valor: number): string {
 }
 
 // ============================================================
+// Modo denso — exclusivo de GraficoBarrasAgrupadas
+// Ativa acima de um certo número de pontos (Dashboard, até 31 dias)
+// — eixo Y com grade, rótulo só nas barras relevantes, SVG mais largo
+// com scroll horizontal. Abaixo do limiar (Fluxo de Caixa/Receita x
+// Despesa, agrupados por mês, poucos pontos), renderiza exatamente
+// como sempre foi — zero divergência com o PDF exportado
+// ============================================================
+const LARGURA_MINIMA_GRUPO_AGRUPADAS = 46 // unidades de viewBox por dia/ponto no modo denso
+const MARGEM_ESQUERDA_MODO_DENSO = 40 // espaço extra pros rótulos numéricos do eixo Y (ex: "3k")
+
+// Degrau da grade do eixo Y — adaptativo pela ordem de grandeza dos
+// valores do período, pra não desenhar dezenas de linhas quando os
+// valores forem altos
+function passoGradeSeguro(valorMax: number): number {
+  if (valorMax <= 5000) return 1000
+  if (valorMax <= 20000) return 2000
+  if (valorMax <= 50000) return 5000
+  return 10000
+}
+
+// Trava o y mínimo do rótulo rotacionado (modo clássico) com base no
+// comprimento estimado do texto — sem isso, o rótulo da barra mais
+// alta do período extrapola y=0 da viewBox e corta silenciosamente
+// (Finding 3.2, Handoff_Modulo_Dashboard_Audit_para_QA.md). Fator
+// empírico pra fontSize 9 Tahoma
+const FATOR_LARGURA_CARACTERE_ROTULO = 5.4
+function yRotuloSeguro(yBase: number, texto: string): number {
+  const larguraEstimada = texto.length * FATOR_LARGURA_CARACTERE_ROTULO
+  return Math.max(yBase, larguraEstimada + 2)
+}
+
+// ============================================================
 // GraficoSvg
 // ============================================================
 export default function GraficoSvg({ dados, titulo, altura = 260, corA, corB }: GraficoSvgProps) {
-  const LARGURA_VIEWBOX = 680
+  const LARGURA_VIEWBOX_PADRAO = 680
   const ALTURA_VIEWBOX = altura
+
+  // modoDenso só pode ser true pra 'barras_agrupadas'
+  const modoDenso =
+    dados.tipo === 'barras_agrupadas' &&
+    dados.pontos.length * LARGURA_MINIMA_GRUPO_AGRUPADAS > LARGURA_VIEWBOX_PADRAO
+  const LARGURA_VIEWBOX = modoDenso
+    ? dados.pontos.length * LARGURA_MINIMA_GRUPO_AGRUPADAS
+    : LARGURA_VIEWBOX_PADRAO
+
+  const conteudoSvg = (
+    <svg
+      viewBox={`0 0 ${LARGURA_VIEWBOX} ${ALTURA_VIEWBOX}`}
+      width={modoDenso ? LARGURA_VIEWBOX : '100%'}
+      height={altura}
+      role="img"
+      aria-label={titulo ?? 'Gráfico do relatório'}
+    >
+      {dados.tipo === 'linha' && (
+        <GraficoLinhaOuBarras pontos={dados.pontos} largura={LARGURA_VIEWBOX} altura={ALTURA_VIEWBOX} modo="linha" />
+      )}
+      {dados.tipo === 'barras' && (
+        <GraficoLinhaOuBarras pontos={dados.pontos} largura={LARGURA_VIEWBOX} altura={ALTURA_VIEWBOX} modo="barras" />
+      )}
+      {dados.tipo === 'barras_agrupadas' && (
+        <GraficoBarrasAgrupadas
+          pontos={dados.pontos}
+          legendaA={dados.legendaA}
+          legendaB={dados.legendaB}
+          largura={LARGURA_VIEWBOX}
+          altura={ALTURA_VIEWBOX}
+          corA={corA}
+          corB={corB}
+          modoDenso={modoDenso}
+        />
+      )}
+      {dados.tipo === 'pareto' && (
+        <GraficoPareto pontos={dados.pontos} largura={LARGURA_VIEWBOX} altura={ALTURA_VIEWBOX} />
+      )}
+      {dados.tipo === 'pizza' && (
+        <GraficoPizza pontos={dados.pontos} largura={LARGURA_VIEWBOX} altura={ALTURA_VIEWBOX} />
+      )}
+    </svg>
+  )
 
   return (
     <div style={{ width: '100%', fontFamily: 'Tahoma, Geneva, sans-serif' }}>
@@ -114,37 +189,12 @@ export default function GraficoSvg({ dados, titulo, altura = 260, corA, corB }: 
           {titulo}
         </div>
       )}
-      <svg
-        viewBox={`0 0 ${LARGURA_VIEWBOX} ${ALTURA_VIEWBOX}`}
-        width="100%"
-        height={altura}
-        role="img"
-        aria-label={titulo ?? 'Gráfico do relatório'}
-      >
-        {dados.tipo === 'linha' && (
-          <GraficoLinhaOuBarras pontos={dados.pontos} largura={LARGURA_VIEWBOX} altura={ALTURA_VIEWBOX} modo="linha" />
-        )}
-        {dados.tipo === 'barras' && (
-          <GraficoLinhaOuBarras pontos={dados.pontos} largura={LARGURA_VIEWBOX} altura={ALTURA_VIEWBOX} modo="barras" />
-        )}
-        {dados.tipo === 'barras_agrupadas' && (
-          <GraficoBarrasAgrupadas
-            pontos={dados.pontos}
-            legendaA={dados.legendaA}
-            legendaB={dados.legendaB}
-            largura={LARGURA_VIEWBOX}
-            altura={ALTURA_VIEWBOX}
-            corA={corA}
-            corB={corB}
-          />
-        )}
-        {dados.tipo === 'pareto' && (
-          <GraficoPareto pontos={dados.pontos} largura={LARGURA_VIEWBOX} altura={ALTURA_VIEWBOX} />
-        )}
-        {dados.tipo === 'pizza' && (
-          <GraficoPizza pontos={dados.pontos} largura={LARGURA_VIEWBOX} altura={ALTURA_VIEWBOX} />
-        )}
-      </svg>
+      {modoDenso ? <div style={{ width: '100%', overflowX: 'auto' }}>{conteudoSvg}</div> : conteudoSvg}
+      {modoDenso && (
+        <div style={{ fontSize: '10px', color: COR_TEXTO_EIXO, textAlign: 'right', marginTop: '4px' }}>
+          ← arraste para o lado para ver o período completo →
+        </div>
+      )}
     </div>
   )
 }
@@ -245,7 +295,9 @@ function GraficoLinhaOuBarras({
 // ============================================================
 // GraficoBarrasAgrupadas
 // Exclusivo do Fluxo de Caixa — duas barras lado a lado por
-// sub-período (Entradas x Saídas)
+// sub-período (Entradas x Saídas). Modo denso (Dashboard, muitos
+// pontos) usa o mesmo desenho lado a lado, só com eixo Y, rótulo
+// seletivo horizontal e largura maior (ver GraficoSvg)
 // ============================================================
 function GraficoBarrasAgrupadas({
   pontos,
@@ -259,6 +311,7 @@ function GraficoBarrasAgrupadas({
   // já eram usadas hardcoded aqui, preservando a aparência atual
   corA = COR_PRIMARIA,
   corB = COR_LINHA_ACUMULADA,
+  modoDenso,
 }: {
   pontos: { rotulo: string; valorA: number; valorB: number }[]
   legendaA: string
@@ -267,20 +320,65 @@ function GraficoBarrasAgrupadas({
   altura: number
   corA?: string
   corB?: string
+  modoDenso: boolean
 }) {
   if (pontos.length === 0) return <SemDados largura={largura} altura={altura} />
 
-  const MARGEM = MARGEM_BARRAS_AGRUPADAS
+  // Modo denso ganha margem esquerda maior — precisa de espaço pros
+  // rótulos numéricos do eixo Y (ex: "3k"). Modo clássico mantém a
+  // margem original (MARGEM_BARRAS_AGRUPADAS, compartilhada com
+  // lib/relatorios/pdfGrafico.ts), comportamento idêntico a antes
+  // desta sessão
+  const MARGEM = modoDenso
+    ? { ...MARGEM_BARRAS_AGRUPADAS, esquerda: MARGEM_ESQUERDA_MODO_DENSO }
+    : MARGEM_BARRAS_AGRUPADAS
   const areaLargura = largura - MARGEM.esquerda - MARGEM.direita
   const areaAltura = altura - MARGEM.topo - MARGEM.baixo
 
   const valorMax = Math.max(...pontos.map(p => Math.max(p.valorA, p.valorB)), 0)
-  const escalaY = (v: number) => (valorMax === 0 ? 0 : (v / valorMax) * areaAltura)
   const passoX = areaLargura / pontos.length
+
+  // Grade do eixo Y — só existe no modo denso. passoGrade adaptativo
+  // (passoGradeSeguro) evita dezenas de linhas quando os valores do
+  // período forem altos; teto sempre um múltiplo exato do degrau
+  const passoGrade = passoGradeSeguro(valorMax)
+  const teto = modoDenso ? Math.max(Math.ceil(valorMax / passoGrade) * passoGrade, passoGrade) : valorMax
+  const numeroLinhasGrade = modoDenso && teto > 0 ? teto / passoGrade : 0
+
+  const escalaY = (v: number) => {
+    if (modoDenso) return teto === 0 ? 0 : (v / teto) * areaAltura
+    return valorMax === 0 ? 0 : (v / valorMax) * areaAltura
+  }
+
+  // Modo clássico e modo denso agora mostram o MESMO conjunto de
+  // rótulos — todo valor > 0, sem corte nenhum (requisito travado da
+  // Especificacao_Modulo_Dashboard.md, Seção 4: "o valor MUST ser
+  // exibido acima de TODA barra" — um corte por limiar, mesmo bem
+  // intencionado pra reduzir poluição visual, quebra esse requisito e
+  // esconde exatamente os dias pequenos que importam pra decisão
+  // financeira). Rotacionado nos dois modos: é a rotação, não um
+  // corte de quantidade, que evita a colisão horizontal entre os
+  // rótulos de dias vizinhos
 
   return (
     <g>
       <LinhaBase largura={largura} altura={altura} margem={MARGEM} />
+
+      {/* Grade horizontal do eixo Y + rótulos numéricos — só no modo
+          denso */}
+      {modoDenso &&
+        Array.from({ length: numeroLinhasGrade + 1 }).map((_, i) => {
+          const valorLinha = i * passoGrade
+          const y = MARGEM.topo + (areaAltura - escalaY(valorLinha))
+          return (
+            <g key={'grade-' + valorLinha}>
+              <line x1={MARGEM.esquerda} x2={largura - MARGEM.direita} y1={y} y2={y} stroke={COR_GRADE} strokeWidth={1} />
+              <text x={MARGEM.esquerda - 6} y={y + 3} textAnchor="end" fontSize="9" fill={COR_TEXTO_EIXO}>
+                {valorLinha === 0 ? '0' : `${valorLinha / 1000}k`}
+              </text>
+            </g>
+          )
+        })}
 
       {/* Legenda — usa corA/corB (parâmetro com default), não mais a
           constante fixa direto, pra bater com a cor real das barras */}
@@ -291,53 +389,63 @@ function GraficoBarrasAgrupadas({
 
       {pontos.map((p, i) => {
         const grupoX = MARGEM.esquerda + i * passoX
-        const larguraBarra = passoX * 0.32
+        const larguraBarra = passoX * (modoDenso ? 0.36 : 0.32)
         const alturaA = escalaY(p.valorA)
         const alturaB = escalaY(p.valorB)
         const yA = MARGEM.topo + (areaAltura - alturaA)
         const yB = MARGEM.topo + (areaAltura - alturaB)
-        const xA = grupoX + passoX * 0.14
-        const xB = xA + larguraBarra + 4
+        const xA = grupoX + passoX * (modoDenso ? 0.10 : 0.14)
+        const xB = xA + larguraBarra + (modoDenso ? 3 : 4)
 
         return (
           <g key={p.rotulo + i}>
             <rect x={xA} y={yA} width={larguraBarra} height={alturaA} fill={corA} rx={2} />
             <rect x={xB} y={yB} width={larguraBarra} height={alturaB} fill={corB} rx={2} />
-            {/* Rótulo de valor da barra A — vertical (rotate -90°),
-                ancorado 3px à direita do centro da barra e 4px acima
-                do topo dela, lendo de baixo pra cima. Decisão
-                confirmada com Maycon nesta sessão: a primeira versão
-                (rótulo horizontal) foi reprovada por sobreposição em
-                31 dias × 2 barras — rotacionar resolve sem precisar
-                aumentar MARGEM.topo (testado visualmente, Versão A
-                aprovada). Só desenha quando valorA > 0, pra não
-                poluir dias sem título nenhum */}
-            {p.valorA > 0 && (
-              <text
-                x={xA + larguraBarra / 2 + 3}
-                y={yA - 4}
-                textAnchor="start"
-                fontSize="9"
-                fill={COR_TEXTO_EIXO}
-                transform={`rotate(-90, ${xA + larguraBarra / 2 + 3}, ${yA - 4})`}
-              >
-                {formatarValorBarraAgrupada(p.valorA)}
-              </text>
-            )}
-            {/* Rótulo de valor da barra B — mesmo raciocínio do
-                rótulo A acima, só troca xA/yA por xB/yB */}
-            {p.valorB > 0 && (
-              <text
-                x={xB + larguraBarra / 2 + 3}
-                y={yB - 4}
-                textAnchor="start"
-                fontSize="9"
-                fill={COR_TEXTO_EIXO}
-                transform={`rotate(-90, ${xB + larguraBarra / 2 + 3}, ${yB - 4})`}
-              >
-                {formatarValorBarraAgrupada(p.valorB)}
-              </text>
-            )}
+
+            {/* Rótulo de valor — rotacionado -90° em toda barra com
+                valor > 0, nos dois modos. yRotuloSeguro() trava o y
+                mínimo pra não cortar no topo do SVG na barra mais
+                alta do período (Finding 3.2 do Audit). No modo denso,
+                cor da própria série + negrito, pra diferenciar
+                visualmente do clássico (que mantém COR_TEXTO_EIXO,
+                aparência idêntica a antes desta sessão) */}
+            {p.valorA > 0 && (() => {
+              const textoA = formatarValorBarraAgrupada(p.valorA)
+              const yLabelA = yRotuloSeguro(yA - 4, textoA)
+              const xLabelA = xA + larguraBarra / 2 + 3
+              return (
+                <text
+                  x={xLabelA}
+                  y={yLabelA}
+                  textAnchor="start"
+                  fontSize="9"
+                  fontWeight={modoDenso ? 700 : undefined}
+                  fill={modoDenso ? corA : COR_TEXTO_EIXO}
+                  transform={`rotate(-90, ${xLabelA}, ${yLabelA})`}
+                >
+                  {textoA}
+                </text>
+              )
+            })()}
+            {p.valorB > 0 && (() => {
+              const textoB = formatarValorBarraAgrupada(p.valorB)
+              const yLabelB = yRotuloSeguro(yB - 4, textoB)
+              const xLabelB = xB + larguraBarra / 2 + 3
+              return (
+                <text
+                  x={xLabelB}
+                  y={yLabelB}
+                  textAnchor="start"
+                  fontSize="9"
+                  fontWeight={modoDenso ? 700 : undefined}
+                  fill={modoDenso ? corB : COR_TEXTO_EIXO}
+                  transform={`rotate(-90, ${xLabelB}, ${yLabelB})`}
+                >
+                  {textoB}
+                </text>
+              )
+            })()}
+
             <text x={grupoX + passoX / 2} y={altura - MARGEM.baixo + 16} textAnchor="middle" fontSize="9" fill={COR_TEXTO_EIXO}>
               {p.rotulo}
             </text>

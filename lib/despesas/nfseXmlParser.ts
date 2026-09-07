@@ -220,5 +220,12 @@ export function parsearNfseXml(xmlString: string): DocumentoExtraidoDespesa {
         },
       },
     },
+    // FEATURE (a pedido do usuário — 2ª via de DANFE): promove a chave
+    // pra nível superior de DocumentoExtraidoDespesa (além de manter o
+    // campo aninhado acima, que já existia e outras partes do sistema
+    // podem depender dele) — e devolve o XML completo, sem
+    // reprocessamento, exatamente como recebido pela função.
+    chaveAcesso: chaveAcessoNFSe,
+    xmlOriginal: xmlString,
   }
 }

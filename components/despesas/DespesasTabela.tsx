@@ -27,7 +27,12 @@ interface DespesasTabelaProps {
   // FEATURE: botão "Visualizar" inline (olho) — abre o mesmo modal do
   // modo 'editar', porém somente leitura (fieldset disabled), sem passar
   // pela confirmação de exclusão nem habilitar campos
+  // FEATURE (a pedido do usuário — 2ª via de DANFE): botão inline na
+  // coluna Ações, mesmo padrão visual/comportamental de
+  // ContasAPagarTabela.tsx::onGerarBoletoAvulso — acinzentado e
+  // desabilitado quando a despesa não tem chave/XML arquivados
   onVisualizar: (despesa: Despesa) => void
+  onGerarDanfe: (despesa: Despesa) => void
 }
 
 export default function DespesasTabela({
@@ -35,6 +40,7 @@ export default function DespesasTabela({
   onEditar,
   onExcluir,
   onVisualizar,
+  onGerarDanfe,
 }: DespesasTabelaProps) {
 
   const [hoverId, setHoverId] = useState<string | null>(null)
@@ -189,6 +195,18 @@ export default function DespesasTabela({
                         </button>
                         <button onClick={() => onEditar(despesa)} title="Editar despesa" style={btnAcaoStyle}>
                           <i className="ti ti-writing" aria-hidden="true" />
+                        </button>
+                        {/* FEATURE (a pedido do usuário — 2ª via de DANFE):
+                            mesmo padrão de ContasAPagarTabela.tsx —
+                            desabilitado + cinza quando falta chave/XML,
+                            azul + clicável quando tem */}
+                        <button
+                          onClick={() => (despesa.chave_acesso_nfe && despesa.xml_conteudo) && onGerarDanfe(despesa)}
+                          disabled={!despesa.chave_acesso_nfe || !despesa.xml_conteudo}
+                          title={(despesa.chave_acesso_nfe && despesa.xml_conteudo) ? 'Gerar 2ª via de DANFE' : 'Sem chave de acesso/XML arquivados (só disponível para despesas importadas por XML)'}
+                          style={{ ...btnAcaoStyle, color: (despesa.chave_acesso_nfe && despesa.xml_conteudo) ? '#1a6094' : '#c3ccd3' }}
+                        >
+                          <i className="ti ti-file-invoice" aria-hidden="true" />
                         </button>
                         <button onClick={() => setConfirmandoId(despesa.id)} title="Cancelar despesa"
                           style={{ ...btnAcaoStyle, color: '#dc2626' }}>

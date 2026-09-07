@@ -151,11 +151,19 @@ export function parsearNfeCompraXml(
   }
 
   // ── Extração: identificação da NF-e ──────────────────────
-  // NOTA: a chave de acesso (infProt > chNFe) não é extraída aqui porque
-  // o modelo canônico de extração de 'nota_fiscal' não tem campo dedicado para ela
-  // (diferente de 'servicos_profissionais', que usa chaveAcessoNFSe) —
-  // o rastreio de duplicidade desta categoria usa numeroDocumento + valor
-  // + vencimento, conforme Especificacao_Modulo_Despesas.md §5
+  // FEATURE (a pedido do usuário — 2ª via de DANFE): a chave de acesso
+  // (infProt > chNFe) voltou a ser extraída — a nota antiga dizia que o
+  // modelo canônico de extração não tinha campo dedicado para ela, mas
+  // isso mudou: chaveAcesso agora é campo de nível superior em
+  // DocumentoExtraidoDespesa (types/despesas.ts), usado para permitir a
+  // regeneração da DANFE sob demanda. O rastreio de duplicidade desta
+  // categoria continua usando numeroDocumento + valor + vencimento,
+  // conforme Especificacao_Modulo_Despesas.md §5 — isso não muda.
+  const chaveAcessoDigitos = texto(doc, 'infprot chnfe').replace(/\D/g, '')
+  // Só aceita se vier com a contagem exata de uma chave de acesso válida —
+  // um valor incompleto/corrompido não deve habilitar o botão de 2ª via
+  // de DANFE mais tarde (é melhor não ter o dado do que ter um dado errado)
+  const chaveAcesso = chaveAcessoDigitos.length === 44 ? chaveAcessoDigitos : null
   const numeroNf = texto(doc, 'ide nnf')
   const dhEmi = texto(doc, 'ide dhemi')
   const dataEmissaoSomenteData = dhEmi ? dhEmi.slice(0, 10) : null
@@ -296,5 +304,10 @@ export function parsearNfeCompraXml(
         },
       },
     },
+    // FEATURE (a pedido do usuário — 2ª via de DANFE): xmlString é o
+    // parâmetro que esta função já recebe — devolvido aqui sem
+    // nenhum reprocessamento, exatamente como foi lido do arquivo
+    chaveAcesso,
+    xmlOriginal: xmlString,
   }
 }

@@ -77,6 +77,7 @@ interface ListaTitulosPagarProps {
   vencimentoAte: string
   onChangeVencimentoDe: (v: string) => void
   onChangeVencimentoAte: (v: string) => void
+  isMobile: boolean
 }
 
 export default function ListaTitulosPagar({
@@ -85,6 +86,7 @@ export default function ListaTitulosPagar({
   vencimentoAte,
   onChangeVencimentoDe,
   onChangeVencimentoAte,
+  isMobile,
 }: ListaTitulosPagarProps) {
   // Estado de loading por id — diferente do único boolean de
   // ContasAPagarModal.tsx porque aqui várias linhas coexistem na
@@ -218,23 +220,32 @@ export default function ListaTitulosPagar({
         padding: '14px 16px',
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'space-between',
+          alignItems: isMobile ? 'flex-start' : 'center',
+          gap: isMobile ? '8px' : '0',
+          marginBottom: '10px',
+        }}
+      >
         <div style={{ fontSize: '13px', fontWeight: 'bold', color: COR_TITULO }}>Títulos a pagar — hoje + atrasados</div>
         {/* Filtro de data livremente ajustável (Seção 5.2), inclusive
             pro futuro — não há trava de intervalo aqui */}
-        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', width: isMobile ? '100%' : 'auto' }}>
           <input
             type="date"
             value={vencimentoDe}
             onChange={e => onChangeVencimentoDe(e.target.value)}
-            style={{ fontSize: '10px', border: `1px solid ${COR_BORDA_CARD}`, borderRadius: '4px', padding: '2px 4px', color: COR_TEXTO_MUTED }}
+            style={{ fontSize: '10px', border: `1px solid ${COR_BORDA_CARD}`, borderRadius: '4px', padding: '2px 4px', color: COR_TEXTO_MUTED, flex: isMobile ? 1 : undefined, minWidth: 0 }}
           />
           <span style={{ fontSize: '10px', color: COR_MUDO_CLARO }}>a</span>
           <input
             type="date"
             value={vencimentoAte}
             onChange={e => onChangeVencimentoAte(e.target.value)}
-            style={{ fontSize: '10px', border: `1px solid ${COR_BORDA_CARD}`, borderRadius: '4px', padding: '2px 4px', color: COR_TEXTO_MUTED }}
+            style={{ fontSize: '10px', border: `1px solid ${COR_BORDA_CARD}`, borderRadius: '4px', padding: '2px 4px', color: COR_TEXTO_MUTED, flex: isMobile ? 1 : undefined, minWidth: 0 }}
           />
         </div>
       </div>

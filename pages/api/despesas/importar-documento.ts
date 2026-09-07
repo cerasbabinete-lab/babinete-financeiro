@@ -264,6 +264,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       origem_entrada: 'ia_gemini',
 
+      // FEATURE (a pedido do usuário — 2ª via de DANFE): explicitamente
+      // null aqui — o caminho de IA (PDF/imagem/foto) nunca tem XML de
+      // origem para arquivar, então o botão de 2ª via de DANFE nunca
+      // aparece para despesas lançadas por este caminho, por decisão do
+      // usuário (2ª via de DANFE restrita a despesas importadas por XML)
+      chave_acesso_nfe: null,
+      xml_conteudo: null,
+
       deleted_at: null,
     }
 

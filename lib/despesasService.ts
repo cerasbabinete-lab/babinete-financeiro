@@ -386,9 +386,12 @@ export async function buscarFornecedorPorDocumento(cpfCnpj: string): Promise<{ i
   // em Clientes/Fornecedores) E os dígitos puros, cobrindo os dois jeitos
   // que o dado pode estar salvo.
   const formatado = formatarCnpjCpf(digitos)
+  // BUG FIX (Bloco 4 — mesma categoria do achado COPEi/COPEL): esta busca
+  // também não filtrava fornecedores soft-deletados — corrigido aqui junto.
   const { data, error } = await supabase
     .from('fornecedores')
     .select('id, razao, cnpj, cpf')
+    .is('deleted_at', null)
     .or(`cnpj.ilike.%${formatado}%,cpf.ilike.%${formatado}%,cnpj.ilike.%${digitos}%,cpf.ilike.%${digitos}%`)
     .limit(5)
 
@@ -402,6 +405,62 @@ export async function buscarFornecedorPorDocumento(cpfCnpj: string): Promise<{ i
   })
 
   return match ? { id: match.id, razao: match.razao } : null
+}
+
+// ============================================================
+// buscarFornecedoresPorNome()
+// FEATURE (a pedido do usuário — seletor de fornecedor): busca uma
+// lista de fornecedores já cadastrados por nome (razao/fantasia) OU por
+// CNPJ/CPF, pra popular um dropdown de sugestões no formulário de
+// Despesas — em vez de depender só do match automático (que pode errar
+// por diferença de leitura da IA, como no caso "COPEi" vs "COPEL"), o
+// usuário busca e escolhe o fornecedor certo diretamente.
+// Chamado por: DespesasModal.tsx (campo "Buscar fornecedor existente")
+// ============================================================
+export interface FornecedorSugestao {
+  id: number
+  razao: string
+  fantasia: string | null
+  cnpj: string | null
+  cpf: string | null
+}
+
+export async function buscarFornecedoresPorNome(termo: string): Promise<FornecedorSugestao[]> {
+  const termoLimpo = termo.trim()
+  if (termoLimpo.length < 2) return [] // termo curto demais — evita trazer a tabela inteira
+
+  const digitos = termoLimpo.replace(/[^0-9]/g, '')
+  // Mesma técnica de fornecedorAutoCreate.ts::escaparParaFiltroOr — a
+  // barra invertida é escapada PRIMEIRO, pra não escapar em dobro uma
+  // barra que o próprio usuário tenha digitado (raro, mas evita erro sutil)
+  const termoEscapado = termoLimpo
+    .replace(/\\/g, '\\\\')
+    .replace(/,/g, '\\,')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
+
+  // Se o termo tiver dígitos suficientes para ser um CNPJ/CPF (parcial ou
+  // completo), busca também por documento — permite digitar nome OU
+  // CNPJ no mesmo campo
+  const filtros = [`razao.ilike.%${termoEscapado}%`, `fantasia.ilike.%${termoEscapado}%`]
+  if (digitos.length >= 4) {
+    filtros.push(`cnpj.ilike.%${digitos}%`, `cpf.ilike.%${digitos}%`)
+  }
+
+  const { data, error } = await supabase
+    .from('fornecedores')
+    .select('id, razao, fantasia, cnpj, cpf')
+    .is('deleted_at', null) // nunca sugere um fornecedor já excluído
+    .or(filtros.join(','))
+    .order('razao', { ascending: true })
+    .limit(10)
+
+  if (error) {
+    console.error('[despesasService] buscarFornecedoresPorNome error:', error)
+    return [] // busca de sugestão nunca deve quebrar o formulário — falha silenciosa, lista vazia
+  }
+
+  return data ?? []
 }
 
 // ============================================================

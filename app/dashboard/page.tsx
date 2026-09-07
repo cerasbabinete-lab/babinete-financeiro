@@ -366,6 +366,7 @@ export default function DashboardPage() {
           vencimentoAte={vencimentoAte}
           onChangeVencimentoDe={setVencimentoDe}
           onChangeVencimentoAte={setVencimentoAte}
+          isMobile={isMobile}
         />
         <ListaTitulosReceber
           titulos={titulosResp?.titulosReceber ?? null}
@@ -373,6 +374,7 @@ export default function DashboardPage() {
           vencimentoAte={vencimentoAte}
           onChangeVencimentoDe={setVencimentoDe}
           onChangeVencimentoAte={setVencimentoAte}
+          isMobile={isMobile}
         />
       </div>
 

@@ -35,7 +35,11 @@ import type { FornecedorInsert } from '@/types/fornecedores'
 // token (normaliza acentos/pontuação e exige 2+ palavras em comum) já
 // validada em classificadorOrigemDespesa.ts, em vez de duplicar a lógica
 // ou manter a heurística antiga de 15 caracteres fixos
-import { enderecosBatem as enderecosCoincidemPorToken } from './classificadorOrigemDespesa'
+// FEATURE (Bloco 4 — bug fix do match por nome): normalizarEndereco()
+// também é reaproveitada aqui para nomes de fornecedor — a função em si
+// é genérica (remove acento/pontuação, apesar do nome), não específica
+// de endereço; evita duplicar a mesma lógica de normalização duas vezes
+import { enderecosBatem as enderecosCoincidemPorToken, normalizarEndereco } from './classificadorOrigemDespesa'
 
 // ------------------------------------------------------------
 // Função auxiliar: separarCnpjCpf
@@ -104,9 +108,17 @@ export async function buscarOuCriarFornecedor(
     // Query na tabela fornecedores, buscando em cnpj OU cpf, nas duas
     // variantes (formatada e não-formatada) — mesmo padrão de
     // fornecedoresService.ts (uso de .ilike com % para tolerar variações)
+    // BUG FIX (achado real de uso — caso COPEi/COPEL): nenhuma das 3
+    // queries deste arquivo filtrava fornecedores soft-deletados. Isso
+    // permitia que, depois do usuário excluir um fornecedor criado
+    // errado (ex: "COPEi", erro de leitura da IA), uma futura importação
+    // do MESMO favorecido ainda pudesse casar contra esse registro já
+    // excluído — reaproveitando um fornecedor_id morto em vez de achar o
+    // fornecedor correto já recadastrado, ou criar um novo do zero.
     const { data: candidatosPorDocumento, error: erroDocumento } = await supabaseAdmin
       .from('fornecedores')
       .select('id, razao, fantasia, cnpj, cpf, end')
+      .is('deleted_at', null)
       .or(
         `cnpj.ilike.%${documentoFormatado}%,cnpj.ilike.%${documentoLimpo}%,cpf.ilike.%${documentoFormatado}%,cpf.ilike.%${documentoLimpo}%`,
       )
@@ -138,19 +150,44 @@ export async function buscarOuCriarFornecedor(
   // ── Passo 2: fallback por nome/razão social + endereço ──
   // Usado quando o CNPJ/CPF está ausente/mascarado no documento, ou
   // quando não bateu nenhum registro exato no passo 1
-  // QA fix (achado Alto #5): nome do favorecido escapado antes de entrar
-  // no filtro .or() — nomes com vírgula/parênteses (comuns em razão
-  // social brasileira) não quebram mais a sintaxe do PostgREST nem viram
-  // agrupamento de filtro não pretendido
-  const nomeFavorecidoEscapado = escaparParaFiltroOr(favorecido.nome)
-  const { data: candidatosPorNome, error: erroNome } = await supabaseAdmin
+  //
+  // BUG FIX (achado real de uso — caso COPEi/COPEL): a busca antiga usava
+  // o NOME INTEIRO extraído como padrão do ILIKE — exigindo que a string
+  // completa aparecesse literalmente dentro de razao/fantasia. Uma
+  // diferença de pontuação em QUALQUER ponto do nome (ex: favorecido
+  // extraído como "COPEL DISTRIBUICAO S A", cadastro já existente como
+  // "COPEL DISTRIBUICAO S.A." — o ponto entre S e A quebra a
+  // correspondência) fazia a query voltar 0 candidatos, pulando direto
+  // para a criação automática de um fornecedor duplicado. Agora a query
+  // SQL usa só a primeira palavra significativa como uma rede mais larga
+  // (sempre vai casar, já que o próprio nome do fornecedor começa com
+  // ela), e a decisão de fato — o candidato realmente corresponde? — é
+  // feita comparando nomes NORMALIZADOS (sem acento/pontuação) em JS,
+  // mesmo princípio já usado para o endereço (enderecosCoincidemPorToken).
+  const primeiraPalavraNome = favorecido.nome.trim().split(/\s+/).find((p) => p.length >= 3) ?? favorecido.nome.trim()
+  const primeiraPalavraEscapada = escaparParaFiltroOr(primeiraPalavraNome)
+  const { data: candidatosBrutos, error: erroNome } = await supabaseAdmin
     .from('fornecedores')
     .select('id, razao, fantasia, cnpj, cpf, end')
-    .or(`razao.ilike.%${nomeFavorecidoEscapado}%,fantasia.ilike.%${nomeFavorecidoEscapado}%`)
+    .is('deleted_at', null)
+    .or(`razao.ilike.%${primeiraPalavraEscapada}%,fantasia.ilike.%${primeiraPalavraEscapada}%`)
 
   if (erroNome) {
     throw new Error(`Falha ao buscar fornecedor por nome: ${erroNome.message}`)
   }
+
+  // Filtra os candidatos brutos (que só bateram na primeira palavra) por
+  // comparação de nome NORMALIZADA — remove acento/pontuação dos dois
+  // lados antes de comparar, então "S A" e "S.A." batem como o mesmo texto
+  const nomeFavorecidoNormalizado = normalizarEndereco(favorecido.nome)
+  const candidatosPorNome = (candidatosBrutos ?? []).filter((c) => {
+    const razaoNormalizada = c.razao ? normalizarEndereco(c.razao) : ''
+    const fantasiaNormalizada = c.fantasia ? normalizarEndereco(c.fantasia) : ''
+    return (
+      (razaoNormalizada && (razaoNormalizada.includes(nomeFavorecidoNormalizado) || nomeFavorecidoNormalizado.includes(razaoNormalizada))) ||
+      (fantasiaNormalizada && (fantasiaNormalizada.includes(nomeFavorecidoNormalizado) || nomeFavorecidoNormalizado.includes(fantasiaNormalizada)))
+    )
+  })
 
   // Se houver candidatos por nome, verifica se o endereço também bate
   // (quando disponível) para reforçar a confiança do match
@@ -160,6 +197,22 @@ export async function buscarOuCriarFornecedor(
     const candidatoUnico = candidatosPorNome.length === 1 ? candidatosPorNome[0] : null
 
     if (candidatoUnico) {
+      // FEATURE (Bloco 4, refinamento sobre a correção acima): quando o
+      // nome normalizado do único candidato é EXATAMENTE igual ao nome
+      // do favorecido (não só "contém"), esse já é um sinal forte o
+      // bastante sozinho — não exige mais confirmação de endereço.
+      // Motivo prático: concessionárias/utilities frequentemente emitem
+      // a fatura com o endereço da UNIDADE CONSUMIDORA (ex: "Av dos
+      // Palmares, 831"), diferente do endereço cadastrado da própria
+      // empresa em Fornecedores (ex: sede/escritório) — exigir os dois
+      // baterem nesse caso reintroduziria o mesmo tipo de falso negativo
+      // que este bloco inteiro foi escrito para corrigir.
+      const candidatoRazaoNormalizada = candidatoUnico.razao ? normalizarEndereco(candidatoUnico.razao) : ''
+      const candidatoFantasiaNormalizada = candidatoUnico.fantasia ? normalizarEndereco(candidatoUnico.fantasia) : ''
+      const nomeExatamenteIgual =
+        candidatoRazaoNormalizada === nomeFavorecidoNormalizado ||
+        candidatoFantasiaNormalizada === nomeFavorecidoNormalizado
+
       // QA fix (achado Médio #6): a heurística antiga comparava apenas os
       // 15 primeiros caracteres do endereço extraído contra o endereço
       // cadastrado — prefixos genéricos como "Rua "/"Avenida " fazem essa
@@ -168,6 +221,7 @@ export async function buscarOuCriarFornecedor(
       // de tokens significativos (3+ caracteres), exigindo pelo menos 2
       // tokens em comum entre os dois endereços.
       const enderecoBate =
+        nomeExatamenteIgual || // nome idêntico já é confiança suficiente, ver comentário acima
         !favorecido.endereco || // se não temos endereço extraído, não bloqueia o match
         (candidatoUnico.end ? enderecosCoincidemPorToken(favorecido.endereco, candidatoUnico.end) : false)
 
@@ -175,7 +229,9 @@ export async function buscarOuCriarFornecedor(
         return {
           fornecedorId: candidatoUnico.id,
           autoCriado: false,
-          criterioMatch: 'nome_endereco_fallback',
+          // Distingue na trilha de auditoria: nome exato (mais forte,
+          // não precisou do endereço) vs. nome parcial + endereço batendo
+          criterioMatch: nomeExatamenteIgual ? 'nome_exato_fallback' : 'nome_endereco_fallback',
         }
       }
     }

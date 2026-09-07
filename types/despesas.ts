@@ -300,6 +300,19 @@ export interface DocumentoExtraidoDespesa {
   }
   extensaoCategoria:   ExtensaoCategoria // apenas o bloco correspondente a categoriaFinanceira é preenchido
   origemIaSugestao?:   SugestaoIaOrigemDespesa | null // populado apenas no caminho IA — null/ausente nos parsers XML
+  // FEATURE (a pedido do usuário — 2ª via de DANFE): populados apenas
+  // pelos parsers XML (nfeCompraXmlParser.ts, nfseXmlParser.ts) —
+  // ausentes/null no caminho IA (PDF/imagem/foto), já que ali não existe
+  // XML de origem para arquivar. Usados para permitir a regeneração do
+  // PDF da DANFE sob demanda, sem depender de nenhuma API externa —
+  // ver decisão de arquitetura em Contexto_Padrao_Backup_Restaurar_Exportar.md
+  // (mesmo princípio: guardar a informação estruturada necessária pra
+  // recriar o documento, não o arquivo original em si — mas aqui a
+  // "informação necessária" É o próprio texto do XML, já que uma DANFE
+  // não pode ser redesenhada a partir de campos soltos sem risco real
+  // de incompatibilidade com a lib de geração já validada em produção).
+  chaveAcesso?:        string | null // 44 dígitos, chave de acesso da NF-e/NFS-e
+  xmlOriginal?:        string | null // texto completo do XML de origem
 }
 
 
@@ -366,6 +379,14 @@ export interface Despesa {
 
   // ── Auditoria de origem do lançamento ───────────────────
   origem_entrada:         OrigemEntradaDespesa   // de onde veio: xml_nfse | xml_nfe_compra | ia_gemini | manual
+
+  // ── FEATURE (a pedido do usuário — 2ª via de DANFE): só ─
+  // populados quando origem_entrada é xml_nfse ou xml_nfe_compra —
+  // null para tudo o mais (manual, ia_gemini/PDF-foto), já que ali não
+  // existe XML de origem para arquivar. Coluna adicionada via SQL manual
+  // no Supabase (ALTER TABLE despesas ADD COLUMN chave_acesso_nfe/xml_conteudo)
+  chave_acesso_nfe?:      string | null          // 44 dígitos da chave de acesso da NF-e/NFS-e
+  xml_conteudo?:          string | null          // texto completo do XML de origem, usado para regenerar a DANFE sob demanda
 
   deleted_at?:             string | null         // timestamp de cancelamento — null = ativo
   created_at?:              string                // ISO timestamp — automático

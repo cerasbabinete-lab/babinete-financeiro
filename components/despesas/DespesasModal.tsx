@@ -30,7 +30,8 @@ import type {
   OrigemDespesaTipo,
 } from '@/types/despesas'
 import { CATEGORIA_FINANCEIRA_LABELS, ORIGEM_TIPO_LABELS, STATUS_PAGAMENTO_LABELS } from '@/types/despesas'
-import { buscarFornecedorPorDocumento, formatarCnpjCpf, formatarMoeda } from '@/lib/despesasService'
+import { buscarFornecedorPorDocumento, buscarFornecedoresPorNome, formatarCnpjCpf, formatarMoeda } from '@/lib/despesasService'
+import type { FornecedorSugestao } from '@/lib/despesasService'
 
 // ------------------------------------------------------------
 // TIPO: linha de parcela editável no formulário — pode ter id
@@ -96,6 +97,13 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
   const [origemBeneficiarioVinculo, setOrigemBeneficiarioVinculo] = useState<string | null>(null)
   const [origemClassificacaoStatus, setOrigemClassificacaoStatus] = useState<'auto_classificado' | 'revisao_manual'>('auto_classificado')
   const [origemCriteriosBatidos, setOrigemCriteriosBatidos] = useState<string[]>([])
+  // FEATURE (a pedido do usuário — 2ª via de DANFE): populados apenas
+  // quando a despesa veio de importação XML (nfe_compra ou nfse) — ficam
+  // null em lançamento manual ou via IA (PDF/foto). Usados para exibir a
+  // chave de acesso (somente leitura) e habilitar o botão "Gerar 2ª via
+  // de DANFE" no modal.
+  const [chaveAcessoNfe, setChaveAcessoNfe] = useState<string | null>(null)
+  const [xmlConteudo, setXmlConteudo] = useState<string | null>(null)
   // QA fix (achados Médio #12/#13 — Relatorio_Auditoria_Modulo_Despesas.md):
   // sinaliza quando o usuário edita manualmente favorecido/CNPJ/categoria
   // (achado #12) ou o dropdown de origem (achado #13) DEPOIS que a
@@ -130,6 +138,14 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
   // ── Estado de busca de fornecedor no lançamento manual ──
   const [buscandoFornecedor, setBuscandoFornecedor] = useState(false)
   const [fornecedorNaoEncontrado, setFornecedorNaoEncontrado] = useState(false)
+  // FEATURE (a pedido do usuário — seletor de fornecedor): campo de busca
+  // por nome/CNPJ, com lista de sugestões dos fornecedores já cadastrados
+  // — existe em Nova E Editar Despesa (diferente da busca automática por
+  // CNPJ no blur, que antes só existia em Nova Despesa)
+  const [termoBuscaFornecedor, setTermoBuscaFornecedor] = useState('')
+  const [sugestoesFornecedor, setSugestoesFornecedor] = useState<FornecedorSugestao[]>([])
+  const [buscandoSugestoes, setBuscandoSugestoes] = useState(false)
+  const [mostrarSugestoes, setMostrarSugestoes] = useState(false)
 
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -164,6 +180,12 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
       setOrigemBeneficiarioVinculo(d.origem_beneficiario_vinculo ?? null)
       setOrigemClassificacaoStatus(origemDespesaClassificacao.status)
       setOrigemCriteriosBatidos(origemDespesaClassificacao.criteriosBatidos)
+      // FEATURE (a pedido do usuário — 2ª via de DANFE): lê a chave/XML já
+      // extraídos pelo parser e devolvidos pela rota de importação dentro
+      // de `d` — populado só quando a importação foi por XML (ver
+      // importar-xml.ts); fica null no caminho de IA (importar-documento.ts)
+      setChaveAcessoNfe(d.chave_acesso_nfe ?? null)
+      setXmlConteudo(d.xml_conteudo ?? null)
       setParcelas(p.map((parcela) => ({ ...parcela })))
       setExtensaoCategoria(d.extensao_categoria)
       setOrigemEntrada(d.origem_entrada)
@@ -192,6 +214,11 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
       setOrigemBeneficiarioVinculo(despesa.origem_beneficiario_vinculo ?? null)
       setOrigemClassificacaoStatus(despesa.origem_classificacao_status)
       setOrigemCriteriosBatidos(despesa.origem_criterios_batidos)
+      // FEATURE (a pedido do usuário — 2ª via de DANFE): lê o que já está
+      // persistido na despesa — nunca editável pelo usuário, só exibido
+      // (somente leitura) e usado para habilitar o botão de 2ª via
+      setChaveAcessoNfe(despesa.chave_acesso_nfe ?? null)
+      setXmlConteudo(despesa.xml_conteudo ?? null)
       setParcelas((despesa.parcelas ?? []).filter((p) => !p.deleted_at).map((p) => ({ ...p })))
       setExtensaoCategoria(despesa.extensao_categoria)
       setOrigemEntrada(despesa.origem_entrada)
@@ -225,6 +252,48 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
     }
   }
 
+  // FEATURE (a pedido do usuário — seletor de fornecedor): busca com
+  // debounce de 350ms conforme o usuário digita no campo "Buscar
+  // fornecedor existente" — disponível em Nova E Editar Despesa
+  useEffect(() => {
+    const termo = termoBuscaFornecedor.trim()
+    // QA fix (mesma categoria já corrigida antes neste módulo —
+    // set-state-in-effect): nenhum setState roda de forma síncrona no
+    // corpo do efeito — tudo acontece dentro do callback do timer,
+    // mesmo a decisão de limpar a lista quando o termo é curto demais
+    const timer = setTimeout(async () => {
+      if (termo.length < 2) {
+        setSugestoesFornecedor([])
+        return
+      }
+      setBuscandoSugestoes(true)
+      const resultado = await buscarFornecedoresPorNome(termoBuscaFornecedor)
+      setSugestoesFornecedor(resultado)
+      setBuscandoSugestoes(false)
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [termoBuscaFornecedor])
+
+  // FEATURE (a pedido do usuário — seletor de fornecedor): ao escolher um
+  // fornecedor da lista de sugestões, vincula ele à despesa — substitui
+  // favorecido_nome/cnpj_cpf pelos dados oficiais já cadastrados, marca
+  // fornecedor_auto_criado como false (é um vínculo explícito do
+  // usuário, não uma criação automática) e fecha a lista de sugestões
+  function handleSelecionarFornecedor(f: FornecedorSugestao) {
+    setFornecedorId(f.id)
+    setFornecedorAutoCriado(false)
+    setFavorecidoNome(f.razao)
+    setFavorecidoCnpjCpf(f.cnpj ?? f.cpf ?? '')
+    setFornecedorNaoEncontrado(false)
+    setTermoBuscaFornecedor('')
+    setSugestoesFornecedor([])
+    setMostrarSugestoes(false)
+    // Vincular manualmente um fornecedor existente também conta como
+    // edição pós-classificação — mesmo motivo dos campos Favorecido/CNPJ
+    // (achado #12): o vínculo pode mudar a origem (empresarial x pessoal)
+    if (!isNovo) setClassificacaoDesatualizadaPorEdicao(true)
+  }
+
   // ── Manipulação das parcelas ──
   function atualizarParcela(index: number, campo: keyof ParcelaForm, valor: string | number | boolean | null) {
     setParcelas((atual) => atual.map((p, i) => (i === index ? { ...p, [campo]: valor } : p)))
@@ -242,6 +311,36 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
   async function obterToken(): Promise<string> {
     const { data: { session } } = await supabase.auth.getSession()
     return session?.access_token ?? ''
+  }
+
+  // FEATURE (a pedido do usuário — 2ª via de DANFE): mesmo mecanismo já
+  // usado em ContasAPagarModal.tsx::handleGerarBoletoAvulso — fetch com
+  // Bearer token, recebe o PDF como blob, abre em nova aba via
+  // URL.createObjectURL. Só chamada quando o botão está habilitado
+  // (chaveAcessoNfe && xmlConteudo presentes), mas a rota também valida
+  // isso de novo no servidor, por segurança.
+  const [gerandoDanfe, setGerandoDanfe] = useState(false)
+  async function handleGerarDanfe() {
+    if (!despesa) return
+    setGerandoDanfe(true)
+    setErro(null)
+    try {
+      const token = await obterToken()
+      const resp = await fetch(`/api/despesas/gerar-danfe?id=${despesa.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!resp.ok) {
+        const corpo = await resp.json().catch(() => ({}))
+        throw new Error(corpo.erro ?? 'Erro ao gerar DANFE')
+      }
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+    } catch (err: unknown) {
+      setErro(err instanceof Error ? err.message : 'Erro ao gerar 2ª via de DANFE')
+    } finally {
+      setGerandoDanfe(false)
+    }
   }
 
   // ── Salvar ──
@@ -307,6 +406,12 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
         status_pagamento: statusPagamento,
         extensao_categoria: extensaoCategoria,
         origem_entrada: origemEntrada,
+        // FEATURE (a pedido do usuário — 2ª via de DANFE): passthrough dos
+        // estados populados acima — nunca editáveis pelo usuário no
+        // formulário, só preservados (modo editar) ou herdados da
+        // importação (modo revisar/novo, onde ficam null se não vieram de XML)
+        chave_acesso_nfe: chaveAcessoNfe,
+        xml_conteudo: xmlConteudo,
         deleted_at: null,
       }
 
@@ -420,6 +525,49 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
             </div>
           )}
 
+          {/* FEATURE (a pedido do usuário — seletor de fornecedor):
+              busca por nome/CNPJ entre os fornecedores já cadastrados,
+              disponível em Nova E Editar Despesa — resolve tanto a
+              origem do problema (usuário escolhe, IA não precisa acertar
+              sozinha) quanto a correção posterior (reabre uma despesa já
+              lançada com fornecedor errado, busca o certo, vincula) */}
+          <div style={{ marginBottom: '10px', position: 'relative' }}>
+            <label style={labelStyle}>Buscar fornecedor existente</label>
+            <input
+              style={inputStyle}
+              value={termoBuscaFornecedor}
+              onChange={(e) => { setTermoBuscaFornecedor(e.target.value); setMostrarSugestoes(true) }}
+              onFocus={() => setMostrarSugestoes(true)}
+              onBlur={() => setTimeout(() => setMostrarSugestoes(false), 150)} // atraso para o onClick da sugestão registrar antes de fechar
+              placeholder="Digite o nome ou CNPJ/CPF para buscar..."
+            />
+            {buscandoSugestoes && <span style={{ fontSize: '10px', color: '#5a84a6' }}>Buscando...</span>}
+            {mostrarSugestoes && sugestoesFornecedor.length > 0 && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20,
+                background: '#ffffff', border: '1px solid #dde8f0', borderRadius: '6px',
+                marginTop: '2px', maxHeight: '180px', overflowY: 'auto',
+                boxShadow: '0 4px 10px rgba(0,0,0,0.08)',
+              }}>
+                {sugestoesFornecedor.map((f) => (
+                  <div
+                    key={f.id}
+                    onMouseDown={() => handleSelecionarFornecedor(f)} // onMouseDown dispara antes do onBlur do input
+                    style={{ padding: '7px 10px', fontSize: '11px', cursor: 'pointer', borderBottom: '1px solid #f0f4f7' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#f0f7ff' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                  >
+                    <div style={{ fontWeight: 700, color: '#1a6094' }}>{f.fantasia || f.razao}</div>
+                    <div style={{ color: '#5a84a6' }}>{f.razao} — {formatarCnpjCpf(f.cnpj ?? f.cpf ?? '')}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {mostrarSugestoes && !buscandoSugestoes && termoBuscaFornecedor.trim().length >= 2 && sugestoesFornecedor.length === 0 && (
+              <span style={{ fontSize: '10px', color: '#5a84a6' }}>Nenhum fornecedor encontrado.</span>
+            )}
+          </div>
+
           {/* Favorecido */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px', marginBottom: '10px' }}>
             <div>
@@ -445,14 +593,14 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
                   // QA fix (achado #12): mesmo motivo do campo Favorecido acima
                   if (!isNovo) setClassificacaoDesatualizadaPorEdicao(true)
                 }}
-                onBlur={isNovo ? handleBuscarFornecedorManual : undefined}
+                onBlur={(isNovo || isEditar) ? handleBuscarFornecedorManual : undefined}
                 placeholder={isNovo ? 'Buscar fornecedor ao sair do campo' : ''}
               />
-              {isNovo && buscandoFornecedor && <span style={{ fontSize: '10px', color: '#5a84a6' }}>Buscando...</span>}
-              {isNovo && fornecedorNaoEncontrado && (
-                <span style={{ fontSize: '10px', color: '#a32d2d' }}>Fornecedor não encontrado — cadastre em Fornecedores primeiro.</span>
+              {(isNovo || isEditar) && buscandoFornecedor && <span style={{ fontSize: '10px', color: '#5a84a6' }}>Buscando...</span>}
+              {(isNovo || isEditar) && fornecedorNaoEncontrado && (
+                <span style={{ fontSize: '10px', color: '#a32d2d' }}>Fornecedor não encontrado — busque acima ou cadastre em Fornecedores primeiro.</span>
               )}
-              {!isNovo && favorecidoCnpjCpf && (
+              {!(isNovo || isEditar) && favorecidoCnpjCpf && (
                 <span style={{ fontSize: '10px', color: '#5a84a6' }}>{formatarCnpjCpf(favorecidoCnpjCpf)}</span>
               )}
             </div>
@@ -514,6 +662,24 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
               <input type="number" step="0.01" style={inputStyle} value={valorTotal} onChange={(e) => setValorTotal(e.target.value)} />
             </div>
           </div>
+
+          {/* FEATURE (a pedido do usuário — 2ª via de DANFE): chave de
+              acesso, somente leitura — só aparece quando a despesa foi
+              importada por XML (nfe_compra ou nfse) e o parser conseguiu
+              extrair a chave. Nunca editável pelo usuário. */}
+          {chaveAcessoNfe && (
+            <div style={{ marginBottom: '14px' }}>
+              <label style={labelStyle}>Chave de Acesso (NFe/NFSe)</label>
+              <div style={{
+                ...inputStyle, background: '#f7fafc', color: '#3a6080',
+                fontFamily: 'monospace', letterSpacing: '0.03em', fontSize: '12px',
+                display: 'flex', alignItems: 'center',
+              }}>
+                {/* Agrupa de 4 em 4 dígitos, mesmo formato visual padrão de chave de acesso de NF-e */}
+                {chaveAcessoNfe.replace(/(\d{4})(?=\d)/g, '$1 ')}
+              </div>
+            </div>
+          )}
 
           {/* Origem (empresarial x pessoal) */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px', marginBottom: '14px' }}>
@@ -579,6 +745,32 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
 
         {/* Rodapé */}
         <div style={{ padding: '14px 20px', borderTop: '1px solid #e8f0f7', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          {/* FEATURE (a pedido do usuário — 2ª via de DANFE): só aparece
+              quando a despesa já foi salva (tem id) E tem chave/XML
+              arquivados — nunca em Nova Despesa/Revisar (ainda não
+              persistida), nunca para despesas sem origem XML.
+              marginRight: 'auto' empurra pro canto esquerdo do rodapé,
+              longe de Cancelar/Salvar. */}
+          {despesa && chaveAcessoNfe && xmlConteudo && (
+            <button
+              onClick={handleGerarDanfe}
+              disabled={gerandoDanfe}
+              title="Gerar 2ª via de DANFE"
+              style={{
+                marginRight: 'auto',
+                display: 'flex', alignItems: 'center', gap: '5px',
+                padding: '7px 14px', fontSize: '12px', fontWeight: 700,
+                fontFamily: 'Tahoma, Geneva, sans-serif',
+                background: '#ffffff', color: '#1a6094',
+                border: '1px solid #c4d8eb', borderRadius: '5px',
+                cursor: gerandoDanfe ? 'wait' : 'pointer',
+                opacity: gerandoDanfe ? 0.7 : 1,
+              }}
+            >
+              <i className="ti ti-file-invoice" aria-hidden="true" />
+              {gerandoDanfe ? 'Gerando...' : '2ª via de DANFE'}
+            </button>
+          )}
           <button onClick={onFechar} style={{ padding: '7px 16px', fontSize: '12px', fontWeight: 600, background: '#f0f4f7', color: '#3a6080', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
             {somenteLeitura ? 'Fechar' : 'Cancelar'}
           </button>

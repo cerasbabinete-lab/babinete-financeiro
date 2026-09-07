@@ -167,6 +167,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       origem_entrada: tipoOrigem,
 
+      // FEATURE (a pedido do usuário — 2ª via de DANFE): só este caminho
+      // (importação por XML) preenche esses dois campos — o caminho de
+      // IA (importar-documento.ts) não tem XML de origem, então nunca os
+      // popula (ficam null/ausentes, e o botão de 2ª via de DANFE
+      // simplesmente não aparece para essas despesas).
+      chave_acesso_nfe: documento.chaveAcesso ?? null,
+      xml_conteudo: documento.xmlOriginal ?? null,
+
       deleted_at: null,
     }
 

@@ -22,6 +22,7 @@ interface DespesasMobileListProps {
   onEditar: (despesa: Despesa) => void
   onExcluir: (despesa: Despesa) => void
   onVisualizar: (despesa: Despesa) => void // FEATURE: mesmo padrão do botão "olho" na tabela desktop
+  onGerarDanfe: (despesa: Despesa) => void // FEATURE (a pedido do usuário — 2ª via de DANFE)
 }
 
 export default function DespesasMobileList({
@@ -29,6 +30,7 @@ export default function DespesasMobileList({
   onEditar,
   onExcluir,
   onVisualizar,
+  onGerarDanfe,
 }: DespesasMobileListProps) {
 
   const [sheetId, setSheetId] = useState<string | null>(null)
@@ -160,6 +162,17 @@ export default function DespesasMobileList({
                   <i className="ti ti-writing" style={{ fontSize: '16px' }} aria-hidden="true" />
                   Editar
                 </button>
+                {/* FEATURE (a pedido do usuário — 2ª via de DANFE): só
+                    renderiza o botão quando a despesa tem chave/XML
+                    arquivados — em vez de mostrar desabilitado (padrão
+                    desktop), aqui simplesmente não aparece, pra não
+                    poluir a lista de ações do bottom-sheet mobile */}
+                {despesaSheet.chave_acesso_nfe && despesaSheet.xml_conteudo && (
+                  <button onClick={() => { onGerarDanfe(despesaSheet); setSheetId(null) }} style={sheetBtnStyle('#f0f4f7', '#1a6094')}>
+                    <i className="ti ti-file-invoice" style={{ fontSize: '16px' }} aria-hidden="true" />
+                    2ª via de DANFE
+                  </button>
+                )}
                 <button onClick={() => setConfirmandoId(sheetId)} style={sheetBtnStyle('#fef2f2', '#dc2626')}>
                   <i className="ti ti-trash" style={{ fontSize: '16px' }} aria-hidden="true" />
                   Cancelar Despesa

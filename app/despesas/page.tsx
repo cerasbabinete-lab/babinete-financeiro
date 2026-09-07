@@ -349,6 +349,30 @@ export default function DespesasPage() {
   function handleSalvo() { carregarDespesas(); handleFecharModal(); setMsgSucesso('Despesa gravada com sucesso.') }
   function handleLimparFiltros() { setFiltros(FILTROS_INICIAIS) }
 
+  // FEATURE (a pedido do usuário — 2ª via de DANFE): mesmo mecanismo
+  // fetch+blob+window.open já usado dentro de DespesasModal.tsx — chamado
+  // aqui pela tabela/mobile (sem precisar abrir o modal primeiro), mesmo
+  // padrão de duplicação já usado em Contas a Pagar entre
+  // app/pagar/page.tsx e ContasAPagarModal.tsx (cada tela chama sua
+  // própria cópia da lógica de fetch, sem estado de loading compartilhado)
+  async function handleGerarDanfe(d: Despesa) {
+    try {
+      const token = await obterToken()
+      const resp = await fetch(`/api/despesas/gerar-danfe?id=${d.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!resp.ok) {
+        const corpo = await resp.json().catch(() => ({}))
+        throw new Error(corpo.erro ?? 'Erro ao gerar DANFE')
+      }
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+    } catch (err: unknown) {
+      setMsgErro(err instanceof Error ? err.message : 'Erro ao gerar 2ª via de DANFE')
+    }
+  }
+
   // QA fix (achado Alto #8 — Relatorio_Auditoria_Modulo_Despesas.md):
   // antes chamava cancelarDespesa() diretamente do browser com a anon
   // key, sem passar por nenhuma rota pages/api/despesas/*, dependendo
@@ -500,6 +524,7 @@ export default function DespesasPage() {
               onEditar={handleEditar}
               onExcluir={handleExcluir}
               onVisualizar={handleVisualizar}
+              onGerarDanfe={handleGerarDanfe}
             />
           )}
         </main>
@@ -616,6 +641,7 @@ export default function DespesasPage() {
             onEditar={handleEditar}
             onExcluir={handleExcluir}
             onVisualizar={handleVisualizar}
+            onGerarDanfe={handleGerarDanfe}
           />
         )}
       </main>
