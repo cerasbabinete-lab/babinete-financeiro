@@ -663,24 +663,30 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
             </div>
           </div>
 
-          {/* FEATURE (a pedido do usuário — 2ª via de DANFE): chave de
-              acesso, somente leitura. Sempre visível (mesmo mode 'novo'),
-              a pedido explícito do usuário — não fica mais escondida
-              quando ausente, mostra "—" nesse caso. Preenchida
-              automaticamente só quando a despesa foi importada por XML
-              (nfe_compra ou nfse) e o parser conseguiu extrair a chave.
-              Nunca editável pelo usuário. */}
+          {/* FEATURE (a pedido do usuário): chave de acesso agora
+              EDITÁVEL manualmente — inicialmente era só leitura, mas o
+              usuário pediu pra poder digitar mesmo que só como
+              informação de referência. Digitar a chave aqui sozinha NÃO
+              habilita o botão de 2ª via de DANFE — esse depende também
+              do XML completo arquivado (xmlConteudo), que só vem da
+              importação por XML; sem o XML, a chave fica só como
+              anotação. Sempre visível (inclusive em Nova Despesa),
+              desabilitada junto com o resto do formulário em modo
+              somente-leitura (fieldset disabled, ver acima). */}
           <div style={{ marginBottom: '14px' }}>
             <label style={labelStyle}>Chave de Acesso (NFe/NFSe)</label>
-            <div style={{
-              ...inputStyle, background: '#f7fafc', color: chaveAcessoNfe ? '#3a6080' : '#a9bccb',
-              fontFamily: 'monospace', letterSpacing: '0.03em', fontSize: '12px',
-              display: 'flex', alignItems: 'center',
-            }}>
-              {/* Agrupa de 4 em 4 dígitos, mesmo formato visual padrão de chave de acesso de NF-e */}
-              {chaveAcessoNfe ? chaveAcessoNfe.replace(/(\d{4})(?=\d)/g, '$1 ') : '— (disponível apenas para despesas importadas por XML)'}
-            </div>
+            <input
+              style={{ ...inputStyle, fontFamily: 'monospace', letterSpacing: '0.03em', fontSize: '12px' }}
+              value={chaveAcessoNfe ?? ''}
+              onChange={(e) => setChaveAcessoNfe(e.target.value || null)}
+              placeholder="Não disponível — preencha manualmente se quiser, é só informativo"
+            />
           </div>
+          {chaveAcessoNfe && !xmlConteudo && (
+            <div style={{ marginTop: '-10px', marginBottom: '14px', fontSize: '10px', color: '#9a8a4a' }}>
+              Chave preenchida, mas sem o XML arquivado — a 2ª via de DANFE continua indisponível para esta despesa.
+            </div>
+          )}
 
           {/* Origem (empresarial x pessoal) */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px', marginBottom: '14px' }}>
