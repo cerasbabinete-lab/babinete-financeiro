@@ -81,12 +81,21 @@ export async function gerarRelatorioFaturamento(
   // Paginado (Finding Critical §2.2 — sem .range(), PostgREST corta
   // silenciosamente em 1000 linhas, sem erro visível) e com limite
   // superior de fuso explícito (Finding §6.4)
+  //
+  // CORREÇÃO Medium §4.2 (Handoff_Modulo_Relatorios_Audit_para_QA.md)
+  // — status_nf ≠ 100 (cStat, código nacional da SEFAZ: 100 =
+  // "Autorizado o uso da NF-e") ou ≠ NULL (nota antiga, importada
+  // antes deste campo existir no schema) é excluído. Mesmo
+  // tratamento já aplicado sem ressalva no relatório 2.8
+  // (Totalização) — tratamento consolidado aqui e em curvaAbc.ts,
+  // fecha o item que ficava pendente desde a auditoria original.
   const linhas = await paginarConsulta<LinhaReceitaAgregacao>((inicio, fim) =>
     client
       .from(TABELA)
       .select('id, data_emissao, valor_nf, cliente_id, cliente_cpf_cnpj, cliente_nome')
       .gte('data_emissao', filtros.dataInicial)
       .lte('data_emissao', limiteSuperiorIntervalo(filtros.dataFinal))
+      .or('status_nf.eq.100,status_nf.is.null')
       .order('data_emissao', { ascending: true })
       .range(inicio, fim),
   )
@@ -112,11 +121,16 @@ export async function gerarRelatorioFaturamento(
   for (const lote of dividirEmLotes(idsClientesNoPeriodo)) {
     if (lote.length === 0) continue
 
+    // Mesmo filtro de status_nf da consulta principal (§4.2) — uma
+    // nota cancelada não pode ser a "primeira compra" de um cliente;
+    // se fosse, uma compra válida posterior seria classificada
+    // errado como recorrente em vez de nova
     const historicoLote = await paginarConsulta<LinhaHistoricoCliente>((inicio, fim) =>
       client
         .from(TABELA)
         .select('data_emissao, cliente_id, cliente_cpf_cnpj, cliente_nome')
         .in('cliente_id', lote)
+        .or('status_nf.eq.100,status_nf.is.null')
         .order('data_emissao', { ascending: true })
         .range(inicio, fim),
     )

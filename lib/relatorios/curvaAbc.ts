@@ -64,7 +64,7 @@ interface LinhaContaPagarAbc {
 interface LinhaReceitaItemAbc {
   valor_total: number
   descricao: string | null
-  receitas: { data_emissao: string }
+  receitas: { data_emissao: string; status_nf: number | null }
 }
 
 // ============================================================
@@ -129,12 +129,15 @@ export async function gerarRelatorioCurvaAbc(
 // agregarClientes() — dimensão Clientes, fonte `receitas`
 // ============================================================
 async function agregarClientes(filtros: FiltroIntervaloDatas, client: SupabaseClient) {
+  // Correção Medium §4.2 — mesmo tratamento de status_nf já aplicado
+  // em faturamento.ts e no relatório 2.8 (Totalização)
   const linhas = await paginarConsulta<LinhaReceitaAbc>((inicio, fim) =>
     client
       .from('receitas')
       .select('valor_nf, cliente_id, cliente_cpf_cnpj, cliente_nome')
       .gte('data_emissao', filtros.dataInicial)
       .lte('data_emissao', limiteSuperiorIntervalo(filtros.dataFinal))
+      .or('status_nf.eq.100,status_nf.is.null')
       .range(inicio, fim),
   )
 
@@ -194,10 +197,18 @@ async function agregarProdutos(filtros: FiltroIntervaloDatas, client: SupabaseCl
   // já que não há como o compilador saber a cardinalidade real da FK
   // sem o schema tipado. Em runtime é sempre 1 objeto — a FK
   // receitas_itens.receita_id -> receitas.id é N:1, nunca 1:N.
+  //
+  // Correção Medium §4.2 — status_nf buscado junto (embedded select)
+  // e filtrado em JS logo abaixo, não via .or() na consulta: a
+  // sintaxe de .or() sobre coluna de embedded resource não é um
+  // padrão já comprovado neste código (diferente de .gte()/.lte(),
+  // já usados assim em outras consultas deste arquivo) — preferi
+  // não arriscar sintaxe não testada numa consulta que afeta total
+  // financeiro.
   const linhas = await paginarConsulta<LinhaReceitaItemAbc>((inicio, fim) =>
     client
       .from('receitas_itens')
-      .select('valor_total, descricao, receitas!inner(data_emissao)')
+      .select('valor_total, descricao, receitas!inner(data_emissao, status_nf)')
       .gte('receitas.data_emissao', filtros.dataInicial)
       .lte('receitas.data_emissao', limiteSuperiorIntervalo(filtros.dataFinal))
       .range(inicio, fim) as unknown as PromiseLike<{ data: LinhaReceitaItemAbc[] | null; error: { message: string } | null }>,
@@ -205,6 +216,7 @@ async function agregarProdutos(filtros: FiltroIntervaloDatas, client: SupabaseCl
 
   const somaPorDescricao = new Map<string, number>()
   for (const item of linhas) {
+    if (item.receitas.status_nf !== 100 && item.receitas.status_nf !== null) continue
     const nome = item.descricao ?? '—'
     somaPorDescricao.set(nome, (somaPorDescricao.get(nome) ?? 0) + (Number(item.valor_total) || 0))
   }
@@ -225,22 +237,27 @@ export async function buscarDrillDownProduto(
   // Mesmo motivo do cast em agregarProdutos() acima — embedded
   // resource inferido como array sem generic de Database, mas em
   // runtime é sempre 1 objeto (FK N:1)
-  const linhas = await paginarConsulta<{ quantidade: number; valor_total: number; descricao: string | null; receitas: { data_emissao: string } }>(
+  //
+  // Correção Medium §4.2 — status_nf buscado junto e filtrado em JS,
+  // mesmo raciocínio de agregarProdutos() acima (não depender de
+  // sintaxe .or() não comprovada sobre coluna de embedded resource)
+  const linhas = await paginarConsulta<{ quantidade: number; valor_total: number; descricao: string | null; receitas: { data_emissao: string; status_nf: number | null } }>(
     (inicio, fim) =>
       client
         .from('receitas_itens')
-        .select('quantidade, valor_total, descricao, receitas!inner(data_emissao)')
+        .select('quantidade, valor_total, descricao, receitas!inner(data_emissao, status_nf)')
         .eq('descricao', nomeProduto)
         .gte('receitas.data_emissao', filtros.dataInicial)
         .lte('receitas.data_emissao', limiteSuperiorIntervalo(filtros.dataFinal))
         .range(inicio, fim) as unknown as PromiseLike<{
-          data: { quantidade: number; valor_total: number; descricao: string | null; receitas: { data_emissao: string } }[] | null
+          data: { quantidade: number; valor_total: number; descricao: string | null; receitas: { data_emissao: string; status_nf: number | null } }[] | null
           error: { message: string } | null
         }>,
   )
 
   const porMes = new Map<string, { quantidade: number; valor: number }>()
   for (const item of linhas) {
+    if (item.receitas.status_nf !== 100 && item.receitas.status_nf !== null) continue
     const mes = item.receitas.data_emissao.slice(0, 7)
     if (!porMes.has(mes)) porMes.set(mes, { quantidade: 0, valor: 0 })
     const g = porMes.get(mes)!
