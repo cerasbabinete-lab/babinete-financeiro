@@ -3,12 +3,16 @@
 // Projeto: Ceras Babinete — Gestão Financeira
 // Módulo: Contas a Pagar
 // Função: CRUD da tela de manutenção do roster de beneficiários
-//         (beneficiarios_pessoais) — GET lista tudo, PUT edita uma
-//         linha existente, POST cria uma linha nova. Sem DELETE
-//         nesta primeira versão (ver nota em
+//         (beneficiarios_pessoais) — GET lista tudo (ativos por
+//         padrão, ?incluirExcluidos=1 traz também os soft-deletados),
+//         PUT edita uma linha existente (inclusive reativar, com
+//         campos: { deleted_at: null }), POST cria uma linha nova,
+//         DELETE faz soft-delete de uma linha (nunca remoção física —
+//         QA fix 08/09/2026, a pedido do Maycon, ver nota completa em
 //         lib/contasAPagarService.ts::criarBeneficiarioRoster).
 // Conecta com: lib/contasAPagarService.ts (buscarRosterCompleto,
-//              atualizarBeneficiarioRoster, criarBeneficiarioRoster)
+//              atualizarBeneficiarioRoster, criarBeneficiarioRoster,
+//              excluirBeneficiarioRoster)
 // Referência: Especificacao_Modulo_Contas_a_Pagar.md, Seção 5,
 //             "Function: Manutenção do Roster"
 // ============================================================
@@ -16,7 +20,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 
-import { buscarRosterCompleto, atualizarBeneficiarioRoster, criarBeneficiarioRoster } from '@/lib/contasAPagarService'
+import { buscarRosterCompleto, atualizarBeneficiarioRoster, criarBeneficiarioRoster, excluirBeneficiarioRoster } from '@/lib/contasAPagarService'
 import type { BeneficiarioPessoalRosterPagar } from '@/types/contasAPagar'
 
 function getSupabaseAdmin() {
@@ -45,9 +49,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (authError || !user) return res.status(401).json({ erro: 'Não autorizado' })
 
   try {
-    // ── GET: lista todo o roster ──
+    // ── GET: lista o roster (ativos por padrão) ──
+    // FEATURE NOVA (08/09/2026): ?incluirExcluidos=1 traz também os
+    // soft-deletados — usado pelo toggle "Mostrar excluídos" da UI
     if (req.method === 'GET') {
-      const roster = await buscarRosterCompleto(supabaseAdmin)
+      const incluirExcluidos = req.query.incluirExcluidos === '1'
+      const roster = await buscarRosterCompleto(supabaseAdmin, incluirExcluidos)
       return res.status(200).json({ roster })
     }
 
@@ -69,6 +76,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       const beneficiarioCriado = await criarBeneficiarioRoster(dados, supabaseAdmin)
       return res.status(201).json({ beneficiario: beneficiarioCriado })
+    }
+
+    // ── DELETE: soft-delete de uma linha existente ──
+    // FEATURE NOVA (08/09/2026, a pedido do Maycon): id vem via query
+    // string (?id=...), não no corpo — requisições DELETE não têm
+    // corpo em todos os clientes HTTP de forma confiável, então
+    // seguimos o padrão convencional de REST pra este método
+    // específico (diferente do PUT/POST desta mesma rota, que usam
+    // corpo JSON normalmente)
+    if (req.method === 'DELETE') {
+      const id = typeof req.query.id === 'string' ? req.query.id : null
+      if (!id) {
+        return res.status(400).json({ erro: 'Parâmetro id é obrigatório.' })
+      }
+      const beneficiarioExcluido = await excluirBeneficiarioRoster(id, supabaseAdmin)
+      return res.status(200).json({ beneficiario: beneficiarioExcluido })
     }
 
     return res.status(405).json({ erro: 'Método não permitido' })

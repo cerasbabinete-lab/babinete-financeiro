@@ -102,10 +102,16 @@ export async function buscarBeneficiarioRosterPorDocumento(
   // três vem de texto livre do usuário, não há caractere que quebre a
   // sintaxe do filtro .or() do PostgREST. Mesma avaliação já
   // documentada em lib/pagar/motorConciliacao.ts.
+  // QA fix (08/09/2026, a pedido do Maycon — feature de Excluir no
+  // RosterBeneficiariosModal.tsx): filtra .is('deleted_at', null) —
+  // beneficiário excluído (soft-delete) não pode mais disparar sua
+  // regra de conciliação especial; documento passa a ser tratado como
+  // fornecedor genérico (mesmo comportamento de regra NULL)
   const { data: candidatos, error } = await supabaseAdmin
     .from('beneficiarios_pessoais')
-    .select('id, nome, cpf, cnpj, vinculo, aliases, endereco, regra_conciliacao_pagar, despesa_gerada_categoria, despesa_gerada_subtipo')
+    .select('id, nome, cpf, cnpj, vinculo, aliases, endereco, regra_conciliacao_pagar, despesa_gerada_categoria, despesa_gerada_subtipo, deleted_at')
     .not('regra_conciliacao_pagar', 'is', null)
+    .is('deleted_at', null)
     .or(`${colunaAlvo}.ilike.%${digitos}%${formatado ? `,${colunaAlvo}.ilike.%${formatado}%` : ''}`)
 
   // Erro de query — propaga para o motor de conciliação tratar

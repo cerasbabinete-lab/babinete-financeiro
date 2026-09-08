@@ -762,16 +762,27 @@ export async function reabrirTitulo(id: string, client: SupabaseClient = supabas
 
 // ============================================================
 // buscarRosterCompleto()
-// Lista todos os registros de beneficiarios_pessoais — tela de
-// manutenção mostra TODOS, não só os que já têm regra preenchida
+// Lista os registros de beneficiarios_pessoais — tela de manutenção
+// mostra TODOS os ativos, não só os que já têm regra preenchida
 // (usuário pode configurar uma regra nova numa linha que ainda não tem)
+// QA fix (08/09/2026, a pedido do Maycon — feature de Adicionar/
+// Excluir no RosterBeneficiariosModal.tsx): parâmetro incluirExcluidos
+// (default false) — a tela normal só mostra ativos; o toggle "Mostrar
+// excluídos" da UI passa true, pra permitir reativar um beneficiário
+// soft-deletado por engano
 // Chamado por: RosterBeneficiariosModal.tsx
 // ============================================================
-export async function buscarRosterCompleto(client: SupabaseClient = supabase): Promise<BeneficiarioPessoalRosterPagar[]> {
-  const { data, error } = await client
+export async function buscarRosterCompleto(client: SupabaseClient = supabase, incluirExcluidos: boolean = false): Promise<BeneficiarioPessoalRosterPagar[]> {
+  let query = client
     .from(TABELA_ROSTER)
     .select('*')
     .order('nome', { ascending: true })
+
+  if (!incluirExcluidos) {
+    query = query.is('deleted_at', null)
+  }
+
+  const { data, error } = await query
 
   if (error) {
     console.error('[contasAPagarService] buscarRosterCompleto error:', error)
@@ -811,12 +822,20 @@ export async function atualizarBeneficiarioRoster(
 // ============================================================
 // criarBeneficiarioRoster()
 // Cria uma nova linha no roster — caso futuro sócio/prestador precise
-// ser adicionado sem passar por SQL direto. NÃO existe função de
-// exclusão nesta primeira versão: o roster é compartilhado com a
-// classificação de origem do módulo Despesas (já em produção), e
-// remover uma linha poderia quebrar a atribuição de despesas
-// passadas — decisão de cautela, não pedida explicitamente na
-// Especificação, sinalizar se precisar de exclusão no futuro.
+// ser adicionado sem passar por SQL direto.
+// QA fix (08/09/2026, a pedido do Maycon): a nota antiga deste
+// comentário dizia "NÃO existe função de exclusão nesta primeira
+// versão [...] sinalizar se precisar de exclusão no futuro" — Maycon
+// pediu, ver excluirBeneficiarioRoster()/reativarBeneficiarioRoster()
+// logo abaixo. A cautela original (roster compartilhado com a
+// classificação de origem do módulo Despesas) foi resolvida com
+// soft-delete em vez de exclusão física: despesas já lançadas não têm
+// FK pra esta tabela (origem é gravada de forma denormalizada na
+// própria despesa no momento da classificação), então excluir uma
+// linha do roster não afeta nenhum histórico — só impede que ela
+// continue valendo para classificações/conciliações NOVAS
+// (lib/despesas/beneficiariosRoster.ts e
+// lib/pagar/rosterConciliacaoPagar.ts já filtram deleted_at IS NULL).
 // Chamado por: pages/api/pagar/roster.ts
 // ============================================================
 export async function criarBeneficiarioRoster(
@@ -831,6 +850,64 @@ export async function criarBeneficiarioRoster(
 
   if (error) {
     console.error('[contasAPagarService] criarBeneficiarioRoster error:', error)
+    throw new Error(error.message)
+  }
+
+  return data as BeneficiarioPessoalRosterPagar
+}
+
+// ============================================================
+// excluirBeneficiarioRoster()
+// FEATURE NOVA (08/09/2026, a pedido do Maycon): soft-delete de uma
+// linha do roster — nunca DELETE físico, mesma convenção do projeto
+// inteiro. Efeito: a linha some da tela de Contas a Pagar (por
+// padrão) e para de valer tanto para a classificação automática de
+// Despesas quanto para o motor de conciliação de Contas a Pagar (ver
+// nota completa em criarBeneficiarioRoster() acima) — sem apagar
+// nenhum dado nem quebrar histórico.
+// Chamado por: pages/api/pagar/roster.ts (método DELETE)
+// ============================================================
+export async function excluirBeneficiarioRoster(
+  id: string,
+  client: SupabaseClient = supabase,
+): Promise<BeneficiarioPessoalRosterPagar> {
+  const { data, error } = await client
+    .from(TABELA_ROSTER)
+    .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) {
+    console.error('[contasAPagarService] excluirBeneficiarioRoster error:', error)
+    throw new Error(error.message)
+  }
+
+  return data as BeneficiarioPessoalRosterPagar
+}
+
+// ============================================================
+// reativarBeneficiarioRoster()
+// FEATURE NOVA (08/09/2026, a pedido do Maycon): reverte o soft-delete
+// acima (deleted_at = null) — usada quando o usuário exclui um
+// beneficiário por engano, ou quer que ele volte a valer para
+// classificação/conciliação. Chamada pela UI a partir do modo "Mostrar
+// excluídos" do RosterBeneficiariosModal.tsx.
+// Chamado por: pages/api/pagar/roster.ts (método PUT, campos: { deleted_at: null })
+// ============================================================
+export async function reativarBeneficiarioRoster(
+  id: string,
+  client: SupabaseClient = supabase,
+): Promise<BeneficiarioPessoalRosterPagar> {
+  const { data, error } = await client
+    .from(TABELA_ROSTER)
+    .update({ deleted_at: null, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) {
+    console.error('[contasAPagarService] reativarBeneficiarioRoster error:', error)
     throw new Error(error.message)
   }
 

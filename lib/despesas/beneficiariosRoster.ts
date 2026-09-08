@@ -68,9 +68,15 @@ export async function buscarRosterBeneficiarios(
   // QA fix (achado Alto #1): inclui a coluna "endereco", necessária para
   // o sinal "endereço" comparar de fato contra o endereço de cada
   // beneficiário, em vez de apenas checar presença de texto
+  // QA fix (08/09/2026, a pedido do Maycon — feature de Excluir no
+  // RosterBeneficiariosModal.tsx): inclui "deleted_at" e filtra
+  // .is('deleted_at', null) — beneficiário excluído (soft-delete) na
+  // tela de Contas a Pagar não pode continuar sendo usado pela
+  // classificação automática de origem em Despesas
   const { data, error } = await supabaseAdmin
     .from('beneficiarios_pessoais') // tabela de produção — criada no item 1 do build
-    .select('id, nome, cpf, vinculo, aliases, endereco') // colunas necessárias para a classificação
+    .select('id, nome, cpf, vinculo, aliases, endereco, deleted_at') // colunas necessárias para a classificação
+    .is('deleted_at', null) // só beneficiários ativos participam da classificação automática
     .order('nome', { ascending: true }) // ordena por nome apenas para leitura/debug mais legível
 
   // Se a query falhar (ex: tabela inacessível, erro de rede),
@@ -90,6 +96,7 @@ export async function buscarRosterBeneficiarios(
     vinculo: linha.vinculo, // "socio" ou "prestador_mei"
     aliases: linha.aliases ?? [], // lista de apelidos cadastrados na linha, nunca null
     endereco: linha.endereco ?? null, // QA fix (achado Alto #1): endereço cadastrado do beneficiário, para comparação real no sinal "endereço"
+    deleted_at: linha.deleted_at ?? null, // QA fix (08/09/2026): sempre null aqui de fato, já filtrado na query acima — presente só para satisfazer o tipo
   }))
 }
 

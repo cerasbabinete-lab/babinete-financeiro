@@ -156,6 +156,12 @@ export default function ContasAPagarPage() {
   // ── Roster ──
   const [rosterAberto, setRosterAberto] = useState(false)
   const [roster, setRoster] = useState<BeneficiarioPessoalRosterPagar[]>([])
+  // FEATURE NOVA (08/09/2026, a pedido do Maycon): lembra se o toggle
+  // "Mostrar excluídos" do RosterBeneficiariosModal.tsx está ativo,
+  // pra todo refetch (salvar/criar/excluir/reativar) manter a mesma
+  // visão que o usuário já estava vendo, em vez de sempre voltar pra
+  // só ativos
+  const [rosterIncluirExcluidos, setRosterIncluirExcluidos] = useState(false)
 
   // ── Mobile ──
   const [isMobile, setIsMobile] = useState<boolean | null>(null)
@@ -511,17 +517,26 @@ export default function ContasAPagarPage() {
   // retorna nada e o botão parece simplesmente não funcionar. Corrige
   // indo pela rota /api/pagar/roster (GET) com Bearer token, mesmo
   // padrão do PUT.
+  // FEATURE NOVA (08/09/2026): helper compartilhado — busca a lista do
+  // roster respeitando o toggle "Mostrar excluídos" atual, usado por
+  // todos os handlers abaixo que precisam recarregar a lista depois de
+  // uma escrita (salvar/criar/excluir/reativar), pra manter a mesma
+  // visão que o usuário já estava vendo
+  async function buscarListaRoster(token: string, incluirExcluidos: boolean): Promise<BeneficiarioPessoalRosterPagar[]> {
+    const query = incluirExcluidos ? '?incluirExcluidos=1' : ''
+    const res = await fetch(`/api/pagar/roster${query}`, { headers: { 'Authorization': `Bearer ${token}` } })
+    if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.erro ?? 'Erro ao carregar roster') }
+    const { roster: lista } = await res.json()
+    return lista
+  }
+
   async function handleAbrirRoster() {
     try {
       const token = await obterToken()
-      const res = await fetch('/api/pagar/roster', {
-        headers: { 'Authorization': `Bearer ${token}` },
-      })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        throw new Error(j.erro ?? 'Erro ao carregar roster')
-      }
-      const { roster: lista } = await res.json()
+      // Sempre abre mostrando só ativos — toggle "Mostrar excluídos" é
+      // decisão nova de cada sessão de uso da tela, não persiste
+      setRosterIncluirExcluidos(false)
+      const lista = await buscarListaRoster(token, false)
       setRoster(lista)
       setRosterAberto(true)
     } catch (err: unknown) {
@@ -537,10 +552,50 @@ export default function ContasAPagarPage() {
       body: JSON.stringify({ id, campos }),
     })
     if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.erro ?? 'Erro ao salvar beneficiário') }
-    const resGet = await fetch('/api/pagar/roster', { headers: { 'Authorization': `Bearer ${token}` } })
-    if (!resGet.ok) { const j = await resGet.json().catch(() => ({})); throw new Error(j.erro ?? 'Erro ao recarregar roster') }
-    const { roster: lista } = await resGet.json()
-    setRoster(lista)
+    setRoster(await buscarListaRoster(token, rosterIncluirExcluidos))
+  }
+
+  // FEATURE NOVA (08/09/2026, a pedido do Maycon): cria uma linha nova no roster
+  async function handleCriarRosterItem(dados: Omit<BeneficiarioPessoalRosterPagar, 'id' | 'created_at' | 'updated_at'>) {
+    const token = await obterToken()
+    const res = await fetch('/api/pagar/roster', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(dados),
+    })
+    if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.erro ?? 'Erro ao criar beneficiário') }
+    setRoster(await buscarListaRoster(token, rosterIncluirExcluidos))
+  }
+
+  // FEATURE NOVA (08/09/2026, a pedido do Maycon): soft-delete de uma linha do roster
+  async function handleExcluirRosterItem(id: string) {
+    const token = await obterToken()
+    const res = await fetch(`/api/pagar/roster?id=${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+    if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.erro ?? 'Erro ao excluir beneficiário') }
+    setRoster(await buscarListaRoster(token, rosterIncluirExcluidos))
+  }
+
+  // FEATURE NOVA (08/09/2026, a pedido do Maycon): reverte o soft-delete de uma linha do roster
+  async function handleReativarRosterItem(id: string) {
+    const token = await obterToken()
+    const res = await fetch('/api/pagar/roster', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ id, campos: { deleted_at: null } }),
+    })
+    if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.erro ?? 'Erro ao reativar beneficiário') }
+    setRoster(await buscarListaRoster(token, rosterIncluirExcluidos))
+  }
+
+  // FEATURE NOVA (08/09/2026, a pedido do Maycon): acionado pelo toggle
+  // "Mostrar excluídos" do modal — recarrega a lista com/sem os soft-deletados
+  async function handleRecarregarRoster(incluirExcluidos: boolean) {
+    const token = await obterToken()
+    setRoster(await buscarListaRoster(token, incluirExcluidos))
+    setRosterIncluirExcluidos(incluirExcluidos)
   }
 
   if (authCarregando || isMobile === null) {
@@ -750,7 +805,15 @@ export default function ContasAPagarPage() {
       )}
 
       {rosterAberto && (
-        <RosterBeneficiariosModal roster={roster} onFechar={() => setRosterAberto(false)} onSalvar={handleSalvarRosterItem} />
+        <RosterBeneficiariosModal
+          roster={roster}
+          onFechar={() => setRosterAberto(false)}
+          onSalvar={handleSalvarRosterItem}
+          onCriar={handleCriarRosterItem}
+          onExcluir={handleExcluirRosterItem}
+          onReativar={handleReativarRosterItem}
+          onRecarregar={handleRecarregarRoster}
+        />
       )}
     </div>
   )

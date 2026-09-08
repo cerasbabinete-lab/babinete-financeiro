@@ -561,6 +561,14 @@ export interface BeneficiarioPessoalRoster {
   // SQL Editor do Supabase, mesmo processo manual já usado para as demais
   // colunas desta tabela (ver Handoff_Despesas_Modulo_Para_Deep_Code_Audit.md §3).
   endereco: string | null
+  // QA fix (08/09/2026, a pedido do Maycon — feature de Adicionar/Excluir
+  // no RosterBeneficiariosModal.tsx, módulo Contas a Pagar): soft-delete
+  // padrão do projeto, nunca DELETE físico. NULL = beneficiário ativo.
+  // Coluna adicionada via ALTER TABLE beneficiarios_pessoais (SQL colado
+  // manualmente pelo Maycon no Supabase SQL Editor, confirmado 08/09/2026).
+  // Propaga automaticamente para BeneficiarioPessoalRosterPagar
+  // (types/contasAPagar.ts), que estende esta interface.
+  deleted_at: string | null
 }
 
 
