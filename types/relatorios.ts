@@ -66,6 +66,7 @@ export type RelatorioSlug =
   | 'curva-abc'
   | 'gastos-por-tipo-fornecedor'
   | 'receita-despesa'
+  | 'totalizacao'
 
 // ============================================================
 // RelatorioCardInfo
@@ -389,4 +390,85 @@ export interface RelatorioReceitaDespesa {
     resultadoLiquido: number
   }
   grafico: DadosGrafico // tipo: 'barras_agrupadas' — Receita x Despesa por mês
+}
+
+// ============================================================
+// ────────────────────────────────────────────────────────────
+// 2.8 — RELATÓRIO TOTALIZAÇÃO
+// Listagem nota a nota de NF-e emitidas no período (não agregado
+// por mês, diferente dos demais 7 relatórios) — construído a
+// partir de um documento de referência de outro sistema (não faz
+// parte da spec original v1). Definido em sessão de brainstorm
+// (Passo 2 abreviado a pedido do Maycon — sem documento formal de
+// especificação gerado, decisões registradas diretamente no chat).
+// ────────────────────────────────────────────────────────────
+// ============================================================
+
+// CfopFiltroTotalizacao — classificação grosseira por 1º dígito do
+// CFOP: '5' = dentro do estado (PR), '6' = fora do estado,
+// 'outro' = qualquer coisa que não comece com 5 ou 6 (ex: 7.xxx,
+// exterior). Não filtra pelos 3 dígitos completos — o filtro
+// existe pra visão gerencial rápida, não pra classificação fiscal
+// fina (isso é papel da Organização Contábil Armelin, não deste
+// sistema)
+export type CfopFiltroTotalizacao = 'dentro_estado' | 'fora_estado' | 'outro'
+
+export interface FiltrosTotalizacao extends FiltroIntervaloDatas {
+  cfopFiltro?: CfopFiltroTotalizacao
+  clienteId?: number
+  // incluirFreteNoValor — decide se receitas.valor_frete entra na
+  // soma de valorTotal (card "Valor total"). Default false quando
+  // omitido (mantém o número já revisado por Maycon na 1ª rodada:
+  // Valor total = soma de valor_nf, sem frete). A coluna Frete em
+  // si SEMPRE aparece na tabela, independente deste filtro — o
+  // filtro só decide se ela conta no total agregado, não se é
+  // visível (decisão confirmada: "muda o cálculo do Valor Total",
+  // não é toggle de exibição de coluna)
+  incluirFreteNoValor?: boolean
+}
+
+export interface ItemTotalizacao {
+  numeroNf: number
+  dataEmissao: string // 'YYYY-MM-DD'
+  cfop: string | null // null só é possível se a nota não tiver nenhum item com cfop preenchido (dado antigo/incompleto)
+  clienteId: number | null
+  clienteNome: string // exibido sob o rótulo "Razão Social" na tela e nos dois formatos exportados
+  valor: number // receitas.valor_nf — NUNCA muda com incluirFreteNoValor; é o frete que entra ou não no agregado, não o valor da nota em si
+  desconto: number // receitas.fatura_valor_desconto — desconto por condição de pagamento (à vista / boleto curto) OU benefício comercial do cliente; este relatório mostra o valor, não distingue a causa (decisão registrada no chat, não é omissão)
+  frete: number // receitas.valor_frete — sempre visível como coluna própria; entra ou não em valorTotal conforme filtros.incluirFreteNoValor
+}
+
+export interface RelatorioTotalizacao {
+  filtros: FiltrosTotalizacao
+  itens: ItemTotalizacao[]
+  totalNotas: number
+  valorTotal: number // soma de valor + (frete, se filtros.incluirFreteNoValor)
+  descontoTotal: number
+  freteTotal: number // soma de frete — sempre calculado e exibido em card próprio, independente do filtro (o filtro decide só se ele SOMA no valorTotal, não se aparece)
+}
+
+// ClienteOpcaoFiltro — populamento do dropdown de cliente da tela
+// (Seção do filtro, decidido: dropdown, não busca livre)
+export interface ClienteOpcaoFiltro {
+  id: number
+  nome: string
+}
+
+// ComparacaoPeriodosTotalizacao — dado do modo "Comparar períodos"
+// do gráfico (Passo 3 da entrevista abreviada). NÃO é um DadosGrafico
+// padrão — decidido não forçar essa comparação nos 5 tipos de
+// gráfico compartilhados (linha/barras/barras_agrupadas/pareto/
+// pizza), porque a comparação mistura 2 métricas de escala muito
+// diferente (R$ e contagem de notas) que não cabem no mesmo eixo.
+// Renderizado por um componente próprio (ComparacaoPeriodosTotalizacao.tsx),
+// não por GraficoSvg.tsx — e por isso também NÃO aparece no PDF/Excel
+// exportado (decisão registrada no chat: exportação leva só o
+// gráfico "Mês a mês", que é DadosGrafico tipo 'barras' padrão)
+export interface ComparacaoPeriodosResultado {
+  periodoA: FiltroIntervaloDatas
+  periodoB: FiltroIntervaloDatas
+  valorTotalA: number
+  valorTotalB: number
+  notasA: number
+  notasB: number
 }

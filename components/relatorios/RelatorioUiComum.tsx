@@ -47,6 +47,7 @@ export function BarraFiltroExportar({
   exportando,
   podeExportar,
   filtrosExtras,
+  opcoesExportacaoExtras,
 }: {
   dataInicial: string
   dataFinal: string
@@ -58,6 +59,13 @@ export function BarraFiltroExportar({
   exportando: 'pdf' | 'xlsx' | null
   podeExportar: boolean
   filtrosExtras?: ReactNode
+  // opcoesExportacaoExtras — slot opcional renderizado entre o
+  // espaçador e o botão "Exportar PDF", pra controles que afetam
+  // O QUE a exportação inclui (ex: checkbox "Incluir gráfico" do
+  // relatório Totalização), não um filtro de dado como
+  // filtrosExtras. Opcional e aditivo — nenhum dos 7 relatórios
+  // anteriores passa essa prop, renderização deles não muda
+  opcoesExportacaoExtras?: ReactNode
 }) {
   return (
     <div
@@ -89,6 +97,8 @@ export function BarraFiltroExportar({
       </button>
 
       <div style={{ flex: 1 }} />
+
+      {opcoesExportacaoExtras}
 
       <button onClick={onExportarPdf} disabled={exportando !== null || !podeExportar} style={estilosRelatorio.botaoSecundario}>
         <i className="ti ti-file-type-pdf" aria-hidden="true" /> {exportando === 'pdf' ? 'Gerando...' : 'Exportar PDF'}

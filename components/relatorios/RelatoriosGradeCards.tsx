@@ -70,6 +70,12 @@ const CARDS: RelatorioCardInfo[] = [
     descricaoCurta: 'Comparativo mensal de receita e despesa, em valores brutos e líquidos, com resultado do período.',
     icone: 'chart-bar',
   },
+  {
+    slug: 'totalizacao',
+    titulo: 'Relatório Totalização',
+    descricaoCurta: 'Listagem de notas fiscais emitidas no período, com CFOP, cliente e totais.',
+    icone: 'receipt',
+  },
 ]
 
 // ============================================================

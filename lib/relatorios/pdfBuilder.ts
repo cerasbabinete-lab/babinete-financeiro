@@ -295,9 +295,39 @@ export function desenharTabela(
     return
   }
 
+  // Padding vertical de cada linha de dado — topo replica o offset
+  // y+5 já usado no desenho de texto logo abaixo; base calibrada
+  // com doc.heightOfString() real (Helvetica 8pt = 9.248pt de altura
+  // de 1 linha — medido, não estimado) para que uma linha de 1 linha
+  // só resulte em EXATAMENTE ALTURA_LINHA (18pt), preservando 100%
+  // o visual dos 7 relatórios existentes. Só linha que precisa
+  // quebrar em 2+ linhas (razão social longa, relatório 2.8) recebe
+  // altura extra de verdade.
+  const PADDING_VERTICAL_LINHA_TOPO = 5
+  const PADDING_VERTICAL_LINHA_BASE = 3.75
+
   linhas.forEach((linha, index) => {
+    // CORREÇÃO pós-entrega (relatório 2.8, Totalização) — mesmo bug
+    // de "texto não cabe, quebra linha, próxima peça sobrepõe" já
+    // corrigido 2x antes nesta função e em desenharCartoesResumo()
+    // (ver comentário no topo desta função), agora nas LINHAS DE
+    // DADO da tabela: nenhum relatório anterior (2.1 a 2.7) tinha
+    // coluna de texto livre longo o bastante pra quebrar (razão
+    // social de cliente, no relatório 2.8, quebra com frequência
+    // real). Com ALTURA_LINHA fixa em 18pt, um nome que precisasse
+    // de 2 linhas tinha sua 2ª linha desenhada sem espaço reservado
+    // — a linha seguinte da tabela começava a desenhar por cima.
+    // Fix: mesmo princípio de altura medida (não assumida) — cada
+    // linha mede sua própria altura de conteúdo ANTES de decidir
+    // quebra de página, desenhar o zebrado e avançar doc.y.
+    doc.font('Helvetica').fontSize(8)
+    const alturaConteudo = Math.max(
+      ...colunas.map((col, i) => doc.heightOfString(linha[col.chave] ?? '—', { width: larguras[i] - 12 })),
+    )
+    const alturaLinha = Math.max(ALTURA_LINHA, alturaConteudo + PADDING_VERTICAL_LINHA_TOPO + PADDING_VERTICAL_LINHA_BASE)
+
     // Quebra de página — deixa espaço para o rodapé (MARGEM.bottom)
-    if (doc.y + ALTURA_LINHA > ALTURA_PAGINA_A4 - MARGEM.bottom) {
+    if (doc.y + alturaLinha > ALTURA_PAGINA_A4 - MARGEM.bottom) {
       doc.addPage()
       doc.y = MARGEM.top
       desenharCabecalhoTabela()
@@ -305,17 +335,17 @@ export function desenharTabela(
 
     const y = doc.y
     if (index % 2 !== 0) {
-      doc.rect(MARGEM.left, y, LARGURA_UTIL, ALTURA_LINHA).fill(COR_ZEBRA)
+      doc.rect(MARGEM.left, y, LARGURA_UTIL, alturaLinha).fill(COR_ZEBRA)
     }
 
     let x = MARGEM.left
     colunas.forEach((col, i) => {
       doc.font('Helvetica').fontSize(8).fillColor(COR_TEXTO)
-         .text(linha[col.chave] ?? '—', x + 6, y + 5, { width: larguras[i] - 12, align: col.alinhamento ?? 'left' })
+         .text(linha[col.chave] ?? '—', x + 6, y + PADDING_VERTICAL_LINHA_TOPO, { width: larguras[i] - 12, align: col.alinhamento ?? 'left' })
       x += larguras[i]
     })
 
-    doc.y = y + ALTURA_LINHA
+    doc.y = y + alturaLinha
   })
 }
 
