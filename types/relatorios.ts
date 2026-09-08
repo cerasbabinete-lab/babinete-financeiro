@@ -67,6 +67,7 @@ export type RelatorioSlug =
   | 'gastos-por-tipo-fornecedor'
   | 'receita-despesa'
   | 'totalizacao'
+  | 'totalizacao-despesas'
 
 // ============================================================
 // RelatorioCardInfo
@@ -471,4 +472,78 @@ export interface ComparacaoPeriodosResultado {
   valorTotalB: number
   notasA: number
   notasB: number
+}
+
+// ============================================================
+// ────────────────────────────────────────────────────────────
+// 2.9 — RELATÓRIO TOTALIZAÇÃO DE DESPESAS
+// Relatório irmão do 2.8 — listagem documento a documento de
+// despesas lançadas no período, mesmo formato (não agregado por
+// mês). Definido em sessão de brainstorm curta (mockup aprovado
+// por Maycon antes do build, ver Artifact publicado na conversa —
+// sem documento formal de especificação gerado, mesmo tratamento
+// dado ao 2.8).
+//
+// Diferenças deliberadas em relação ao 2.8 (Receitas):
+//   - CFOP não existe em despesas (conceito de venda/NF-e de
+//     saída) — substituído por Tipo de Fornecedor
+//     (fornecedores.tipo_fornecedor_id → fornecedor_categorias,
+//     mesmo campo dinâmico já usado no relatório 2.6)
+//   - Sem coluna/card Frete — não existe esse campo em despesas,
+//     e semanticamente não faz sentido (despesa já É o gasto)
+//   - Sem coluna/card Desconto nem Juros/Multa — despesas tem os
+//     dois campos (valor_desconto, valor_juros_multa), mas Maycon
+//     pediu explicitamente para não exibir nenhum dos dois nesta
+//     versão; "Valor" mostra valor_original (face do documento),
+//     igual ao valor_nf de Receitas
+// ────────────────────────────────────────────────────────────
+// ============================================================
+
+export interface FiltrosTotalizacaoDespesas extends FiltroIntervaloDatas {
+  // tipoFornecedorFiltro — id de fornecedor_categorias, ou
+  // 'nao_classificado' pro grupo virtual (mesma convenção do
+  // relatório 2.6, tipo TipoFornecedorOuNaoClassificado já
+  // existente). Ausente/undefined = Todos, sem filtro
+  tipoFornecedorFiltro?: TipoFornecedorOuNaoClassificado
+  fornecedorId?: number
+}
+
+export interface ItemTotalizacaoDespesas {
+  documentoNumero: string | null // despesas.documento_numero — pode ser NULL (recibo/holerite raramente tem número), exibido como "—"
+  dataEmissao: string // 'YYYY-MM-DD' — despesas.documento_data_emissao, com fallback created_at quando nula (mesma convenção do 2.6)
+  vencimento: string | null // 'YYYY-MM-DD' — vencimento não existe em despesas, vive em despesas_parcelas (1 despesa pode ter N parcelas). Mesma regra já em produção em DespesasTabela.tsx: menor data_vencimento entre as parcelas ATIVAS (deleted_at IS NULL) desta despesa. NULL só quando a despesa não tem nenhuma parcela ativa (ex: todas as parcelas foram excluídas)
+  tipoFornecedor: TipoFornecedorOuNaoClassificado // fornecedores.tipo_fornecedor_id do fornecedor_id desta despesa, ou 'nao_classificado'
+  tipoFornecedorRotulo: string // nome da categoria resolvido AO VIVO em fornecedor_categorias no momento da geração — nunca armazenado/cacheado, mesma exigência do 2.6 (renomear uma categoria reflete no próximo relatório gerado)
+  fornecedorId: number
+  favorecidoNome: string // despesas.favorecido_nome — já denormalizado na própria despesa, equivalente ao cliente_nome de Receitas
+  valor: number // despesas.valor_original — face do documento, antes de desconto/juros. NÃO é valor_total (esse já reflete ajustes, decisão registrada: fora de escopo desta versão)
+}
+
+export interface RelatorioTotalizacaoDespesas {
+  filtros: FiltrosTotalizacaoDespesas
+  itens: ItemTotalizacaoDespesas[]
+  totalDespesas: number
+  valorTotal: number // soma de valor_original — sem desconto, sem juros/multa (decisão registrada, não omissão)
+}
+
+// FornecedorOpcaoFiltro — populamento do dropdown de fornecedor da
+// tela (mesmo padrão do ClienteOpcaoFiltro do 2.8: dropdown, não
+// busca livre)
+export interface FornecedorOpcaoFiltro {
+  id: number
+  nome: string
+}
+
+// ComparacaoPeriodosResultadoDespesas — mesmo formato do
+// ComparacaoPeriodosResultado do 2.8, mas com campo próprio
+// despesasA/despesasB em vez de notasA/notasB (nome mais preciso
+// pro domínio de Despesas — reaproveitar o tipo de Receitas com o
+// campo chamado "notas" seria confuso pra quem ler o código depois)
+export interface ComparacaoPeriodosResultadoDespesas {
+  periodoA: FiltroIntervaloDatas
+  periodoB: FiltroIntervaloDatas
+  valorTotalA: number
+  valorTotalB: number
+  despesasA: number
+  despesasB: number
 }

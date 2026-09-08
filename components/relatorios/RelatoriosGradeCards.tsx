@@ -76,6 +76,12 @@ const CARDS: RelatorioCardInfo[] = [
     descricaoCurta: 'Listagem de notas fiscais emitidas no período, com CFOP, cliente e totais.',
     icone: 'receipt',
   },
+  {
+    slug: 'totalizacao-despesas',
+    titulo: 'Relatório Totalização de Despesas',
+    descricaoCurta: 'Listagem de despesas lançadas no período, com tipo de fornecedor, favorecido e totais.',
+    icone: 'receipt-2',
+  },
 ]
 
 // ============================================================
