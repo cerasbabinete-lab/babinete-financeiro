@@ -182,7 +182,7 @@ export default function ContasReceberMobileList({
         <>
           {/* Overlay escuro */}
           <div
-            onClick={() => { setSheetId(null); setConfirmandoId(null) }}
+            onClick={() => { setSheetId(null); setAcaoConfirmando(null) }}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 300 }}
           />
 

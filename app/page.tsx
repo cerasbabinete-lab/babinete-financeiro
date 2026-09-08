@@ -249,7 +249,6 @@ export default function HomePage() {
         <Drawer
           isOpen={drawerAberto}
           onClose={() => setDrawerAberto(false)} // Fecha ao clicar no overlay ou no X interno
-          usuario={usuario}                       // Nome do usuário exibido no footer do Drawer
         />
       )}
     </div>

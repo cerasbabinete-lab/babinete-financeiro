@@ -94,7 +94,7 @@ export default function NavBar() {
         {MODULOS.map((modulo, index) => {
           const ativo = modulo.href === '/'
             ? pathname === '/'
-            : pathname === modulo.href || pathname.startsWith(modulo.href + '/')
+            : pathname !== null && (pathname === modulo.href || pathname.startsWith(modulo.href + '/'))
 
           // QA fix (achado Médio #18): módulo desabilitado (ainda sem rota
           // construída) renderiza como <span> cinza, sem href — nunca gera

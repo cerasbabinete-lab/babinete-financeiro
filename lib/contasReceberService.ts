@@ -1264,12 +1264,34 @@ export async function processarRegistrosXls(
   for (const reg of registros) {
     // 1. Busca título pelo nosso_numero — mesmo campo único do BB
     //    usado pelo RET, garantindo a mesma lógica de matching
-    const { data: titulo } = await supabase
+    let { data: titulo } = await supabase
       .from(TABELA)
       .select('id, status')
       .eq('nosso_numero', reg.nossoNumero)
       .is('deleted_at', null) // Cancelados não recebem atualização automática
       .maybeSingle()
+
+    // 1b. Fallback — mesmo mecanismo de gerarPreviewImportacao(): quando o
+    //     Nosso Número não bate com nada, tenta casar por Número do
+    //     Documento + Valor, só em títulos que ainda não têm nosso_numero.
+    //     Precisa espelhar exatamente a mesma regra da prévia — senão a
+    //     prévia promete uma vinculação que esta função nunca aplicaria.
+    let viaFallback = false
+    if (!titulo) {
+      const { data: tituloFallback } = await supabase
+        .from(TABELA)
+        .select('id, status')
+        .eq('numero_documento', reg.numeroDocumento)
+        .eq('valor', reg.valor)
+        .is('deleted_at', null)
+        .is('nosso_numero', null)
+        .maybeSingle()
+
+      if (tituloFallback) {
+        titulo = tituloFallback
+        viaFallback = true
+      }
+    }
 
     if (!titulo) {
       naoEncontrados++
@@ -1288,6 +1310,82 @@ export async function processarRegistrosXls(
     //    literalmente na tabela), evitando ficar restrito a um
     //    texto fixo enviado pelo BB
     const novoStatus = mapearSituacaoXls(reg.situacao)
+
+    // ── Ramo exclusivo do fallback ──────────────────────────────
+    // O título veio do fallback (nunca tinha nosso_numero) — a
+    // vinculação precisa acontecer AGORA, independente de a Situação
+    // trazer ou não uma mudança de status real. Sem este ramo, um
+    // título achado via fallback com Situação já igual ao status
+    // atual (o caso mais comum — "Normal" num título já em_aberto)
+    // nunca seria vinculado de fato, quebrando a promessa da prévia.
+    if (viaFallback) {
+      const statusFinal = novoStatus ?? (titulo.status as StatusTitulo)
+
+      const updateData: Partial<ContaReceber> = {
+        nosso_numero: reg.nossoNumero, // Vínculo que o fallback existe pra fazer
+        status:       statusFinal,
+      }
+      if (statusFinal === 'pago') {
+        updateData.data_baixa  = reg.dataSituacao ?? new Date().toISOString().slice(0, 10)
+        updateData.forma_baixa = 'xls'
+      }
+
+      const { error: errUpd } = await supabase
+        .from(TABELA)
+        .update(updateData)
+        .eq('id', titulo.id)
+
+      if (errUpd) {
+        detalhes.push({
+          nossoNumero:     reg.nossoNumero,
+          numeroDocumento: reg.numeroDocumento,
+          resultado:       'erro',
+          descricao:       `Erro ao vincular Nosso Número: ${errUpd.message}`,
+        })
+        continue
+      }
+
+      // Evento de vinculação — sempre registrado neste ramo
+      await registrarEvento(
+        titulo.id,
+        'nosso_numero_vinculado',
+        `Nosso Número ${reg.nossoNumero} vinculado via import XLS (casado por Nº Documento + Valor).`,
+      )
+
+      // Evento de mudança de status — só quando houve mudança real
+      const houveMudancaStatus = novoStatus !== null && novoStatus !== titulo.status
+      if (houveMudancaStatus) {
+        const tipoEvento: TipoEvento = novoStatus === 'pago'
+          ? 'baixa_ret'
+          : novoStatus === 'protestado'
+          ? 'protestado'
+          : novoStatus === 'enviado_cartorio'
+          ? 'enviado_cartorio'
+          : 'ocorrencia_informativa'
+
+        await registrarEvento(
+          titulo.id,
+          tipoEvento,
+          `Situação "${reg.situacao}" (relatório XLS BB)${reg.dataSituacao ? ` em ${formatarDataBR(reg.dataSituacao)}` : ''} — status atualizado para "${novoStatus}".`,
+        )
+      }
+
+      if (statusFinal === 'pago') {
+        baixados++
+      } else {
+        atualizados++ // Conta como atualização mesmo quando o único efeito real foi vincular o Nosso Número
+      }
+
+      detalhes.push({
+        nossoNumero:     reg.nossoNumero,
+        numeroDocumento: reg.numeroDocumento,
+        resultado:       statusFinal === 'pago' ? 'baixado' : 'vinculado',
+        descricao:       houveMudancaStatus
+          ? `Nosso Número vinculado (Nº Doc + Valor) — "${reg.situacao}" — status atualizado para "${novoStatus}".`
+          : `Nosso Número vinculado (Nº Doc + Valor) — Situação "${reg.situacao}" sem mudança de status.`,
+      })
+      continue
+    }
 
     if (!novoStatus) {
       // Situação desconhecida — não altera o status, mas registra
@@ -1423,11 +1521,13 @@ function mapearSituacaoXls(situacao: string): StatusTitulo | null {
 // Chamado por: ContasReceberHeader.tsx antes de abrir o modal de prévia
 // ============================================================
 export interface ItemPreviewImportacao {
-  nossoNumero:      string         // Nosso Número do título
-  numeroDocumento:  string         // Nº documento — para exibição
-  statusAtual:      StatusTitulo   // Status atual do título no banco
-  statusNovo:        StatusTitulo  // Status que será aplicado
-  encontrado:        boolean       // false = não encontrado, fica em lista separada
+  nossoNumero:         string         // Nosso Número do título (do arquivo importado)
+  numeroDocumento:     string         // Nº documento — para exibição
+  statusAtual:         StatusTitulo   // Status atual do título no banco
+  statusNovo:          StatusTitulo   // Status que será aplicado
+  encontrado:          boolean        // false = não encontrado, fica em lista separada
+  viaFallback:         boolean        // true = encontrado por Nº Documento + Valor (só XLS), não por Nosso Número
+  vinculaNossoNumero:  boolean        // true = ao confirmar, o Nosso Número do arquivo será gravado neste título
 }
 
 export async function gerarPreviewImportacao(
@@ -1441,12 +1541,39 @@ export async function gerarPreviewImportacao(
   for (const reg of registros) {
     // 1. Busca o título atual pelo nosso_numero — mesma lógica de
     //    processarRegistrosRet()/processarRegistrosXls(), só sem UPDATE
-    const { data: titulo } = await supabase
+    let { data: titulo } = await supabase
       .from(TABELA)
-      .select('status, numero_documento')
+      .select('status, numero_documento, nosso_numero')
       .eq('nosso_numero', reg.nossoNumero)
       .is('deleted_at', null)
       .maybeSingle()
+
+    // 1b. Fallback exclusivo do XLS — RET não carrega Número do Documento
+    //     no Segmento T (ver retParser.ts), então não há dado pra tentar
+    //     isso na importação de RET. Quando o Nosso Número do arquivo não
+    //     bate com nenhum título (comum em títulos antigos sem TXT BB/REM
+    //     importado), tenta casar por Número do Documento + Valor — mesma
+    //     ideia de dupla-chave de processarRegistrosTxtBb() (que usa
+    //     Vencimento em vez de Valor, pois RegistroXls não traz Vencimento).
+    //     Só considera títulos que AINDA não têm nosso_numero — nunca
+    //     rouba um título já vinculado a outro Nosso Número.
+    let viaFallback = false
+    if (!titulo && origem === 'xls') {
+      const regXls = reg as RegistroXls
+      const { data: tituloFallback } = await supabase
+        .from(TABELA)
+        .select('status, numero_documento, nosso_numero')
+        .eq('numero_documento', regXls.numeroDocumento)
+        .eq('valor', regXls.valor)
+        .is('deleted_at', null)
+        .is('nosso_numero', null)
+        .maybeSingle()
+
+      if (tituloFallback) {
+        titulo = tituloFallback
+        viaFallback = true
+      }
+    }
 
     // 2. Determina o status que SERIA aplicado, conforme a origem
     const statusNovo = origem === 'ret'
@@ -1457,26 +1584,38 @@ export async function gerarPreviewImportacao(
       ? ('numeroDocumento' in reg ? reg.numeroDocumento : '—')
       : titulo.numero_documento
 
+    // vinculaNossoNumero: só é true quando o título veio do fallback —
+    // sinaliza que confirmar a prévia vai gravar o Nosso Número do
+    // arquivo neste título (ele ainda não tinha nenhum)
+    const vinculaNossoNumero = viaFallback
+
     if (!titulo) {
       naoEncontrados.push({
-        nossoNumero:     reg.nossoNumero,
+        nossoNumero:         reg.nossoNumero,
         numeroDocumento,
-        statusAtual:     'em_aberto', // Irrelevante — título não existe no sistema
-        statusNovo:      statusNovo ?? 'em_aberto',
-        encontrado:      false,
+        statusAtual:         'em_aberto', // Irrelevante — título não existe no sistema
+        statusNovo:          statusNovo ?? 'em_aberto',
+        encontrado:          false,
+        viaFallback:         false,
+        vinculaNossoNumero:  false,
       })
       continue
     }
 
-    // 3. Só entra na lista de mudanças se houver de fato uma alteração
-    //    de status a aplicar (situação reconhecida e diferente da atual)
-    if (statusNovo && statusNovo !== titulo.status) {
+    // 3. Entra na lista de mudanças quando há alteração de status a
+    //    aplicar (situação reconhecida e diferente da atual) OU quando
+    //    o único efeito da confirmação é vincular o Nosso Número (achado
+    //    via fallback) — sem esse segundo caso, a vinculação nunca
+    //    apareceria na prévia nem seria de fato aplicada na confirmação
+    if ((statusNovo && statusNovo !== titulo.status) || vinculaNossoNumero) {
       mudancas.push({
-        nossoNumero:     reg.nossoNumero,
+        nossoNumero:         reg.nossoNumero,
         numeroDocumento,
-        statusAtual:     titulo.status as StatusTitulo,
-        statusNovo,
-        encontrado:      true,
+        statusAtual:         titulo.status as StatusTitulo,
+        statusNovo:          statusNovo ?? (titulo.status as StatusTitulo),
+        encontrado:          true,
+        viaFallback,
+        vinculaNossoNumero,
       })
     }
   }

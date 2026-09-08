@@ -110,7 +110,7 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
           {MODULOS.map(modulo => {
             const ativo = modulo.href === '/'
               ? pathname === '/'
-              : pathname === modulo.href || pathname.startsWith(modulo.href + '/')
+              : pathname !== null && (pathname === modulo.href || pathname.startsWith(modulo.href + '/'))
 
             // QA fix (achado Médio #18): módulo desabilitado renderiza como
             // <div> cinza, sem navegação — nunca gera um <Link> para uma
