@@ -68,7 +68,13 @@ function separarCnpjCpf(cnpjCpf: string | null): { cnpj?: string; cpf?: string }
 // dentro do valor de um filtro — escapamos vírgula, parênteses e a
 // própria barra invertida antes de montar a string do .or().
 // ------------------------------------------------------------
-function escaparParaFiltroOr(valor: string): string {
+// EXPORTADA a partir desta sessão — reaproveitada por
+// lib/relatorios/rankingProdutos.ts (busca de produto por descrição
+// OU código de barras no drill-down, Seção 2 do relatório 2.10).
+// Mesmo raciocínio: valor de descrição de produto real já visto em
+// produção contém vírgula (ex: "CAIXA SPRAY AMARELO 3,5MM 500G"),
+// quebraria o filtro .or() sem este escape
+export function escaparParaFiltroOr(valor: string): string {
   return valor
     .replace(/\\/g, '\\\\') // escapa a barra invertida primeiro, para não escapar duplamente os próximos
     .replace(/,/g, '\\,') // escapa vírgula (separador de condições no .or())

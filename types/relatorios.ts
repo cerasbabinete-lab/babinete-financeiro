@@ -68,6 +68,7 @@ export type RelatorioSlug =
   | 'receita-despesa'
   | 'totalizacao'
   | 'totalizacao-despesas'
+  | 'ranking-produtos'
 
 // ============================================================
 // RelatorioCardInfo
@@ -546,4 +547,93 @@ export interface ComparacaoPeriodosResultadoDespesas {
   valorTotalB: number
   despesasA: number
   despesasB: number
+}
+
+// ============================================================
+// ────────────────────────────────────────────────────────────
+// 2.10 — RELATÓRIO RANKING DE PRODUTOS
+// Duas seções INDEPENDENTES entre si (período, gráfico e
+// exportação próprios de cada uma — decisão explícita de Maycon,
+// repetida em 3 perguntas diferentes da sessão de brainstorm):
+//   - Seção 1, "ranking geral": todos os produtos vendidos no
+//     período, ordenável por Quantidade ou Valor, sem limite de
+//     linhas
+//   - Seção 2, "drill-down": 1 produto escolhido por busca (não
+//     preenchido a partir do clique no ranking — decisão explícita),
+//     quebrado por cliente
+// Fonte: receitas_itens + receitas!inner(...) — mesma tabela e
+// mesmo filtro de status_nf (100 ou NULL) que a dimensão Produtos
+// do Curva ABC (2.5) já usa. Agrupamento por `descricao`, não
+// `codigo_produto` — mesma decisão do 2.5 e mesmo motivo (código
+// não é preenchido de forma consistente em toda NF-e)
+// Referência: mockup aprovado por Maycon (Artifact publicado na
+// conversa) — sem documento formal de especificação gerado
+// ────────────────────────────────────────────────────────────
+// ============================================================
+
+export interface ItemRankingProduto {
+  codigoProduto: string | null // código MAIS FREQUENTE entre os vistos pra esta descrição dentro do período filtrado — null se a descrição nunca teve código preenchido em nenhuma nota do período
+  descricao: string
+  quantidade: number
+  valor: number
+}
+
+export interface RelatorioRankingGeralProdutos {
+  filtros: FiltroIntervaloDatas
+  itens: ItemRankingProduto[] // pré-ordenado por quantidade desc no backend; reordenação por clique no cabeçalho é local, em memória, na tela (não refaz a consulta)
+}
+
+// ProdutoOpcaoFiltro — popula a busca/autocomplete da Seção 2.
+// Lista TODAS as descrições distintas já vendidas em algum momento
+// (sem filtro de período — o produto pode não ter vendas no período
+// que o usuário for escolher depois, mas ainda precisa aparecer na
+// busca pra ele poder trocar o período). codigoProduto (mesmo
+// critério de "mais frequente" já usado no ranking) também vira
+// opção própria na busca — corrige bug reportado por Maycon: buscar
+// pelo código de barras (ex: "7898280390545") não achava nada,
+// porque a busca só considerava descrição
+export interface ProdutoOpcaoFiltro {
+  descricao: string
+  codigoProduto: string | null
+}
+
+export interface FiltrosDrillDownProdutoRanking extends FiltroIntervaloDatas {
+  // Apesar do nome do campo, aceita descrição OU código de produto —
+  // a consulta casa qualquer um dos dois (ver buscarItensNoIntervalo
+  // em lib/relatorios/rankingProdutos.ts). Nome mantido por não
+  // valer a pena o raio de alteração de renomear em UI/API/tipo só
+  // por causa disso — o comentário aqui já deixa claro pra quem ler
+  descricaoProduto: string
+}
+
+export interface ItemClienteProduto {
+  clienteId: number | null // receitas.cliente_id é nullable (venda avulsa/consumidor não cadastrado) — agrupamento cai para o nome nesse caso, ver nota em lib/relatorios/rankingProdutos.ts
+  clienteNome: string
+  quantidade: number
+  valor: number
+  numeroNotas: number // NF-e DISTINTAS (receita_id), não contagem de linha — o mesmo produto pode aparecer 2x na mesma nota
+}
+
+export interface RelatorioDrillDownProdutoRanking {
+  filtros: FiltrosDrillDownProdutoRanking
+  descricaoResolvida: string // nome de exibição — descrição MAIS FREQUENTE entre as linhas encontradas, mesmo quando filtros.descricaoProduto era na verdade um código de barras digitado, não o texto da descrição
+  codigoProduto: string | null // mesmo critério de "mais frequente" do ranking geral, calculado dentro do período deste filtro (não do histórico inteiro do produto)
+  itens: ItemClienteProduto[] // pré-ordenado por quantidade desc — único critério, sem reordenação por clique (diferente da Seção 1)
+  quantidadeTotal: number
+  valorTotal: number
+  clientesDistintos: number
+}
+
+// ComparacaoPeriodosResultadoProdutos — reaproveitado pelas DUAS
+// seções (mesmo formato, semântica diferente por contexto: "todos
+// os produtos" na Seção 1, "1 produto" na Seção 2) — ao contrário
+// do par 2.8/2.9, aqui é o MESMO relatório, então reaproveitar o
+// tipo não confunde quem lê o código depois
+export interface ComparacaoPeriodosResultadoProdutos {
+  periodoA: FiltroIntervaloDatas
+  periodoB: FiltroIntervaloDatas
+  quantidadeA: number
+  quantidadeB: number
+  valorTotalA: number
+  valorTotalB: number
 }

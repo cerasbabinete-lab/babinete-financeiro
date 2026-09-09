@@ -82,6 +82,12 @@ const CARDS: RelatorioCardInfo[] = [
     descricaoCurta: 'Listagem de despesas lançadas no período, com tipo de fornecedor, favorecido e totais.',
     icone: 'receipt-2',
   },
+  {
+    slug: 'ranking-produtos',
+    titulo: 'Relatório Ranking de Produtos',
+    descricaoCurta: 'Ranking de produtos mais vendidos por quantidade e valor, com detalhamento de quem comprou cada produto.',
+    icone: 'trophy',
+  },
 ]
 
 // ============================================================
