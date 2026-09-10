@@ -131,16 +131,23 @@ export async function gerarRelatorioTotalizacao(
   // expressar isso na consulta de receitas — o cfop só existe
   // depois do join manual do passo 2) e ordena (Maycon: crescente
   // por número de NF-e e data de emissão) ────────────────────────
-  let itens: ItemTotalizacao[] = linhasReceitas.map(r => ({
-    numeroNf: r.numero_nf,
-    dataEmissao: r.data_emissao.slice(0, 10),
-    cfop: mapaCfop.get(r.id) ?? null,
-    clienteId: r.cliente_id,
-    clienteNome: r.cliente_nome ?? '—',
-    valor: Number(r.valor_nf) || 0,
-    desconto: Number(r.fatura_valor_desconto) || 0,
-    frete: Number(r.valor_frete) || 0,
-  }))
+  let itens: ItemTotalizacao[] = linhasReceitas.map(r => {
+    const valorOriginal = Number(r.valor_nf) || 0
+    const desconto = Number(r.fatura_valor_desconto) || 0
+    const frete = Number(r.valor_frete) || 0
+    return {
+      numeroNf: r.numero_nf,
+      dataEmissao: r.data_emissao.slice(0, 10),
+      cfop: mapaCfop.get(r.id) ?? null,
+      clienteId: r.cliente_id,
+      clienteNome: r.cliente_nome ?? '—',
+      valorOriginal,
+      valor: valorOriginal, // CORREÇÃO: vNF já é vProd - desconto + frete por definição do padrão de NF-e — aplicar essa fórmula de novo em cima do valor_nf já armazenado era dupla contagem. "Valor" = valor_nf puro, sem nenhuma conta adicional.
+      desconto,
+      frete,
+      valorLiquido: valorOriginal - desconto - frete, // usa valorOriginal, não a coluna "valor" já ajustada — evita subtrair desconto/frete 2 vezes
+    }
+  })
 
   if (filtros.cfopFiltro) {
     itens = itens.filter(i => classificarCfop(i.cfop) === filtros.cfopFiltro)
@@ -148,20 +155,22 @@ export async function gerarRelatorioTotalizacao(
 
   itens.sort((a, b) => a.numeroNf - b.numeroNf || a.dataEmissao.localeCompare(b.dataEmissao))
 
-  // Frete SEMPRE somado em freteTotal (card sempre visível), mas só
-  // entra em valorTotal quando filtros.incluirFreteNoValor — decisão
-  // confirmada: o filtro muda o CÁLCULO do Valor Total, a coluna
-  // Frete em si não some da tabela em nenhum dos dois estados
+  // Filtro incluirFreteNoValor ficou sem efeito aqui — a coluna
+  // "valor" já embute frete incondicionalmente pela nova fórmula
+  // (ver comentário em FiltrosTotalizacao, types/relatorios.ts)
   const freteTotal = itens.reduce((s, i) => s + i.frete, 0)
-  const valorTotal = itens.reduce((s, i) => s + i.valor, 0) + (filtros.incluirFreteNoValor ? freteTotal : 0)
+  const valorTotal = itens.reduce((s, i) => s + i.valor, 0)
+  const descontoTotal = itens.reduce((s, i) => s + i.desconto, 0)
+  const valorOriginalTotal = itens.reduce((s, i) => s + i.valorOriginal, 0)
 
   return {
     filtros,
     itens,
     totalNotas: itens.length,
     valorTotal,
-    descontoTotal: itens.reduce((s, i) => s + i.desconto, 0),
+    descontoTotal,
     freteTotal,
+    valorLiquido: valorOriginalTotal - descontoTotal - freteTotal,
   }
 }
 

@@ -163,6 +163,7 @@ export default function TotalizacaoRelatorio() {
             <CartaoResumoUi rotulo="Valor total" valor={formatarMoeda(relatorio.valorTotal)} />
             <CartaoResumoUi rotulo="Desconto total" valor={formatarMoeda(relatorio.descontoTotal)} />
             <CartaoResumoUi rotulo="Frete total" valor={formatarMoeda(relatorio.freteTotal)} />
+            <CartaoResumoUi rotulo="Valor líquido" valor={formatarMoeda(relatorio.valorLiquido)} />
           </div>
 
           {/* Módulo de gráfico — sempre visível, escopo de data
@@ -214,11 +215,12 @@ export default function TotalizacaoRelatorio() {
                   <th style={{ ...estilosRelatorio.th, textAlign: 'right' }}>Valor</th>
                   <th style={{ ...estilosRelatorio.th, textAlign: 'right' }}>Desconto</th>
                   <th style={{ ...estilosRelatorio.th, textAlign: 'right' }}>Frete</th>
+                  <th style={{ ...estilosRelatorio.th, textAlign: 'right' }}>Valor Líquido</th>
                 </tr>
               </thead>
               <tbody>
                 {relatorio.itens.length === 0 ? (
-                  <tr><td colSpan={8} style={{ padding: '24px', textAlign: 'center', color: '#5a84a6' }}>Nenhuma nota no período selecionado.</td></tr>
+                  <tr><td colSpan={9} style={{ padding: '24px', textAlign: 'center', color: '#5a84a6' }}>Nenhuma nota no período selecionado.</td></tr>
                 ) : (
                   relatorio.itens.map((item, i) => (
                     <tr key={`${item.numeroNf}-${item.dataEmissao}`} style={{ background: i % 2 !== 0 ? '#f7fafc' : '#ffffff', borderBottom: '1px solid #e8f0f7' }}>
@@ -230,6 +232,7 @@ export default function TotalizacaoRelatorio() {
                       <td style={{ ...estilosRelatorio.td, textAlign: 'right' }}>{formatarMoeda(item.valor)}</td>
                       <td style={{ ...estilosRelatorio.td, textAlign: 'right' }}>{formatarMoeda(item.desconto)}</td>
                       <td style={{ ...estilosRelatorio.td, textAlign: 'right' }}>{formatarMoeda(item.frete)}</td>
+                      <td style={{ ...estilosRelatorio.td, textAlign: 'right' }}>{formatarMoeda(item.valorLiquido)}</td>
                     </tr>
                   ))
                 )}

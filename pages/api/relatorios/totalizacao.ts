@@ -73,6 +73,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       valor: formatarMoeda(item.valor),
       desconto: formatarMoeda(item.desconto),
       frete: formatarMoeda(item.frete),
+      valorLiquido: formatarMoeda(item.valorLiquido),
     }))
 
     const cartoes: CartaoResumo[] = [
@@ -80,6 +81,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       { rotulo: 'Valor total', valor: formatarMoeda(relatorio.valorTotal) },
       { rotulo: 'Desconto total', valor: formatarMoeda(relatorio.descontoTotal) },
       { rotulo: 'Frete total', valor: formatarMoeda(relatorio.freteTotal) },
+      { rotulo: 'Valor líquido', valor: formatarMoeda(relatorio.valorLiquido) },
     ]
 
     if (formato === 'pdf') {
@@ -100,6 +102,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         { chave: 'valor', rotulo: 'Valor', larguraProporcional: 0.85, alinhamento: 'right' },
         { chave: 'desconto', rotulo: 'Desconto', larguraProporcional: 0.85, alinhamento: 'right' },
         { chave: 'frete', rotulo: 'Frete', larguraProporcional: 0.75, alinhamento: 'right' },
+        { chave: 'valorLiquido', rotulo: 'Valor Líquido', larguraProporcional: 0.95, alinhamento: 'right' },
       ]
       desenharTabela(doc, colunas, linhasTabela)
       finalizarComRodape(doc)
@@ -124,6 +127,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       { chave: 'valor', rotulo: 'Valor', larguraCaracteres: 16 },
       { chave: 'desconto', rotulo: 'Desconto', larguraCaracteres: 16 },
       { chave: 'frete', rotulo: 'Frete', larguraCaracteres: 16 },
+      { chave: 'valorLiquido', rotulo: 'Valor Líquido', larguraCaracteres: 16 },
     ]
     const buffer = gerarBufferExcel({
       nomeAba: 'Totalização',

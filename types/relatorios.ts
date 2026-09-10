@@ -418,14 +418,13 @@ export type CfopFiltroTotalizacao = 'dentro_estado' | 'fora_estado' | 'outro'
 export interface FiltrosTotalizacao extends FiltroIntervaloDatas {
   cfopFiltro?: CfopFiltroTotalizacao
   clienteId?: number
-  // incluirFreteNoValor — decide se receitas.valor_frete entra na
-  // soma de valorTotal (card "Valor total"). Default false quando
-  // omitido (mantém o número já revisado por Maycon na 1ª rodada:
-  // Valor total = soma de valor_nf, sem frete). A coluna Frete em
-  // si SEMPRE aparece na tabela, independente deste filtro — o
-  // filtro só decide se ela conta no total agregado, não se é
-  // visível (decisão confirmada: "muda o cálculo do Valor Total",
-  // não é toggle de exibição de coluna)
+  // incluirFreteNoValor — HISTÓRICO: antes decidia se frete entrava
+  // na soma de valorTotal. Desde a mudança de fórmula da coluna
+  // "Valor" (agora sempre valorOriginal - desconto + frete, frete
+  // já embutido incondicionalmente), este filtro ficou SEM EFEITO
+  // no cálculo — mantido no tipo e na tela só para não quebrar a UI
+  // existente sem autorização explícita para removê-la. Sinalizado
+  // ao Maycon; aguardando decisão se remove o controle da tela.
   incluirFreteNoValor?: boolean
 }
 
@@ -435,18 +434,21 @@ export interface ItemTotalizacao {
   cfop: string | null // null só é possível se a nota não tiver nenhum item com cfop preenchido (dado antigo/incompleto)
   clienteId: number | null
   clienteNome: string // exibido sob o rótulo "Razão Social" na tela e nos dois formatos exportados
-  valor: number // receitas.valor_nf — NUNCA muda com incluirFreteNoValor; é o frete que entra ou não no agregado, não o valor da nota em si
+  valorOriginal: number // receitas.valor_nf (campo vNF do XML) — valor final da nota, já líquido de desconto e ajustado por frete PELA PRÓPRIA NF-e (vNF = vProd - desconto + frete é a fórmula do padrão fiscal, calculada antes de chegar no nosso banco)
+  valor: number // COLUNA "Valor" exibida = valorOriginal, sem nenhuma conta adicional (correção — ver histórico de commits: uma versão anterior aplicou "- desconto + frete" de novo em cima do vNF, gerando dupla contagem)
   desconto: number // receitas.fatura_valor_desconto — desconto por condição de pagamento (à vista / boleto curto) OU benefício comercial do cliente; este relatório mostra o valor, não distingue a causa (decisão registrada no chat, não é omissão)
-  frete: number // receitas.valor_frete — sempre visível como coluna própria; entra ou não em valorTotal conforme filtros.incluirFreteNoValor
+  frete: number // receitas.valor_frete — sempre visível como coluna própria
+  valorLiquido: number // valorOriginal - desconto - frete — usa valorOriginal (não a coluna "valor" já ajustada acima), pra não subtrair desconto/frete 2 vezes
 }
 
 export interface RelatorioTotalizacao {
   filtros: FiltrosTotalizacao
   itens: ItemTotalizacao[]
   totalNotas: number
-  valorTotal: number // soma de valor + (frete, se filtros.incluirFreteNoValor)
+  valorTotal: number // soma da coluna "valor" (já com a fórmula valorOriginal - desconto + frete aplicada por linha)
   descontoTotal: number
-  freteTotal: number // soma de frete — sempre calculado e exibido em card próprio, independente do filtro (o filtro decide só se ele SOMA no valorTotal, não se aparece)
+  freteTotal: number // soma de frete — sempre calculado e exibido em card próprio
+  valorLiquido: number // soma de valorOriginal - descontoTotal - freteTotal (usa valorOriginal, não a coluna "valor" já ajustada, pra não subtrair 2 vezes)
 }
 
 // ClienteOpcaoFiltro — populamento do dropdown de cliente da tela
