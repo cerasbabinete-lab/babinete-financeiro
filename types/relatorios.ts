@@ -435,10 +435,10 @@ export interface ItemTotalizacao {
   clienteId: number | null
   clienteNome: string // exibido sob o rótulo "Razão Social" na tela e nos dois formatos exportados
   valorOriginal: number // receitas.valor_nf (campo vNF do XML) — valor final da nota, já líquido de desconto e ajustado por frete PELA PRÓPRIA NF-e (vNF = vProd - desconto + frete é a fórmula do padrão fiscal, calculada antes de chegar no nosso banco)
-  valor: number // COLUNA "Valor" exibida = valorOriginal, sem nenhuma conta adicional (correção — ver histórico de commits: uma versão anterior aplicou "- desconto + frete" de novo em cima do vNF, gerando dupla contagem)
+  valor: number // COLUNA "Valor" exibida = valorOriginal + desconto - frete = vProd (valor dos produtos, "valor original" no sentido que o Maycon usa). Verificado contra o XML real da nota 5478: vNF(665,73) + desconto(33,45) - frete(30,00) = vProd(669,18). Duas versões anteriores tiveram o sinal errado (uma somava desconto e subtraía frete ao contrário, outra não aplicava fórmula nenhuma) — esta é a testada contra o documento fiscal oficial.
   desconto: number // receitas.fatura_valor_desconto — desconto por condição de pagamento (à vista / boleto curto) OU benefício comercial do cliente; este relatório mostra o valor, não distingue a causa (decisão registrada no chat, não é omissão)
   frete: number // receitas.valor_frete — sempre visível como coluna própria
-  valorLiquido: number // valorOriginal - desconto - frete — usa valorOriginal (não a coluna "valor" já ajustada acima), pra não subtrair desconto/frete 2 vezes
+  valorLiquido: number // valor(vProd) - desconto - frete — usa a coluna "valor" já corrigida (vProd) como base, igual à instrução original "Valor total - desconto - frete"
 }
 
 export interface RelatorioTotalizacao {
@@ -448,7 +448,7 @@ export interface RelatorioTotalizacao {
   valorTotal: number // soma da coluna "valor" (já com a fórmula valorOriginal - desconto + frete aplicada por linha)
   descontoTotal: number
   freteTotal: number // soma de frete — sempre calculado e exibido em card próprio
-  valorLiquido: number // soma de valorOriginal - descontoTotal - freteTotal (usa valorOriginal, não a coluna "valor" já ajustada, pra não subtrair 2 vezes)
+  valorLiquido: number // valorTotal(soma de vProd) - descontoTotal - freteTotal — igual à instrução original "Valor total - desconto - frete"
 }
 
 // ClienteOpcaoFiltro — populamento do dropdown de cliente da tela
