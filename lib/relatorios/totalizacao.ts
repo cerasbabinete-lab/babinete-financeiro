@@ -141,11 +141,11 @@ export async function gerarRelatorioTotalizacao(
       cfop: mapaCfop.get(r.id) ?? null,
       clienteId: r.cliente_id,
       clienteNome: r.cliente_nome ?? '—',
-      valorOriginal,
-      valor: valorOriginal, // CORREÇÃO: vNF já é vProd - desconto + frete por definição do padrão de NF-e — aplicar essa fórmula de novo em cima do valor_nf já armazenado era dupla contagem. "Valor" = valor_nf puro, sem nenhuma conta adicional.
+      valorOriginal, // receitas.valor_nf = vNF (valor final da nota, já com desconto/frete aplicados pela própria NF-e)
+      valor: valorOriginal + desconto - frete, // = vProd (valor dos produtos, "valor original" no sentido que o Maycon usa) — verificado contra XML real da nota 5478: vNF(665,73) + desconto(33,45) - frete(30,00) = vProd(669,18). Fórmula com o sinal certo, confirmada contra o documento fiscal, não contra relato de tela.
       desconto,
       frete,
-      valorLiquido: valorOriginal - desconto - frete, // usa valorOriginal, não a coluna "valor" já ajustada — evita subtrair desconto/frete 2 vezes
+      valorLiquido: (valorOriginal + desconto - frete) - desconto - frete, // = valor(vProd) - desconto - frete, igual à instrução original "Valor total - desconto - frete", agora com "Valor" correto (vProd) como base
     }
   })
 
@@ -161,7 +161,6 @@ export async function gerarRelatorioTotalizacao(
   const freteTotal = itens.reduce((s, i) => s + i.frete, 0)
   const valorTotal = itens.reduce((s, i) => s + i.valor, 0)
   const descontoTotal = itens.reduce((s, i) => s + i.desconto, 0)
-  const valorOriginalTotal = itens.reduce((s, i) => s + i.valorOriginal, 0)
 
   return {
     filtros,
@@ -170,7 +169,7 @@ export async function gerarRelatorioTotalizacao(
     valorTotal,
     descontoTotal,
     freteTotal,
-    valorLiquido: valorOriginalTotal - descontoTotal - freteTotal,
+    valorLiquido: valorTotal - descontoTotal - freteTotal, // usa valorTotal (soma da coluna Valor, já = vProd) — igual à instrução original "Valor total - desconto - frete"
   }
 }
 
