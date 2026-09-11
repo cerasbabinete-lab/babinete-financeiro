@@ -31,6 +31,13 @@ import { CATEGORIA_FINANCEIRA_LABELS, ORIGEM_TIPO_LABELS, STATUS_PAGAMENTO_LABEL
 // CONSTANTES
 // ============================================================
 const TABELA           = 'despesas'
+// TABELA_LEITURA: view mascarada (sql/despesas_contas_pagar.sql) —
+// mesmo padrão de lib/clientesService.ts. Funciona também quando
+// chamada com client admin/service-role (rotas de API server-side):
+// auth.uid() retorna null nesse caso, então
+// usuario_atual_eh_visitante() dá false e a view devolve dado real
+// sem nenhum tratamento especial necessário aqui.
+const TABELA_LEITURA    = 'despesas_visitante'
 const TABELA_PARCELAS  = 'despesas_parcelas'
 
 // ============================================================
@@ -125,7 +132,7 @@ export async function buscarDespesas(filtros: FiltrosDespesas): Promise<Despesa[
 // ============================================================
 export async function contarDespesas(): Promise<number> {
   const { count, error } = await supabase
-    .from(TABELA)
+    .from(TABELA_LEITURA)
     .select('*', { count: 'exact', head: true })
     .is('deleted_at', null)
 

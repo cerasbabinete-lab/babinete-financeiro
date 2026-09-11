@@ -235,6 +235,14 @@ ALTER TABLE beneficiarios_pessoais ADD COLUMN IF NOT EXISTS cnpj TEXT;
 ALTER TABLE beneficiarios_pessoais ADD COLUMN IF NOT EXISTS regra_conciliacao_pagar TEXT;
 ALTER TABLE beneficiarios_pessoais ADD COLUMN IF NOT EXISTS despesa_gerada_categoria TEXT;
 ALTER TABLE beneficiarios_pessoais ADD COLUMN IF NOT EXISTS despesa_gerada_subtipo TEXT;
+-- ACHADO nesta sessão (27/08/2026): excluirBeneficiarioRoster()/
+-- reativarBeneficiarioRoster() em lib/contasAPagarService.ts já
+-- usam deleted_at nesta tabela — a coluna existe de verdade no
+-- banco, mas nunca tinha sido registrada em nenhum ALTER TABLE
+-- rastreado. Adicionado aqui pra fechar o desvio entre o SQL
+-- documentado e o que está em produção (idempotente — seguro rodar
+-- mesmo já existindo).
+ALTER TABLE beneficiarios_pessoais ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
 DO $$
 BEGIN
@@ -590,3 +598,210 @@ FROM (
 ) sub
 WHERE d.id = sub.despesa_id
   AND d.status_pagamento = 'pago_parcial';
+
+-- ── Row Level Security (27/08/2026) ──────────────────────────
+-- Nenhuma das 7 tabelas deste módulo tinha RLS até agora. Algumas
+-- operações já passam por pages/api/despesas|pagar/*.ts com service
+-- role (bypassa RLS, já protegidas pelo proxy.ts) — mas criação
+-- básica e outras ações ainda vão direto do navegador pro Supabase
+-- (client anon), e é esse caminho que RLS fecha aqui. Leitura
+-- continua liberada pra todo autenticado — nada muda para
+-- Admin/equipe. usuario_atual_eh_visitante() está definida em
+-- sql/usuarios.sql — rode aquele arquivo ANTES deste.
+-- ACHADO CRÍTICO nesta sessão (confirmado via pg_policies, mesmo
+-- problema de sql/clientes.sql): "despesas" e "despesas_parcelas"
+-- já tinham policy de SELECT antiga ("despesas_select"/
+-- "despesas_parcelas_select"), criada fora do controle de versão,
+-- permissiva e sem checagem de Visitante. Sem derrubar
+-- explicitamente, ela coexistiria com a policy nova e a anularia
+-- por completo (Postgres combina policies permissivas com OU).
+-- As outras 5 tabelas do loop abaixo foram confirmadas SEM nenhuma
+-- policy pré-existente.
+DROP POLICY IF EXISTS "despesas_select" ON despesas;
+DROP POLICY IF EXISTS "despesas_insert" ON despesas;
+DROP POLICY IF EXISTS "despesas_update" ON despesas;
+DROP POLICY IF EXISTS "despesas_delete" ON despesas;
+DROP POLICY IF EXISTS "despesas_parcelas_select" ON despesas_parcelas;
+DROP POLICY IF EXISTS "despesas_parcelas_insert" ON despesas_parcelas;
+DROP POLICY IF EXISTS "despesas_parcelas_update" ON despesas_parcelas;
+DROP POLICY IF EXISTS "despesas_parcelas_delete" ON despesas_parcelas;
+
+DO $$
+DECLARE
+  tabela text;
+BEGIN
+  FOREACH tabela IN ARRAY ARRAY[
+    'despesas', 'despesas_parcelas', 'beneficiarios_pessoais',
+    'contas_a_pagar', 'contas_a_pagar_eventos',
+    'pagar_arquivos_importados', 'pagar_comprovantes_processados'
+  ]
+  LOOP
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tabela);
+
+    EXECUTE format('DROP POLICY IF EXISTS "select_autenticados" ON %I', tabela);
+    EXECUTE format(
+      'CREATE POLICY "select_autenticados" ON %I FOR SELECT TO authenticated USING (true)',
+      tabela
+    );
+
+    EXECUTE format('DROP POLICY IF EXISTS "insert_bloqueia_visitante" ON %I', tabela);
+    EXECUTE format(
+      'CREATE POLICY "insert_bloqueia_visitante" ON %I FOR INSERT TO authenticated WITH CHECK (NOT (SELECT usuario_atual_eh_visitante()))',
+      tabela
+    );
+
+    EXECUTE format('DROP POLICY IF EXISTS "update_bloqueia_visitante" ON %I', tabela);
+    EXECUTE format(
+      'CREATE POLICY "update_bloqueia_visitante" ON %I FOR UPDATE TO authenticated USING (NOT (SELECT usuario_atual_eh_visitante()))',
+      tabela
+    );
+
+    EXECUTE format('DROP POLICY IF EXISTS "delete_bloqueia_visitante" ON %I', tabela);
+    EXECUTE format(
+      'CREATE POLICY "delete_bloqueia_visitante" ON %I FOR DELETE TO authenticated USING (NOT (SELECT usuario_atual_eh_visitante()))',
+      tabela
+    );
+  END LOOP;
+END $$;
+
+-- ── Parte 2 (27/08/2026): mascaramento pro Visitante ─────────
+-- Mesmo mecanismo de sql/clientes.sql (ver aquele arquivo para a
+-- explicação completa). Bloqueia SELECT direto nas tabelas reais
+-- (senão a view não adianta nada) e cria uma view mascarada por
+-- tabela. Ids aqui são UUID, não numérico — uso hashtext(id::text)
+-- como gerador determinístico (mesma linha sempre mostra o mesmo
+-- dado fictício, sem trocar a cada carregamento).
+DO $$
+DECLARE
+  tabela text;
+BEGIN
+  FOREACH tabela IN ARRAY ARRAY[
+    'despesas', 'despesas_parcelas', 'beneficiarios_pessoais',
+    'contas_a_pagar', 'contas_a_pagar_eventos'
+  ]
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS "select_autenticados" ON %I', tabela);
+    EXECUTE format('DROP POLICY IF EXISTS "select_bloqueia_visitante_na_tabela_real" ON %I', tabela);
+    EXECUTE format(
+      'CREATE POLICY "select_bloqueia_visitante_na_tabela_real" ON %I FOR SELECT TO authenticated USING (NOT (SELECT usuario_atual_eh_visitante()))',
+      tabela
+    );
+  END LOOP;
+END $$;
+
+-- despesas_visitante
+CREATE OR REPLACE VIEW despesas_visitante AS
+SELECT
+  d.id,
+  d.tipo_documento,
+  d.categoria_financeira,
+  CASE WHEN v.eh_visitante THEN 'Favorecido exemplo #' || lpad((abs(hashtext(d.id::text)) % 1000)::text, 3, '0') ELSE d.favorecido_nome END AS favorecido_nome,
+  CASE WHEN v.eh_visitante AND d.favorecido_cnpj_cpf IS NOT NULL THEN lpad((abs(hashtext(d.id::text || 'doc')) % 100000000000000)::text, 14, '0') ELSE d.favorecido_cnpj_cpf END AS favorecido_cnpj_cpf,
+  CASE WHEN v.eh_visitante THEN NULL ELSE d.favorecido_endereco END AS favorecido_endereco,
+  d.fornecedor_id,
+  d.fornecedor_auto_criado,
+  d.origem_tipo,
+  CASE WHEN v.eh_visitante THEN NULL ELSE d.origem_beneficiario_nome END AS origem_beneficiario_nome,
+  CASE WHEN v.eh_visitante THEN NULL ELSE d.origem_beneficiario_cpf END AS origem_beneficiario_cpf,
+  d.origem_beneficiario_vinculo,
+  d.origem_classificacao_status,
+  d.origem_criterios_batidos,
+  CASE WHEN v.eh_visitante THEN NULL ELSE d.origem_ia_sugestao END AS origem_ia_sugestao,
+  CASE WHEN v.eh_visitante THEN NULL ELSE d.documento_numero END AS documento_numero,
+  d.documento_data_emissao,
+  d.documento_competencia,
+  CASE WHEN v.eh_visitante THEN (500 + abs(hashtext(d.id::text || 'v1')) % 49500)::numeric(12,2) ELSE d.valor_original END AS valor_original,
+  CASE WHEN v.eh_visitante THEN 0::numeric ELSE d.valor_desconto END AS valor_desconto,
+  CASE WHEN v.eh_visitante THEN 0::numeric ELSE d.valor_juros_multa END AS valor_juros_multa,
+  CASE WHEN v.eh_visitante THEN (500 + abs(hashtext(d.id::text || 'v1')) % 49500)::numeric(12,2) ELSE d.valor_total END AS valor_total,
+  d.status_pagamento,
+  d.extensao_categoria,
+  d.origem_entrada,
+  d.created_at,
+  d.updated_at,
+  d.deleted_at
+FROM despesas d, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON despesas_visitante TO authenticated;
+
+-- despesas_parcelas_visitante
+CREATE OR REPLACE VIEW despesas_parcelas_visitante AS
+SELECT
+  p.id,
+  p.despesa_id,
+  p.numero_parcela,
+  p.total_parcelas,
+  CASE WHEN v.eh_visitante THEN (500 + abs(hashtext(p.id::text || 'v1')) % 49500)::numeric(12,2) ELSE p.valor END AS valor,
+  p.data_vencimento,
+  CASE WHEN v.eh_visitante THEN NULL ELSE p.linha_digitavel END AS linha_digitavel,
+  CASE WHEN v.eh_visitante THEN NULL ELSE p.codigo_barras END AS codigo_barras,
+  CASE WHEN v.eh_visitante THEN NULL ELSE p.nosso_numero END AS nosso_numero,
+  p.pode_gerar_segunda_via,
+  p.status,
+  p.created_at,
+  p.updated_at,
+  p.deleted_at
+FROM despesas_parcelas p, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON despesas_parcelas_visitante TO authenticated;
+
+-- beneficiarios_pessoais_visitante
+CREATE OR REPLACE VIEW beneficiarios_pessoais_visitante AS
+SELECT
+  b.id,
+  CASE WHEN v.eh_visitante THEN 'Beneficiário exemplo #' || lpad((abs(hashtext(b.id::text)) % 1000)::text, 3, '0') ELSE b.nome END AS nome,
+  CASE WHEN v.eh_visitante AND b.cpf IS NOT NULL THEN lpad((abs(hashtext(b.id::text || 'doc')) % 100000000000)::text, 11, '0') ELSE b.cpf END AS cpf,
+  b.vinculo,
+  CASE WHEN v.eh_visitante THEN '{}'::text[] ELSE b.aliases END AS aliases,
+  CASE WHEN v.eh_visitante THEN NULL ELSE b.endereco END AS endereco,
+  b.created_at,
+  b.updated_at,
+  CASE WHEN v.eh_visitante AND b.cnpj IS NOT NULL THEN lpad((abs(hashtext(b.id::text || 'doc2')) % 100000000000000)::text, 14, '0') ELSE b.cnpj END AS cnpj,
+  b.regra_conciliacao_pagar,
+  b.despesa_gerada_categoria,
+  b.despesa_gerada_subtipo,
+  b.deleted_at
+FROM beneficiarios_pessoais b, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON beneficiarios_pessoais_visitante TO authenticated;
+
+-- contas_a_pagar_visitante
+CREATE OR REPLACE VIEW contas_a_pagar_visitante AS
+SELECT
+  c.id,
+  c.despesa_parcela_id,
+  c.despesa_id,
+  c.fornecedor_id,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.numero_documento END AS numero_documento,
+  c.data_vencimento,
+  c.data_processamento,
+  CASE WHEN v.eh_visitante THEN (500 + abs(hashtext(c.id::text || 'v1')) % 49500)::numeric(12,2) ELSE c.valor END AS valor,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.nosso_numero END AS nosso_numero,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.linha_digitavel END AS linha_digitavel,
+  c.status,
+  c.data_baixa,
+  c.forma_baixa,
+  CASE WHEN v.eh_visitante THEN 'Favorecido exemplo #' || lpad((abs(hashtext(c.id::text)) % 1000)::text, 3, '0') ELSE c.favorecido_nome END AS favorecido_nome,
+  CASE WHEN v.eh_visitante AND c.favorecido_cnpj_cpf IS NOT NULL THEN lpad((abs(hashtext(c.id::text || 'doc')) % 100000000000000)::text, 14, '0') ELSE c.favorecido_cnpj_cpf END AS favorecido_cnpj_cpf,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.favorecido_endereco END AS favorecido_endereco,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.favorecido_dados_bancarios END AS favorecido_dados_bancarios,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.observacoes END AS observacoes,
+  c.deleted_at,
+  c.created_at,
+  c.updated_at
+FROM contas_a_pagar c, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON contas_a_pagar_visitante TO authenticated;
+
+-- contas_a_pagar_eventos_visitante
+CREATE OR REPLACE VIEW contas_a_pagar_eventos_visitante AS
+SELECT
+  e.id,
+  e.titulo_id,
+  e.tipo,
+  CASE WHEN v.eh_visitante THEN 'Evento de exemplo' ELSE e.descricao END AS descricao,
+  CASE WHEN v.eh_visitante AND e.valor_pago IS NOT NULL THEN (500 + abs(hashtext(e.id::text || 'v1')) % 49500)::numeric(12,2) ELSE e.valor_pago END AS valor_pago,
+  e.created_at
+FROM contas_a_pagar_eventos e, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON contas_a_pagar_eventos_visitante TO authenticated;

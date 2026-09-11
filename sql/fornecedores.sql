@@ -135,8 +135,20 @@ BEGIN
 END $$;
 
 -- uf: TEXT -> CHAR(2). Seguro porque confirmado nesta sessão que
--- nenhuma linha existente tem valor de uf com mais de 2 caracteres
-ALTER TABLE fornecedores ALTER COLUMN uf TYPE CHAR(2);
+-- nenhuma linha existente tem valor de uf com mais de 2 caracteres.
+-- CONDICIONAL (11/09/2026): Postgres recusa ALTER COLUMN TYPE numa
+-- coluna que uma view depende (fornecedores_visitante usa uf),
+-- mesmo mudando pro mesmo tipo que já é — então isso só pode rodar
+-- ANTES da view existir. Envolvido num bloco condicional checando o
+-- tipo atual primeiro, pra não quebrar numa segunda execução do
+-- arquivo depois que a view já foi criada.
+DO $$
+BEGIN
+  IF (SELECT data_type FROM information_schema.columns
+      WHERE table_name = 'fornecedores' AND column_name = 'uf') != 'character' THEN
+    ALTER TABLE fornecedores ALTER COLUMN uf TYPE CHAR(2);
+  END IF;
+END $$;
 
 -- ── Normalização de dado — string vazia não é a mesma coisa que
 -- ausência de documento. Idempotente por natureza: depois da
@@ -147,8 +159,16 @@ UPDATE fornecedores SET cnpj = NULL WHERE cnpj = '';
 
 -- UNIQUE parcial — confirmado por Maycon nesta sessão: sem duplicata
 -- real de cnpj; cpf normalizado acima antes de aplicar
-CREATE UNIQUE INDEX IF NOT EXISTS fornecedores_cnpj_key ON fornecedores (cnpj) WHERE cnpj IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS fornecedores_cpf_key ON fornecedores (cpf) WHERE cpf IS NOT NULL;
+-- AJUSTADO (11/09/2026, mesmo achado de sql/clientes.sql): adicionado
+-- deleted_at IS NULL — sem isso, um fornecedor soft-deletado trava o
+-- cadastro de um novo com o mesmo documento. DROP antes do CREATE
+-- porque a versão antiga (sem essa condição) já tinha sido criada
+-- com sucesso — CREATE UNIQUE INDEX IF NOT EXISTS não atualiza a
+-- definição de um índice que já existe com esse nome.
+DROP INDEX IF EXISTS fornecedores_cnpj_key;
+DROP INDEX IF EXISTS fornecedores_cpf_key;
+CREATE UNIQUE INDEX IF NOT EXISTS fornecedores_cnpj_key ON fornecedores (cnpj) WHERE cnpj IS NOT NULL AND deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS fornecedores_cpf_key ON fornecedores (cpf) WHERE cpf IS NOT NULL AND deleted_at IS NULL;
 
 
 -- ============================================================
@@ -357,21 +377,133 @@ ALTER TABLE fornecedor_chaves_pix ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS fornecedor_chaves_pix_authenticated ON fornecedor_chaves_pix; -- nome do hotfix anterior, se já aplicado
 DROP POLICY IF EXISTS "Usuarios autenticados tem acesso total" ON fornecedor_chaves_pix;
-CREATE POLICY "Usuarios autenticados tem acesso total" ON fornecedor_chaves_pix
-  FOR ALL
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+-- ATUALIZADO (27/08/2026): a política acima ("acesso total" pra
+-- qualquer autenticado) não protegia contra escrita do Visitante —
+-- substituída por 4 políticas específicas por operação, mesmo
+-- padrão do resto do módulo. usuario_atual_eh_visitante() definida
+-- em sql/usuarios.sql — rode aquele arquivo ANTES deste.
+CREATE POLICY "select_autenticados" ON fornecedor_chaves_pix
+  FOR SELECT TO authenticated USING (true);
+CREATE POLICY "insert_bloqueia_visitante" ON fornecedor_chaves_pix
+  FOR INSERT TO authenticated WITH CHECK (NOT (SELECT usuario_atual_eh_visitante()));
+CREATE POLICY "update_bloqueia_visitante" ON fornecedor_chaves_pix
+  FOR UPDATE TO authenticated USING (NOT (SELECT usuario_atual_eh_visitante()));
+CREATE POLICY "delete_bloqueia_visitante" ON fornecedor_chaves_pix
+  FOR DELETE TO authenticated USING (NOT (SELECT usuario_atual_eh_visitante()));
+
+-- ── Parte 2 (27/08/2026): mascaramento pro Visitante ─────────
+-- valor_chave é a chave Pix de verdade (equivalente a um dado
+-- bancário) — nunca pode ir pro Visitante sem mascarar. Mesmo
+-- motivo/mecanismo de clientes_visitante (sql/clientes.sql):
+-- bloqueia SELECT direto na tabela real, expõe só via view.
+DROP POLICY IF EXISTS "select_autenticados" ON fornecedor_chaves_pix;
+DROP POLICY IF EXISTS "select_bloqueia_visitante_na_tabela_real" ON fornecedor_chaves_pix;
+CREATE POLICY "select_bloqueia_visitante_na_tabela_real" ON fornecedor_chaves_pix
+  FOR SELECT TO authenticated
+  USING (NOT (SELECT usuario_atual_eh_visitante()));
+
+CREATE OR REPLACE VIEW fornecedor_chaves_pix_visitante AS
+SELECT
+  p.id,
+  p.fornecedor_id,
+  p.tipo_chave,
+  CASE WHEN v.eh_visitante THEN
+    CASE p.tipo_chave
+      WHEN 'email' THEN 'pix' || p.id || '@exemplo.com.br'
+      WHEN 'celular' THEN '(44) 90000-' || lpad((p.id % 10000)::text, 4, '0')
+      WHEN 'cpf' THEN lpad(((p.id * 7919) % 100000000000)::text, 11, '0')
+      WHEN 'cnpj' THEN lpad(((p.id * 7919) % 100000000000000)::text, 14, '0')
+      ELSE 'chave-exemplo-' || lpad(p.id::text, 6, '0')
+    END
+  ELSE p.valor_chave END AS valor_chave,
+  p.preferencial,
+  p.created_at,
+  p.updated_at,
+  p.deleted_at
+FROM fornecedor_chaves_pix p, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON fornecedor_chaves_pix_visitante TO authenticated;
 
 ALTER TABLE fornecedor_categorias ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS fornecedor_categorias_authenticated ON fornecedor_categorias; -- nome do hotfix anterior, se já aplicado
 DROP POLICY IF EXISTS "Usuarios autenticados tem acesso total" ON fornecedor_categorias;
-CREATE POLICY "Usuarios autenticados tem acesso total" ON fornecedor_categorias
-  FOR ALL
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+-- Mesmo motivo/padrão do bloco acima (fornecedor_chaves_pix)
+CREATE POLICY "select_autenticados" ON fornecedor_categorias
+  FOR SELECT TO authenticated USING (true);
+CREATE POLICY "insert_bloqueia_visitante" ON fornecedor_categorias
+  FOR INSERT TO authenticated WITH CHECK (NOT (SELECT usuario_atual_eh_visitante()));
+CREATE POLICY "update_bloqueia_visitante" ON fornecedor_categorias
+  FOR UPDATE TO authenticated USING (NOT (SELECT usuario_atual_eh_visitante()));
+CREATE POLICY "delete_bloqueia_visitante" ON fornecedor_categorias
+  FOR DELETE TO authenticated USING (NOT (SELECT usuario_atual_eh_visitante()));
+
+-- ── Tabela principal fornecedores — nunca teve RLS até agora ──
+ALTER TABLE fornecedores ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "select_autenticados" ON fornecedores;
+CREATE POLICY "select_autenticados" ON fornecedores
+  FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "insert_bloqueia_visitante" ON fornecedores;
+CREATE POLICY "insert_bloqueia_visitante" ON fornecedores
+  FOR INSERT TO authenticated WITH CHECK (NOT (SELECT usuario_atual_eh_visitante()));
+
+DROP POLICY IF EXISTS "update_bloqueia_visitante" ON fornecedores;
+CREATE POLICY "update_bloqueia_visitante" ON fornecedores
+  FOR UPDATE TO authenticated USING (NOT (SELECT usuario_atual_eh_visitante()));
+
+DROP POLICY IF EXISTS "delete_bloqueia_visitante" ON fornecedores;
+CREATE POLICY "delete_bloqueia_visitante" ON fornecedores
+  FOR DELETE TO authenticated USING (NOT (SELECT usuario_atual_eh_visitante()));
+
+-- ── Parte 2 (27/08/2026): mascaramento pro Visitante ─────────
+-- ATUALIZA a policy de SELECT acima: bloqueia leitura DIRETA da
+-- tabela real pro Visitante — mesmo motivo de clientes.sql, a view
+-- abaixo sozinha não adianta nada se a tabela real continuar aberta.
+DROP POLICY IF EXISTS "select_autenticados" ON fornecedores;
+DROP POLICY IF EXISTS "select_bloqueia_visitante_na_tabela_real" ON fornecedores;
+CREATE POLICY "select_bloqueia_visitante_na_tabela_real" ON fornecedores
+  FOR SELECT TO authenticated
+  USING (NOT (SELECT usuario_atual_eh_visitante()));
+
+-- fornecedores_visitante: mesmo padrão de clientes_visitante (ver
+-- sql/clientes.sql para a explicação completa do mecanismo).
+-- dados_bancarios é o campo mais sensível deste módulo — nunca
+-- exposto ao Visitante, sempre NULL na view.
+CREATE OR REPLACE VIEW fornecedores_visitante AS
+SELECT
+  f.id,
+  CASE WHEN v.eh_visitante THEN 'Fornecedor exemplo #' || lpad(f.id::text, 3, '0') ELSE f.razao END AS razao,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.fantasia END AS fantasia,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f."end" END AS "end",
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.num END AS num,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.bairro END AS bairro,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.cep END AS cep,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.cidade END AS cidade,
+  f.uf,
+  CASE WHEN v.eh_visitante AND f.cnpj IS NOT NULL THEN lpad(((f.id * 7919) % 100000000000000)::text, 14, '0') ELSE f.cnpj END AS cnpj,
+  CASE WHEN v.eh_visitante AND f.cpf IS NOT NULL THEN lpad(((f.id * 7919) % 100000000000)::text, 11, '0') ELSE f.cpf END AS cpf,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.ie END AS ie,
+  CASE WHEN v.eh_visitante THEN '(44) 90000-' || lpad((f.id % 10000)::text, 4, '0') ELSE f.fone1 END AS fone1,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.fone2 END AS fone2,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.contato END AS contato,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.fone_contato END AS fone_contato,
+  CASE WHEN v.eh_visitante THEN 'contato' || f.id || '@exemplo.com.br' ELSE f.email END AS email,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.email_contato END AS email_contato,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.website END AS website,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.dados_bancarios END AS dados_bancarios,
+  f.tipo_fornecedor,
+  f.tipo_fornecedor_id,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.data_nascimento END AS data_nascimento,
+  CASE WHEN v.eh_visitante THEN NULL ELSE f.observacoes END AS observacoes,
+  CASE WHEN v.eh_visitante THEN '[]'::jsonb ELSE f.contato_whatsapp END AS contato_whatsapp,
+  f.created_at,
+  f.updated_at,
+  f.deleted_at
+FROM fornecedores f, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON fornecedores_visitante TO authenticated;
 
 -- ============================================================
 -- PASSO FINAL SEPARADO — NÃO roda automaticamente com o resto acima.

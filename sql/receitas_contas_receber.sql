@@ -307,3 +307,253 @@ BEGIN
       CHECK (tipo IN ('txt_bb', 'rem', 'ret', 'xls'));
   END IF;
 END $$;
+
+-- ── Row Level Security (27/08/2026) ──────────────────────────
+-- Nenhuma das 6 tabelas deste módulo tinha RLS até agora — fecha o
+-- acesso direto do navegador (client anon), único ponto que protege
+-- contra escrita do Visitante nesse caminho (proxy.ts só cobre
+-- /api/*). Leitura continua liberada pra todo autenticado — nada
+-- muda para Admin/equipe. usuario_atual_eh_visitante() está definida
+-- em sql/usuarios.sql — rode aquele arquivo ANTES deste.
+-- ACHADO CRÍTICO nesta sessão (confirmado via pg_policies, mesmo
+-- problema de sql/clientes.sql): TODAS as 6 tabelas já tinham
+-- policies antigas, criadas fora do controle de versão, no padrão
+-- "<tabela>_select"/"_insert"/"_update"/"_delete" (nem toda tabela
+-- tem as 4 — varia), permissivas e sem checagem de Visitante. Sem
+-- derrubar explicitamente, coexistiriam com as novas e as anulariam
+-- por completo (Postgres combina policies permissivas com OU).
+-- Generalizado dentro do próprio loop, já que o padrão de nome é
+-- consistente em todas as 6.
+DO $$
+DECLARE
+  tabela text;
+  cmd text;
+BEGIN
+  FOREACH tabela IN ARRAY ARRAY[
+    'receitas', 'receitas_itens', 'receitas_duplicatas',
+    'contas_receber', 'contas_receber_eventos', 'remessas_importadas'
+  ]
+  LOOP
+    FOREACH cmd IN ARRAY ARRAY['select', 'insert', 'update', 'delete']
+    LOOP
+      EXECUTE format('DROP POLICY IF EXISTS %I ON %I', tabela || '_' || cmd, tabela);
+    END LOOP;
+
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tabela);
+
+    EXECUTE format('DROP POLICY IF EXISTS "select_autenticados" ON %I', tabela);
+    EXECUTE format('DROP POLICY IF EXISTS "select_bloqueia_visitante_na_tabela_real" ON %I', tabela);
+    EXECUTE format(
+      'CREATE POLICY "select_bloqueia_visitante_na_tabela_real" ON %I FOR SELECT TO authenticated USING (NOT (SELECT usuario_atual_eh_visitante()))',
+      tabela
+    );
+
+    EXECUTE format('DROP POLICY IF EXISTS "insert_bloqueia_visitante" ON %I', tabela);
+    EXECUTE format(
+      'CREATE POLICY "insert_bloqueia_visitante" ON %I FOR INSERT TO authenticated WITH CHECK (NOT (SELECT usuario_atual_eh_visitante()))',
+      tabela
+    );
+
+    EXECUTE format('DROP POLICY IF EXISTS "update_bloqueia_visitante" ON %I', tabela);
+    EXECUTE format(
+      'CREATE POLICY "update_bloqueia_visitante" ON %I FOR UPDATE TO authenticated USING (NOT (SELECT usuario_atual_eh_visitante()))',
+      tabela
+    );
+
+    EXECUTE format('DROP POLICY IF EXISTS "delete_bloqueia_visitante" ON %I', tabela);
+    EXECUTE format(
+      'CREATE POLICY "delete_bloqueia_visitante" ON %I FOR DELETE TO authenticated USING (NOT (SELECT usuario_atual_eh_visitante()))',
+      tabela
+    );
+  END LOOP;
+END $$;
+
+-- ── Parte 2 (27/08/2026): mascaramento pro Visitante ─────────
+-- Mesmo mecanismo de sql/clientes.sql. chave_acesso é o identificador
+-- fiscal único da NF-e de verdade (consultável na Receita/SEFAZ) —
+-- tratado com o mesmo cuidado de um CPF/CNPJ. xml_storage_path é o
+-- caminho do arquivo no bucket receitas_xml — mascarado também, pra
+-- não sobrar nenhuma pista de onde o XML real está guardado.
+CREATE OR REPLACE VIEW receitas_visitante AS
+SELECT
+  r.id,
+  r.numero_nf,
+  r.serie,
+  CASE WHEN v.eh_visitante THEN lpad((abs(hashtext(r.id::text || 'chave')))::text, 44, '0') ELSE r.chave_acesso END AS chave_acesso,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.protocolo END AS protocolo,
+  r.data_emissao,
+  r.data_autorizacao,
+  r.natureza_operacao,
+  r.id_dest,
+  r.status_nf,
+  r.cliente_id,
+  CASE WHEN v.eh_visitante AND r.cliente_cpf_cnpj IS NOT NULL THEN lpad((abs(hashtext(r.id::text || 'doc')) % 100000000000000)::text, 14, '0') ELSE r.cliente_cpf_cnpj END AS cliente_cpf_cnpj,
+  CASE WHEN v.eh_visitante THEN 'Cliente exemplo #' || lpad((abs(hashtext(r.id::text)) % 1000)::text, 3, '0') ELSE r.cliente_nome END AS cliente_nome,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.cliente_ie END AS cliente_ie,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.cliente_fone END AS cliente_fone,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.cliente_email END AS cliente_email,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.cliente_logradouro END AS cliente_logradouro,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.cliente_numero END AS cliente_numero,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.cliente_complemento END AS cliente_complemento,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.cliente_bairro END AS cliente_bairro,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.cliente_municipio END AS cliente_municipio,
+  r.cliente_uf,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.cliente_cep END AS cliente_cep,
+  CASE WHEN v.eh_visitante THEN (500 + abs(hashtext(r.id::text || 'v1')) % 49500)::numeric(12,2) ELSE r.valor_produtos END AS valor_produtos,
+  CASE WHEN v.eh_visitante THEN (10 + abs(hashtext(r.id::text || 'v2')) % 490)::numeric(12,2) ELSE r.valor_frete END AS valor_frete,
+  CASE WHEN v.eh_visitante THEN 0::numeric ELSE r.valor_seguro END AS valor_seguro,
+  CASE WHEN v.eh_visitante THEN 0::numeric ELSE r.valor_desconto END AS valor_desconto,
+  CASE WHEN v.eh_visitante THEN 0::numeric ELSE r.valor_outras END AS valor_outras,
+  CASE WHEN v.eh_visitante THEN 0::numeric ELSE r.valor_ipi END AS valor_ipi,
+  CASE WHEN v.eh_visitante THEN (500 + abs(hashtext(r.id::text || 'v1')) % 49500)::numeric(12,2) ELSE r.valor_nf END AS valor_nf,
+  r.transportadora_id,
+  r.modalidade_frete,
+  r.volume_qtd,
+  r.volume_marca,
+  r.volume_numero,
+  r.peso_liquido,
+  r.peso_bruto,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.fatura_numero END AS fatura_numero,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.fatura_valor_original END AS fatura_valor_original,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.fatura_valor_desconto END AS fatura_valor_desconto,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.xml_storage_path END AS xml_storage_path,
+  CASE WHEN v.eh_visitante THEN NULL ELSE r.observacoes END AS observacoes,
+  r.created_at,
+  r.updated_at
+FROM receitas r, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON receitas_visitante TO authenticated;
+
+-- receitas_itens_visitante — descricao é o nome do produto, pode
+-- revelar o que a empresa vende a esse cliente especificamente;
+-- mascarado por precaução, mesmo sendo menos crítico que os outros
+CREATE OR REPLACE VIEW receitas_itens_visitante AS
+SELECT
+  i.id,
+  i.receita_id,
+  CASE WHEN v.eh_visitante THEN NULL ELSE i.codigo_produto END AS codigo_produto,
+  CASE WHEN v.eh_visitante THEN 'Produto exemplo' ELSE i.descricao END AS descricao,
+  i.unidade,
+  i.quantidade,
+  CASE WHEN v.eh_visitante THEN (10 + abs(hashtext(i.id::text || 'v1')) % 990)::numeric(12,2) ELSE i.valor_unitario END AS valor_unitario,
+  CASE WHEN v.eh_visitante THEN (500 + abs(hashtext(i.id::text || 'v2')) % 9500)::numeric(12,2) ELSE i.valor_total END AS valor_total,
+  CASE WHEN v.eh_visitante THEN 0::numeric ELSE i.valor_desconto END AS valor_desconto,
+  CASE WHEN v.eh_visitante THEN 0::numeric ELSE i.valor_frete END AS valor_frete,
+  i.cfop,
+  i.created_at
+FROM receitas_itens i, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON receitas_itens_visitante TO authenticated;
+
+-- receitas_duplicatas_visitante
+CREATE OR REPLACE VIEW receitas_duplicatas_visitante AS
+SELECT
+  d.id,
+  d.receita_id,
+  d.numero_duplicata,
+  d.data_vencimento,
+  CASE WHEN v.eh_visitante THEN (500 + abs(hashtext(d.id::text || 'v1')) % 49500)::numeric(12,2) ELSE d.valor END AS valor,
+  d.created_at
+FROM receitas_duplicatas d, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON receitas_duplicatas_visitante TO authenticated;
+
+-- contas_receber_visitante
+CREATE OR REPLACE VIEW contas_receber_visitante AS
+SELECT
+  c.id,
+  c.duplicata_id,
+  c.receita_id,
+  c.cliente_id,
+  c.numero_documento,
+  c.numero_duplicata,
+  c.data_vencimento,
+  c.data_processamento,
+  CASE WHEN v.eh_visitante THEN (500 + abs(hashtext(c.id::text || 'v1')) % 49500)::numeric(12,2) ELSE c.valor END AS valor,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.nosso_numero END AS nosso_numero,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.linha_digitavel END AS linha_digitavel,
+  c.status,
+  c.data_baixa,
+  c.forma_baixa,
+  CASE WHEN v.eh_visitante THEN 'Cliente exemplo #' || lpad((abs(hashtext(c.id::text)) % 1000)::text, 3, '0') ELSE c.cliente_nome END AS cliente_nome,
+  CASE WHEN v.eh_visitante THEN lpad((abs(hashtext(c.id::text || 'doc')) % 100000000000000)::text, 14, '0') ELSE c.cliente_cpf_cnpj END AS cliente_cpf_cnpj,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.cliente_fantasia END AS cliente_fantasia,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.cliente_email END AS cliente_email,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.cliente_fone END AS cliente_fone,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.cliente_municipio END AS cliente_municipio,
+  c.cliente_uf,
+  CASE WHEN v.eh_visitante THEN NULL ELSE c.observacoes END AS observacoes,
+  c.deleted_at,
+  c.created_at,
+  c.updated_at
+FROM contas_receber c, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON contas_receber_visitante TO authenticated;
+
+-- contas_receber_eventos_visitante
+CREATE OR REPLACE VIEW contas_receber_eventos_visitante AS
+SELECT
+  e.id,
+  e.titulo_id,
+  e.tipo,
+  CASE WHEN v.eh_visitante THEN 'Evento de exemplo' ELSE e.descricao END AS descricao,
+  e.created_at
+FROM contas_receber_eventos e, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON contas_receber_eventos_visitante TO authenticated;
+
+-- remessas_importadas_visitante — nome_arquivo pode conter dado
+-- identificável (nome de banco/empresa no arquivo); hash_arquivo é
+-- técnico, não sensível, mas mascarado por consistência
+CREATE OR REPLACE VIEW remessas_importadas_visitante AS
+SELECT
+  m.id,
+  m.tipo,
+  CASE WHEN v.eh_visitante THEN 'arquivo_exemplo.txt' ELSE m.nome_arquivo END AS nome_arquivo,
+  CASE WHEN v.eh_visitante THEN NULL ELSE m.hash_arquivo END AS hash_arquivo,
+  m.total_registros,
+  m.processados,
+  m.nao_encontrados,
+  m.created_at
+FROM remessas_importadas m, LATERAL (SELECT usuario_atual_eh_visitante() AS eh_visitante) v;
+
+GRANT SELECT ON remessas_importadas_visitante TO authenticated;
+
+-- ============================================================
+-- IMPORTANTE — cole e rode em DUAS VEZES separadas, não de uma vez:
+-- 1) Selecione e cole só até a linha do GRANT acima (as 6 views),
+--    rode, confirme sucesso (SELECT viewname FROM pg_views WHERE
+--    viewname LIKE '%visitante%';)
+-- 2) Só depois, selecione e cole o resto abaixo (bloco de Storage)
+-- Mesmo motivo de sql/clientes.sql: storage.objects pertence a
+-- outro dono dentro do Supabase (supabase_storage_admin, não
+-- postgres) — uma falha aí, colada junto, reverte as 6 views acima.
+-- ============================================================
+
+-- ── Storage: bucket 'receitas_xml' (27/08/2026) ──────────────
+-- Mesmo achado/mecanismo do bucket 'backups' (ver sql/clientes.sql).
+-- As 4 políticas existentes (também criadas fora do controle de
+-- versão, confirmadas via pg_policies) liberavam
+-- SELECT/INSERT/UPDATE/DELETE pra qualquer autenticado,
+-- inclusive DELETE — Visitante conseguia até apagar XML de nota
+-- fiscal real. Recriadas com o mesmo escopo original (bucket
+-- 'receitas_xml'), só acrescentando o bloqueio.
+DROP POLICY IF EXISTS "receitas_xml_select" ON storage.objects;
+CREATE POLICY "receitas_xml_select" ON storage.objects
+  FOR SELECT TO authenticated
+  USING (bucket_id = 'receitas_xml' AND NOT (SELECT usuario_atual_eh_visitante()));
+
+DROP POLICY IF EXISTS "receitas_xml_insert" ON storage.objects;
+CREATE POLICY "receitas_xml_insert" ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'receitas_xml' AND NOT (SELECT usuario_atual_eh_visitante()));
+
+DROP POLICY IF EXISTS "receitas_xml_update" ON storage.objects;
+CREATE POLICY "receitas_xml_update" ON storage.objects
+  FOR UPDATE TO authenticated
+  USING (bucket_id = 'receitas_xml' AND NOT (SELECT usuario_atual_eh_visitante()));
+
+DROP POLICY IF EXISTS "receitas_xml_delete" ON storage.objects;
+CREATE POLICY "receitas_xml_delete" ON storage.objects
+  FOR DELETE TO authenticated
+  USING (bucket_id = 'receitas_xml' AND NOT (SELECT usuario_atual_eh_visitante()));

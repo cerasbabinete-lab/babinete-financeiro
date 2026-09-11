@@ -160,3 +160,28 @@ ALTER TABLE usuarios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE usuarios_permissoes ENABLE ROW LEVEL SECURITY;
 -- Nenhuma policy é criada de propósito — RLS habilitado sem NENHUMA
 -- policy = deny-all por padrão pro client anon (service role bypassa).
+
+-- ── usuario_atual_eh_visitante() ─────────────────────────────
+-- Usada pelas políticas RLS de TODOS os outros módulos (clientes.sql,
+-- fornecedores.sql, receitas_contas_receber.sql,
+-- despesas_contas_pagar.sql, logs.sql) pra bloquear escrita do
+-- Visitante. SECURITY DEFINER é obrigatório aqui: sem isso, a
+-- consulta a "usuarios" dentro da própria policy de outra tabela
+-- cairia no RLS deny-all acima (nenhuma policy = a subquery sempre
+-- retornaria vazio, e o bloqueio nunca disparia de verdade —
+-- padrão documentado pela própria Supabase para esse cenário
+-- exato). Retorna só um boolean, sem dado sensível — seguro expor.
+CREATE OR REPLACE FUNCTION usuario_atual_eh_visitante()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM usuarios
+    WHERE auth_user_id = auth.uid()
+      AND tipo_usuario = 'visitante'
+      AND deleted_at IS NULL
+  );
+$$;

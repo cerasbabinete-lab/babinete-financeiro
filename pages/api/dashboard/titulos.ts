@@ -120,7 +120,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       vencimentoDe,
       vencimentoAte,
       status: '',
-    })
+    }, supabaseAdmin)
     const titulosPagarAbertos = titulosPagarBrutos.filter(
       t => t.status === 'em_aberto',
     )

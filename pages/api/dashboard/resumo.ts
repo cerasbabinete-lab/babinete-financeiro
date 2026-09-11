@@ -293,7 +293,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       vencimentoDe: primeiroDiaMes,
       vencimentoAte: ultimoDiaMes,
       status: '',
-    })
+    }, supabaseAdmin)
 
     // Contas a Receber — AQUI o comportamento de buscarTitulos() é
     // diferente do de Pagar: com status vazio, ele NÃO exclui

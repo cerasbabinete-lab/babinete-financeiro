@@ -30,3 +30,25 @@ CREATE TABLE IF NOT EXISTS logs_acesso (
 CREATE INDEX IF NOT EXISTS logs_acesso_created_at_idx ON logs_acesso (created_at DESC);
 CREATE INDEX IF NOT EXISTS logs_acesso_usuario_id_idx ON logs_acesso (usuario_id);
 CREATE INDEX IF NOT EXISTS logs_acesso_modulo_idx ON logs_acesso (modulo);
+
+-- ── Row Level Security (27/08/2026) ──────────────────────────
+-- Sem RLS até agora — um Visitante com DevTools poderia apagar a
+-- própria trilha de auditoria direto no Supabase. A gravação de
+-- verdade (registrarLog()) já passa por pages/api/logs/*.ts com
+-- service role (bypassa RLS, não afetada). usuario_atual_eh_
+-- visitante() está definida em sql/usuarios.sql — rode aquele
+-- arquivo ANTES deste.
+ALTER TABLE logs_acesso ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "select_autenticados" ON logs_acesso;
+CREATE POLICY "select_autenticados" ON logs_acesso
+  FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "insert_bloqueia_visitante" ON logs_acesso;
+CREATE POLICY "insert_bloqueia_visitante" ON logs_acesso
+  FOR INSERT TO authenticated
+  WITH CHECK (NOT (SELECT usuario_atual_eh_visitante()));
+
+-- Sem política de UPDATE/DELETE de propósito — append-only por
+-- natureza (ver comentário acima na definição da tabela), ninguém
+-- deveria poder alterar/apagar via navegador, nem Admin nem equipe.

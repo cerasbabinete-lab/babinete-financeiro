@@ -11,6 +11,7 @@
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   Fornecedor,
   FornecedorInsert,
@@ -28,7 +29,14 @@ import * as XLSX from 'xlsx'
 // CONSTANTES
 // ============================================================
 const TABELA = 'fornecedores'
+// TABELA_LEITURA: view mascarada (sql/fornecedores.sql) — mesmo
+// padrão de lib/clientesService.ts. Escrita continua em TABELA.
+const TABELA_LEITURA = 'fornecedores_visitante'
 const TABELA_CHAVES_PIX = 'fornecedor_chaves_pix'  // Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md, Seção 1
+// View mascarada (sql/fornecedores.sql) — valor_chave é dado
+// bancário, nunca exposto real ao Visitante. Mesmo padrão de
+// TABELA_LEITURA acima; escrita continua em TABELA_CHAVES_PIX.
+const TABELA_CHAVES_PIX_LEITURA = 'fornecedor_chaves_pix_visitante'
 const TABELA_CATEGORIAS = 'fornecedor_categorias'  // Especificacao_Fornecedores_Pix_Categorias_WhatsApp.md, Seção 4
 
 // ============================================================
@@ -39,7 +47,7 @@ const TABELA_CATEGORIAS = 'fornecedor_categorias'  // Especificacao_Fornecedores
 // Chamado por: app/fornecedores/page.tsx
 // ============================================================
 export async function buscarFornecedores(filtros: FiltrosFornecedores): Promise<Fornecedor[]> {
-  let query = supabase.from(TABELA).select('*').is('deleted_at', null) // soft-delete — nunca lista os excluídos
+  let query = supabase.from(TABELA_LEITURA).select('*').is('deleted_at', null) // soft-delete — nunca lista os excluídos
 
   if (filtros.busca && filtros.busca.trim() !== '') {
     const termo = `%${filtros.busca.trim()}%`
@@ -68,7 +76,7 @@ export async function buscarFornecedores(filtros: FiltrosFornecedores): Promise<
 // ============================================================
 export async function contarFornecedores(): Promise<number> {
   const { count, error } = await supabase
-    .from(TABELA)
+    .from(TABELA_LEITURA)
     .select('*', { count: 'exact', head: true })
     .is('deleted_at', null) // soft-delete — não conta os excluídos
 
@@ -87,7 +95,7 @@ export async function contarFornecedores(): Promise<number> {
 // ============================================================
 export async function buscarFornecedorPorId(id: number): Promise<Fornecedor | null> {
   const { data, error } = await supabase
-    .from(TABELA)
+    .from(TABELA_LEITURA)
     .select('*')
     .eq('id', id)
     .is('deleted_at', null) // soft-delete — não retorna um excluído
@@ -288,7 +296,7 @@ export async function atualizarTipoFornecedor(
 // ============================================================
 export async function listarChavesPix(fornecedorId: number): Promise<ChavePix[]> {
   const { data, error } = await supabase
-    .from(TABELA_CHAVES_PIX)
+    .from(TABELA_CHAVES_PIX_LEITURA)
     .select('*')
     .eq('fornecedor_id', fornecedorId) // só as chaves deste fornecedor
     .is('deleted_at', null)            // soft-delete — nunca lista as excluídas
@@ -419,9 +427,22 @@ export async function excluirChavePix(chaveId: number): Promise<void> {
 // Chamado por: app/fornecedores/page.tsx, repassado por prop para
 //              FornecedoresTabela.tsx e FornecedoresMobileList.tsx
 // ============================================================
-export async function listarChavesPixPreferenciais(): Promise<ChavePix[]> {
-  const { data, error } = await supabase
-    .from(TABELA_CHAVES_PIX)
+// ============================================================
+// listarChavesPixPreferenciais()
+// Client injetável — default preserva o comportamento atual (client
+// anônimo) para todo caller existente que não passa esse argumento.
+// BUG corrigido nesta sessão (11/09/2026): chamada de
+// pages/api/dashboard/titulos.ts (server-side) sem client, caindo
+// na role 'anon' — que nunca teve GRANT na view
+// fornecedor_chaves_pix_visitante (só 'authenticated' tem, de
+// propósito, pra não expor dado real pra chamada anônima). PostgREST
+// reporta isso como "table not found in schema cache" em vez de
+// "permission denied" — mesma classe de bug já documentada em
+// buscarTitulos() (contasReceberService.ts).
+// ============================================================
+export async function listarChavesPixPreferenciais(client: SupabaseClient = supabase): Promise<ChavePix[]> {
+  const { data, error } = await client
+    .from(TABELA_CHAVES_PIX_LEITURA)
     .select('*')
     .eq('preferencial', true) // só as marcadas como preferencial
     .is('deleted_at', null)   // soft-delete — nunca inclui as excluídas

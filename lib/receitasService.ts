@@ -27,6 +27,11 @@ import * as XLSX from 'xlsx'
 // CONSTANTES
 // ============================================================
 const TABELA          = 'receitas'
+// TABELA_LEITURA: view mascarada (sql/receitas_contas_receber.sql).
+// Só usada em contarReceitas() (sem embed). buscarReceitas/
+// buscarReceitaPorId usam embed aninhado do PostgREST — ficam na
+// tabela real, mesmo motivo/risco documentado em despesasService.ts.
+const TABELA_LEITURA  = 'receitas_visitante'
 const TABELA_ITENS    = 'receitas_itens'
 const TABELA_DUPLIC   = 'receitas_duplicatas'
 const BUCKET_XML      = 'receitas_xml'
@@ -128,7 +133,7 @@ export async function buscarReceitas(filtros: FiltrosReceitas): Promise<Receita[
 // ============================================================
 export async function contarReceitas(): Promise<number> {
   const { count, error } = await supabase
-    .from(TABELA)
+    .from(TABELA_LEITURA)
     .select('*', { count: 'exact', head: true })
 
   if (error) {

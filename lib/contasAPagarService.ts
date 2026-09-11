@@ -13,11 +13,21 @@
 //         key, mesma correção do achado #8 do audit de Despesas.
 //         Na prática: os componentes de UI chamam as funções de
 //         LEITURA diretamente (buscarTitulos, buscarTituloPorId,
-//         etc. — RLS não configurado neste módulo, gap conhecido,
-//         mesmo padrão de todo o resto do sistema), mas para
-//         ESCRITA sempre chamam fetch() para a rota de API
-//         correspondente, que por sua vez chama estas mesmas funções
-//         de serviço passando o client ADMIN.
+//         etc.) — RLS ATIVO nesta tabela desde a sessão de Usuários
+//         (policies "*_bloqueia_visitante", restritas a role
+//         'authenticated', bloqueando ainda usuários do tipo
+//         'visitante' via usuario_atual_eh_visitante()). Isso não
+//         quebra a leitura direta do browser porque o usuário
+//         logado carrega sessão própria (JWT), avaliada pelo
+//         Postgres como 'authenticated', não 'anon' — só quebra
+//         chamadas SERVER-SIDE sem sessão de usuário (ex:
+//         pages/api/dashboard/*.ts), que por padrão criam um client
+//         anônimo puro e caem como 'anon', fora da policy, lista
+//         vazia sem erro. Por isso buscarTitulos() (leitura) também
+//         ganhou o parâmetro client opcional — mesmo padrão das
+//         funções de ESCRITA abaixo, que sempre chamam fetch() para
+//         a rota de API correspondente, que por sua vez chama estas
+//         mesmas funções de serviço passando o client ADMIN.
 // Conecta com: supabase.ts, types/contasAPagar.ts,
 //              ContasAPagarTabela.tsx, ContasAPagarModal.tsx,
 //              ContasAPagarMobileList.tsx, ContasAPagarHeader.tsx,
@@ -64,9 +74,23 @@ const TABELA_ROSTER    = 'beneficiarios_pessoais'  // Roster de sócios/prestado
 // eventos. Ordenado por deleted_at (ativos primeiro) e
 // data_vencimento ASC — mesmo padrão de contasReceberService.ts
 // Chamado por: app/pagar/page.tsx no useEffect e nos filtros
+// client — parâmetro opcional (fix desta sessão, mesmo padrão já
+// aplicado em contasReceberService.ts::buscarTitulos()). Default
+// preserva 100% de compatibilidade com todo caller existente que não
+// passa esse argumento (o client anônimo continua sendo usado do
+// jeito que sempre foi). Ficou necessário porque contas_a_pagar
+// passou a ter RLS ativo (policies "*_bloqueia_visitante", restritas
+// a role 'authenticated') — antes deste fix o comentário de cabeçalho
+// deste arquivo dizia "RLS não configurado neste módulo", o que não é
+// mais verdade. Sem esse client, chamadas server-side (Dashboard) rodam
+// como 'anon', caem fora da policy, e voltam lista vazia sem erro
+// nenhum — mesmo diagnóstico já visto e corrigido em Contas a Receber
 // ============================================================
-export async function buscarTitulos(filtros: FiltrosContasAPagar): Promise<ContaAPagar[]> {
-  let query = supabase
+export async function buscarTitulos(
+  filtros: FiltrosContasAPagar,
+  client: SupabaseClient = supabase,
+): Promise<ContaAPagar[]> {
+  let query = client
     .from(TABELA)
     .select(`
       *,

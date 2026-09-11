@@ -25,6 +25,13 @@ import * as XLSX from 'xlsx'
 
 // Nome da tabela no Supabase
 const TABELA = 'clientes'
+// TABELA_LEITURA: view mascarada (sql/clientes.sql) — usada em TODA
+// leitura (list/buscar/contar), pra Admin/equipe E Visitante. A view
+// devolve dado real pra quem não é Visitante e dado fictício pra
+// quem é — um único caminho de código serve os dois perfis. Escrita
+// (criar/editar/excluir) continua na tabela real (TABELA); Visitante
+// nunca chega lá, bloqueado por RLS desde a Parte 1.
+const TABELA_LEITURA = 'clientes_visitante'
 
 // ============================================================
 // buscarClientes()
@@ -34,7 +41,7 @@ const TABELA = 'clientes'
 // Chamado por: app/clientes/page.tsx no useEffect e nos filtros
 // ============================================================
 export async function buscarClientes(filtros: FiltrosClientes): Promise<Cliente[]> {
-  let query = supabase.from(TABELA).select('*')
+  let query = supabase.from(TABELA_LEITURA).select('*')
 
   // Filtro de status: ativos = nomelista != '0', inativos = nomelista = '0'
   if (filtros.status === 'ativos') {
@@ -78,7 +85,7 @@ export async function buscarClientes(filtros: FiltrosClientes): Promise<Cliente[
 // ============================================================
 export async function contarClientesAtivos(): Promise<number> {
   const { count, error } = await supabase
-    .from(TABELA)
+    .from(TABELA_LEITURA)
     .select('*', { count: 'exact', head: true })
     .neq('nomelista', '0')
 
@@ -98,7 +105,7 @@ export async function contarClientesAtivos(): Promise<number> {
 // ============================================================
 export async function buscarClientePorId(id: number): Promise<Cliente | null> {
   const { data, error } = await supabase
-    .from(TABELA)
+    .from(TABELA_LEITURA)
     .select('*')
     .eq('id', id)
     .single()
