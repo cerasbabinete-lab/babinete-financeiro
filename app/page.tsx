@@ -53,7 +53,7 @@ const MODULOS: { label: string; href: string; icon: string; ativo: boolean }[] =
   { label: 'Clientes',        href: '/clientes',    icon: '/img/clientes.svg',      ativo: true  },
   { label: 'Fornecedores',    href: '/fornecedores',icon: '/img/fornecedores.svg',  ativo: true  },
   { label: 'Usuários',        href: '/usuarios',    icon: '/img/usuarios.svg',      ativo: true  },
-  { label: 'Backup',          href: '/backup',      icon: '/img/backup.svg',        ativo: false },
+  { label: 'Backup',          href: '/backup',      icon: '/img/backup.svg',        ativo: true  },
 ]
 
 // ============================================================

@@ -10,6 +10,7 @@
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
+import { replicarBackupNoDrive } from '@/lib/backupDrive'
 import type {
   Cliente,
   ClienteInsert,
@@ -317,7 +318,7 @@ export function exportarExcel(clientes: Cliente[], usuario: string): void {
 // Nome do arquivo inclui o usuário logado que gerou o backup
 // Chamado por: ClientesHeader.tsx e Basebar.tsx ao clicar em Backup
 // ============================================================
-export async function fazerBackup(usuario?: string): Promise<void> {
+export async function fazerBackup(usuario?: string): Promise<string | undefined> {
   const { data, error } = await supabase
     .from(TABELA)
     .select('*')
@@ -330,13 +331,27 @@ export async function fazerBackup(usuario?: string): Promise<void> {
 
   const json = JSON.stringify(data, null, 2)
   const blob = new Blob([json], { type: 'application/json;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
   const sufixoUsuario = usuario ? `_${usuario}` : ''
-  link.download = `backup_clientes_${dataHoje()}${sufixoUsuario}.json`
-  link.click()
-  URL.revokeObjectURL(url)
+  const nomeArquivo = `backup_clientes_${dataHoje()}${sufixoUsuario}.json`
+
+  // Arquivado na nuvem (bucket 'backups'), não mais baixado localmente —
+  // decisão de arquitetura registrada em Especificacao_Modulo_Backup.md, Seção 3.7.
+  const { error: erroUpload } = await supabase.storage
+    .from('backups')
+    .upload(nomeArquivo, blob, { contentType: 'application/json', upsert: false })
+
+  if (erroUpload) {
+    console.error('[clientesService] fazerBackup upload error:', erroUpload)
+    throw new Error(`Falha ao arquivar backup na nuvem: ${erroUpload.message}`)
+  }
+
+  // Duplica no Google Drive (cerasbabinete@gmail.com, pasta SGFB/Backups) — ver
+  // lib/backupDrive.ts. Nunca lança exceção: o backup no Supabase já está garantido
+  // neste ponto, então uma falha aqui vira aviso, não erro.
+  const resultadoDrive = await replicarBackupNoDrive(nomeArquivo, json)
+  if (!resultadoDrive.ok) {
+    return `Backup arquivado no Supabase, mas falhou ao duplicar no Google Drive: ${resultadoDrive.erro}`
+  }
 }
 
 // ============================================================

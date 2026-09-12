@@ -77,7 +77,8 @@ export default function DespesasHeader({
   async function handleBackup() {
     setLoadingBackup(true)
     try {
-      await fazerBackup(usuario)
+      const aviso = await fazerBackup(usuario)
+      onSucesso(aviso ?? 'Backup arquivado no Supabase e no Google Drive com sucesso.')
     } catch (err: unknown) {
       onErro(err instanceof Error ? err.message : 'Erro ao gerar backup')
     } finally {

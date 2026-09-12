@@ -52,7 +52,8 @@ export default function BasebarFornecedores({
   async function handleBackup() {
     setLoadingBackup(true)
     try {
-      await fazerBackup(usuario)
+      const aviso = await fazerBackup(usuario)
+      alert(aviso ?? 'Backup realizado com sucesso! O arquivo foi salvo no Supabase e no Google Drive.')
     } catch {
       alert('Erro ao gerar backup.')
     } finally {

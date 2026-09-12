@@ -48,8 +48,8 @@ export default function Basebar({ clientes, usuario, onNovoCliente, onRestaurado
   async function handleBackup() {
     setLoadingBackup(true)
     try {
-      await fazerBackup(usuario)
-      alert('Backup realizado com sucesso! O arquivo foi salvo na nuvem.')
+      const aviso = await fazerBackup(usuario)
+      alert(aviso ?? 'Backup realizado com sucesso! O arquivo foi salvo no Supabase e no Google Drive.')
     } catch {
       alert('Erro ao gerar backup.')
     } finally {

@@ -36,6 +36,7 @@
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
+import { replicarBackupNoDrive } from '@/lib/backupDrive'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   ContaAPagar,
@@ -1081,7 +1082,7 @@ export function exportarExcel(titulos: ContaAPagar[], usuario: string): void {
 // Chamado por: ContasAPagarHeader.tsx / BasebarContasPagar.tsx ao
 // clicar em Backup. Usa o client anon — SELECT já é liberado.
 // ------------------------------------------------------------
-export async function fazerBackup(usuario?: string): Promise<void> {
+export async function fazerBackup(usuario?: string): Promise<string | undefined> {
   const { data, error } = await supabase
     .from(TABELA)
     .select(`
@@ -1097,13 +1098,24 @@ export async function fazerBackup(usuario?: string): Promise<void> {
 
   const json    = JSON.stringify(data, null, 2)
   const blob    = new Blob([json], { type: 'application/json;charset=utf-8;' })
-  const url     = URL.createObjectURL(blob)
-  const link    = document.createElement('a')
-  link.href     = url
   const sufixo  = usuario ? `_${usuario}` : ''
-  link.download = `backup_contas_a_pagar_${dataHoje()}${sufixo}.json`
-  link.click()
-  URL.revokeObjectURL(url)
+  const nomeArquivo = `backup_contas_a_pagar_${dataHoje()}${sufixo}.json`
+
+  // Arquivado na nuvem (bucket 'backups'), não mais baixado localmente —
+  // decisão de arquitetura registrada em Especificacao_Modulo_Backup.md, Seção 3.7.
+  const { error: erroUpload } = await supabase.storage
+    .from('backups')
+    .upload(nomeArquivo, blob, { contentType: 'application/json', upsert: false })
+
+  if (erroUpload) {
+    console.error('[contasAPagarService] fazerBackup upload error:', erroUpload)
+    throw new Error(`Falha ao arquivar backup na nuvem: ${erroUpload.message}`)
+  }
+
+  const resultadoDrive = await replicarBackupNoDrive(nomeArquivo, json)
+  if (!resultadoDrive.ok) {
+    return `Backup arquivado no Supabase, mas falhou ao duplicar no Google Drive: ${resultadoDrive.erro}`
+  }
 }
 
 // ------------------------------------------------------------
