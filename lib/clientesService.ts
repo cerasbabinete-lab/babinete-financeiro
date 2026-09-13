@@ -348,7 +348,7 @@ export async function fazerBackup(usuario?: string): Promise<string | undefined>
   // Duplica no Google Drive (cerasbabinete@gmail.com, pasta SGFB/Backups) — ver
   // lib/backupDrive.ts. Nunca lança exceção: o backup no Supabase já está garantido
   // neste ponto, então uma falha aqui vira aviso, não erro.
-  const resultadoDrive = await replicarBackupNoDrive(nomeArquivo, json)
+  const resultadoDrive = await replicarBackupNoDrive(nomeArquivo)
   if (!resultadoDrive.ok) {
     return `Backup arquivado no Supabase, mas falhou ao duplicar no Google Drive: ${resultadoDrive.erro}`
   }

@@ -512,6 +512,7 @@ export interface FiltrosTotalizacaoDespesas extends FiltroIntervaloDatas {
 }
 
 export interface ItemTotalizacaoDespesas {
+  id: string // despesas.id — usado pra rastrear seleção de linha na tela (checkbox de exportação seletiva)
   documentoNumero: string | null // despesas.documento_numero — pode ser NULL (recibo/holerite raramente tem número), exibido como "—"
   dataEmissao: string // 'YYYY-MM-DD' — despesas.documento_data_emissao, com fallback created_at quando nula (mesma convenção do 2.6)
   vencimento: string | null // 'YYYY-MM-DD' — vencimento não existe em despesas, vive em despesas_parcelas (1 despesa pode ter N parcelas). Mesma regra já em produção em DespesasTabela.tsx: menor data_vencimento entre as parcelas ATIVAS (deleted_at IS NULL) desta despesa. NULL só quando a despesa não tem nenhuma parcela ativa (ex: todas as parcelas foram excluídas)
@@ -519,7 +520,7 @@ export interface ItemTotalizacaoDespesas {
   tipoFornecedorRotulo: string // nome da categoria resolvido AO VIVO em fornecedor_categorias no momento da geração — nunca armazenado/cacheado, mesma exigência do 2.6 (renomear uma categoria reflete no próximo relatório gerado)
   fornecedorId: number
   favorecidoNome: string // despesas.favorecido_nome — já denormalizado na própria despesa, equivalente ao cliente_nome de Receitas
-  valor: number // despesas.valor_original — face do documento, antes de desconto/juros. NÃO é valor_total (esse já reflete ajustes, decisão registrada: fora de escopo desta versão)
+  valor: number // despesas.valor_total — CORREÇÃO: era valor_original; trocado pra bater exatamente com o "Total do mês" da tela de Despesas (DespesasTabela.tsx), que soma valor_total
 }
 
 export interface RelatorioTotalizacaoDespesas {

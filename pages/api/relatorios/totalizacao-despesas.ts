@@ -61,6 +61,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const anoGrafico = Number(req.query.anoGrafico ?? new Date().getFullYear())
   const tipoFornecedorFiltro = tipoFornecedorFiltroDaQuery(req.query.tipoFornecedorFiltro ? String(req.query.tipoFornecedorFiltro) : undefined)
   const fornecedorId = req.query.fornecedorId ? Number(req.query.fornecedorId) : undefined
+  const idsExcluidos = new Set(String(req.query.idsExcluidos ?? '').split(',').filter(Boolean))
 
   if (!dataInicial || !dataFinal) return res.status(400).json({ erro: 'dataInicial e dataFinal são obrigatórios' })
   if (formato !== 'pdf' && formato !== 'xlsx') {
@@ -71,7 +72,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const relatorio = await gerarRelatorioTotalizacaoDespesas({ dataInicial, dataFinal, tipoFornecedorFiltro, fornecedorId }, supabaseAdmin)
     const periodoDescricao = formatarPeriodoDescricao(dataInicial, dataFinal)
 
-    const linhasTabela = relatorio.itens.map(item => ({
+    const itensParaExportar = idsExcluidos.size > 0
+      ? relatorio.itens.filter(item => !idsExcluidos.has(item.id))
+      : relatorio.itens
+
+    const linhasTabela = itensParaExportar.map(item => ({
       documento: item.documentoNumero ?? '—',
       emissao: formatarDataBR(item.dataEmissao),
       vencimento: item.vencimento ? formatarDataBR(item.vencimento) : '—',
@@ -82,8 +87,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }))
 
     const cartoes: CartaoResumo[] = [
-      { rotulo: 'Total de despesas', valor: String(relatorio.totalDespesas) },
-      { rotulo: 'Valor total', valor: formatarMoeda(relatorio.valorTotal) },
+      { rotulo: 'Total de despesas', valor: String(itensParaExportar.length) },
+      { rotulo: 'Valor total', valor: formatarMoeda(itensParaExportar.reduce((s, i) => s + i.valor, 0)) },
     ]
 
     if (formato === 'pdf') {

@@ -2,56 +2,42 @@
 // lib/relatorios/totalizacaoDespesas.ts
 // Projeto: Ceras Babinete — Gestão Financeira
 // Módulo: Relatórios
-// Função: Calcula o relatório "Totalização de Despesas" (2.9) —
-//         relatório irmão do 2.8 (Totalização, Receitas), listagem
-//         documento a documento de despesas lançadas no período,
-//         com Tipo de Fornecedor, favorecido e valor. Também expõe
-//         o dado do gráfico "Mês a mês" e do modo "Comparar
-//         períodos", ambos com escopo de data INDEPENDENTE do
-//         filtro da tabela (mesma decisão do 2.8).
-// Conecta com: types/relatorios.ts (RelatorioTotalizacaoDespesas,
-//              ItemTotalizacaoDespesas, ComparacaoPeriodosResultadoDespesas,
-//              TipoFornecedorOuNaoClassificado — este último definido
-//              pro relatório 2.6, reaproveitado aqui sem alteração),
-//              pages/api/relatorios/totalizacao-despesas.ts,
-//              lib/relatorios/paginacao.ts (paginarConsulta,
-//              dividirEmLotes), lib/relatorios/formatadores.ts
-//              (limiteSuperiorIntervalo, formatarMesBR)
-// Referência: mockup aprovado por Maycon (Artifact publicado na
-//             conversa) — sem documento formal de especificação
-//             gerado, mesmo tratamento dado ao 2.8
+// Função: Calcula o relatório "Totalização de Despesas" (2.9).
+//         Também expõe o dado do gráfico "Mês a mês" e do modo
+//         "Comparar períodos", ambos com escopo de data
+//         INDEPENDENTE do filtro da tabela (mesma decisão do 2.8).
+// Conecta com: types/relatorios.ts, pages/api/relatorios/totalizacao-despesas.ts,
+//              lib/relatorios/paginacao.ts, lib/relatorios/formatadores.ts
 //
-// Decisões confirmadas por Maycon nesta sessão:
-//   - Substitui CFOP (não existe em despesas) por Tipo de
-//     Fornecedor — mesmo campo dinâmico do relatório 2.6
-//     (fornecedores.tipo_fornecedor_id → fornecedor_categorias)
-//   - Sem coluna/card Frete — não existe esse campo em despesas
-//   - Sem coluna/card Desconto nem Juros/Multa — despesas tem os
-//     dois campos (valor_desconto, valor_juros_multa), mas ficam
-//     de fora desta versão por pedido explícito
-// Decisões de engenharia herdadas do relatório 2.6 (já em produção,
-// mesma tabela `despesas`), aplicadas aqui sem re-perguntar:
-//   - origem_tipo ≠ 'pessoal_socio' — retirada pessoal de sócio já
-//     tem relatório próprio (2.3), não deve se misturar aqui
-//   - deleted_at IS NULL — despesas não tem um campo separado tipo
-//     receitas.status_nf; "cancelado" em despesas JÁ É soft-delete,
-//     então este filtro sozinho cobre o equivalente ao problema do
-//     §4.2 que existiu em Receitas (Faturamento/Curva ABC)
-//   - Filtro de data em 2 consultas complementares (documento_data_
-//     emissao preenchida vs. NULL com fallback created_at) — evita
-//     tanto filtrar em JS sobre a tabela inteira quanto excluir
-//     silenciosamente linhas com data NULL
-// Decisão de engenharia nova desta sessão:
-//   - Ordenação: crescente por data de emissão, com número de
-//     documento como critério de desempate (diferente do 2.8, que
-//     ordena por número de NF-e primeiro — documento_numero de
-//     despesa é TEXT livre, não sequencial como número de NF-e,
-//     então data é o critério primário mais estável aqui)
-//   - Vencimento: não existe em despesas, vive em despesas_parcelas
-//     (1 despesa pode ter N parcelas). Segue a MESMA regra já em
-//     produção em DespesasTabela.tsx: menor data_vencimento entre
-//     as parcelas ATIVAS (deleted_at IS NULL) de cada despesa —
-//     não inventei critério novo pra este relatório
+// CORREÇÃO DEFINITIVA (pedido direto de Maycon, sem mais tentativa de
+// achar critério "certo" por conta própria): o relatório deve mostrar
+// EXATAMENTE o que a tela de Despesas (app/despesas/page.tsx +
+// components/despesas/DespesasTabela.tsx) mostra. Isso NÃO é mais
+// interpretação minha — é tradução literal da função real de lá,
+// lib/despesasService.ts::buscarDespesas():
+//   - Fonte: despesas, deleted_at IS NULL. SEM exclusão de
+//     origem_tipo='pessoal_socio' — a tela de Despesas não exclui
+//     (confirmado: despesa Pessoal (Sócio) aparece no Total do mês)
+//   - Filtro de período é por VENCIMENTO, aplicado sobre as parcelas
+//     em JS (não em SQL): uma despesa "sobrevive" se ALGUMA parcela
+//     ativa (deleted_at IS NULL) tem data_vencimento >= dataInicial
+//     E (separadamente) ALGUMA parcela ativa tem data_vencimento <=
+//     dataFinal — são 2 checagens independentes, não precisa ser A
+//     MESMA parcela satisfazendo as duas pontas. Replicado aqui
+//     exatamente assim, por mais "solto" que pareça — mudar essa
+//     regra é que faria o relatório voltar a divergir da tela
+//   - Grão: 1 linha por DESPESA (documento), não por parcela
+//   - Valor somado: despesas.valor_total (não valor_original) —
+//     confirmado em DespesasTabela.tsx, rodapé "Total do mês"
+//   - Vencimento exibido: menor data_vencimento entre as parcelas
+//     ATIVAS da despesa (mesma regra de DespesasTabela.tsx,
+//     "primeiraParcela") — não é restrito ao período filtrado
+//
+// Histórico de tentativas anteriores que NÃO devem ser repetidas:
+// já foi tentado (1) despesas_parcelas com grão de parcela, e (2)
+// contas_a_pagar — nenhuma bateu com a tela de Despesas porque
+// nenhuma delas é a fonte que a tela de Despesas usa de fato. A
+// fonte é despesas + despesas_parcelas, com a lógica exata acima.
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
@@ -66,66 +52,62 @@ import type {
   FiltroIntervaloDatas,
   TipoFornecedorOuNaoClassificado,
 } from '@/types/relatorios'
-import { limiteSuperiorIntervalo, formatarMesBR } from '@/lib/relatorios/formatadores'
+import { formatarMesBR } from '@/lib/relatorios/formatadores'
 import { paginarConsulta, dividirEmLotes } from '@/lib/relatorios/paginacao'
 
-// Grupo virtual "Não classificado" — mesmo valor/mesma justificativa
-// de tipagem do relatório 2.6 (ver gastosPorTipoFornecedor.ts):
-// literal, não o tipo largo, pra permitir estreitar `tipo` pra
-// `number` no branch de lookup de nome logo abaixo
 const NAO_CLASSIFICADO = 'nao_classificado' as const
 const ROTULO_NAO_CLASSIFICADO = 'Não classificado'
 
-interface LinhaDespesaTotalizacao {
+interface LinhaDespesaBase {
   id: string
   documento_numero: string | null
   documento_data_emissao: string | null
   created_at: string
   fornecedor_id: number
   favorecido_nome: string
-  valor_original: number
+  valor_total: number
+}
+
+interface LinhaParcela {
+  despesa_id: string
+  data_vencimento: string
+  deleted_at: string | null
 }
 
 // ============================================================
-// buscarDespesasNoIntervalo() — as mesmas 2 consultas complementares
-// do relatório 2.6 (documento_data_emissao preenchida vs. NULL com
-// fallback created_at), reaproveitadas aqui porque a fonte
-// (despesas) e os filtros de negócio (origem_tipo, deleted_at) são
-// idênticos. Mantida como função própria pra não duplicar a lógica
-// entre gerarRelatorioTotalizacaoDespesas() e
-// gerarGraficoMesAMesTotalizacaoDespesas()/compararPeriodosTotalizacaoDespesas()
+// buscarDespesasComParcelas() — busca TODAS as despesas ativas (sem
+// filtro de data em SQL, mesmo padrão de lib/despesasService.ts —
+// o filtro de vencimento é aplicado depois, em JS, sobre as
+// parcelas) e as parcelas de cada uma, pra replicar exatamente a
+// lógica de buscarDespesas() do módulo Despesas
 // ============================================================
-async function buscarDespesasNoIntervalo(
-  filtros: FiltroIntervaloDatas,
-  client: SupabaseClient,
-  selectColunas: string,
-): Promise<LinhaDespesaTotalizacao[]> {
-  const comDataEmissao = await paginarConsulta<LinhaDespesaTotalizacao>((inicio, fim) =>
+async function buscarDespesasComParcelas(client: SupabaseClient): Promise<{ despesas: LinhaDespesaBase[]; parcelasPorDespesa: Map<string, LinhaParcela[]> }> {
+  const despesas = await paginarConsulta<LinhaDespesaBase>((inicio, fim) =>
     client
       .from('despesas')
-      .select(selectColunas)
+      .select('id, documento_numero, documento_data_emissao, created_at, fornecedor_id, favorecido_nome, valor_total')
       .is('deleted_at', null)
-      .neq('origem_tipo', 'pessoal_socio')
-      .gte('documento_data_emissao', filtros.dataInicial)
-      .lte('documento_data_emissao', filtros.dataFinal)
-      .range(inicio, fim) as unknown as PromiseLike<{ data: LinhaDespesaTotalizacao[] | null; error: { message: string } | null }>,
+      .range(inicio, fim),
   )
 
-  const semDataEmissao = await paginarConsulta<LinhaDespesaTotalizacao>((inicio, fim) =>
-    client
-      .from('despesas')
-      .select(selectColunas)
-      .is('deleted_at', null)
-      .neq('origem_tipo', 'pessoal_socio')
-      .is('documento_data_emissao', null)
-      .gte('created_at', filtros.dataInicial)
-      .lte('created_at', limiteSuperiorIntervalo(filtros.dataFinal))
-      .range(inicio, fim) as unknown as PromiseLike<{ data: LinhaDespesaTotalizacao[] | null; error: { message: string } | null }>,
-  )
+  const idsDespesas = despesas.map(d => d.id)
+  const parcelasPorDespesa = new Map<string, LinhaParcela[]>()
+  for (const lote of dividirEmLotes(idsDespesas)) {
+    if (lote.length === 0) continue
+    const parcelasDoLote = await paginarConsulta<LinhaParcela>((inicio, fim) =>
+      client
+        .from('despesas_parcelas')
+        .select('despesa_id, data_vencimento, deleted_at')
+        .in('despesa_id', lote)
+        .range(inicio, fim),
+    )
+    for (const p of parcelasDoLote) {
+      if (!parcelasPorDespesa.has(p.despesa_id)) parcelasPorDespesa.set(p.despesa_id, [])
+      parcelasPorDespesa.get(p.despesa_id)!.push(p)
+    }
+  }
 
-  // Mutuamente exclusivas por construção (uma exige a coluna
-  // preenchida, a outra exige NULL) — concatenar não duplica linha
-  return [...comDataEmissao, ...semDataEmissao]
+  return { despesas, parcelasPorDespesa }
 }
 
 // ============================================================
@@ -135,117 +117,82 @@ export async function gerarRelatorioTotalizacaoDespesas(
   filtros: FiltrosTotalizacaoDespesas,
   client: SupabaseClient = supabase,
 ): Promise<RelatorioTotalizacaoDespesas> {
-  // ── 1. Despesas no período, já filtradas no banco ───────────
-  const linhas = await buscarDespesasNoIntervalo(
-    filtros,
-    client,
-    'id, documento_numero, documento_data_emissao, created_at, fornecedor_id, favorecido_nome, valor_original',
-  )
+  const { despesas, parcelasPorDespesa } = await buscarDespesasComParcelas(client)
+
+  // Filtro de vencimento — EXATAMENTE a lógica de
+  // lib/despesasService.ts::buscarDespesas(): 2 checagens
+  // independentes de "alguma parcela ativa bate", não a mesma
+  // parcela pras duas pontas
+  const despesasNoIntervalo = despesas.filter(d => {
+    const parcelasAtivas = (parcelasPorDespesa.get(d.id) ?? []).filter(p => !p.deleted_at)
+    const bateInicio = parcelasAtivas.some(p => p.data_vencimento >= filtros.dataInicial)
+    const bateFim = parcelasAtivas.some(p => p.data_vencimento <= filtros.dataFinal)
+    return bateInicio && bateFim
+  })
 
   const linhasFiltradasPorFornecedor = filtros.fornecedorId
-    ? linhas.filter(l => l.fornecedor_id === filtros.fornecedorId)
-    : linhas
+    ? despesasNoIntervalo.filter(d => d.fornecedor_id === filtros.fornecedorId)
+    : despesasNoIntervalo
 
-  // ── 2. tipo_fornecedor_id de cada fornecedor que aparece no
-  // conjunto — em lotes, mesmo padrão do relatório 2.6 ───────────
-  const idsFornecedores = Array.from(new Set(linhasFiltradasPorFornecedor.map(l => l.fornecedor_id)))
+  // ── tipo_fornecedor_id de cada fornecedor que aparece no conjunto
+  // — em lotes, mesmo padrão do relatório 2.6 ─────────────────────
+  const idsFornecedores = Array.from(new Set(linhasFiltradasPorFornecedor.map(d => d.fornecedor_id)))
   const mapaTipo = new Map<number, TipoFornecedorOuNaoClassificado>()
-
   for (const lote of dividirEmLotes(idsFornecedores)) {
     if (lote.length === 0) continue
     const fornecedoresDoLote = await paginarConsulta<{ id: number; tipo_fornecedor_id: number | null }>((inicio, fim) =>
-      client
-        .from('fornecedores')
-        .select('id, tipo_fornecedor_id')
-        .in('id', lote)
-        .range(inicio, fim),
+      client.from('fornecedores').select('id, tipo_fornecedor_id').in('id', lote).range(inicio, fim),
     )
-    for (const f of fornecedoresDoLote) {
-      mapaTipo.set(f.id, f.tipo_fornecedor_id ?? NAO_CLASSIFICADO)
-    }
+    for (const f of fornecedoresDoLote) mapaTipo.set(f.id, f.tipo_fornecedor_id ?? NAO_CLASSIFICADO)
   }
 
-  // ── 3. Filtro de Tipo de Fornecedor — só dá pra aplicar depois
-  // do passo 2 (o tipo não existe na linha de despesas, só depois
-  // do lookup em fornecedores) ────────────────────────────────────
   let idsFiltrados = linhasFiltradasPorFornecedor
   if (filtros.tipoFornecedorFiltro !== undefined) {
-    idsFiltrados = linhasFiltradasPorFornecedor.filter(
-      l => (mapaTipo.get(l.fornecedor_id) ?? NAO_CLASSIFICADO) === filtros.tipoFornecedorFiltro,
-    )
+    idsFiltrados = linhasFiltradasPorFornecedor.filter(d => (mapaTipo.get(d.fornecedor_id) ?? NAO_CLASSIFICADO) === filtros.tipoFornecedorFiltro)
   }
 
-  // ── 3b. Lookup AO VIVO dos nomes das categorias — só as que de
-  // fato aparecem no conjunto final, nunca a tabela inteira (mesma
-  // exigência do 2.6: nome nunca armazenado nem cacheado) ─────────
+  // ── Lookup AO VIVO dos nomes das categorias — só as usadas no
+  // conjunto final, nunca a tabela inteira (mesma exigência do 2.6) ──
   const idsCategoriasUsadas = Array.from(
-    new Set(
-      idsFiltrados
-        .map(l => mapaTipo.get(l.fornecedor_id) ?? NAO_CLASSIFICADO)
-        .filter((t): t is number => t !== NAO_CLASSIFICADO),
-    ),
+    new Set(idsFiltrados.map(d => mapaTipo.get(d.fornecedor_id) ?? NAO_CLASSIFICADO).filter((t): t is number => t !== NAO_CLASSIFICADO)),
   )
   const mapaRotulo = new Map<number, string>()
   for (const lote of dividirEmLotes(idsCategoriasUsadas)) {
     if (lote.length === 0) continue
     const categoriasDoLote = await paginarConsulta<{ id: number; nome: string }>((inicio, fim) =>
-      client
-        .from('fornecedor_categorias')
-        .select('id, nome')
-        .in('id', lote)
-        .range(inicio, fim),
+      client.from('fornecedor_categorias').select('id, nome').in('id', lote).range(inicio, fim),
     )
     for (const c of categoriasDoLote) mapaRotulo.set(c.id, c.nome)
   }
 
   function rotuloDoTipo(tipo: TipoFornecedorOuNaoClassificado): string {
     if (tipo === NAO_CLASSIFICADO) return ROTULO_NAO_CLASSIFICADO
-    return mapaRotulo.get(tipo) ?? ROTULO_NAO_CLASSIFICADO // categoria excluída/renomeada entre o lançamento e a geração — cai em Não classificado em vez de quebrar
+    return mapaRotulo.get(tipo) ?? ROTULO_NAO_CLASSIFICADO
   }
 
-  // ── 3c. Vencimento — não existe em despesas, vive em
-  // despesas_parcelas (1 despesa pode ter N parcelas). Mesma regra
-  // já em produção em DespesasTabela.tsx: menor data_vencimento
-  // entre as parcelas ATIVAS (deleted_at IS NULL) de cada despesa.
-  // Busca em lotes, só das despesas que sobraram após os filtros
-  // acima (mesmo princípio de "nunca a tabela inteira" já aplicado
-  // a fornecedores/categorias) ─────────────────────────────────────
-  const idsDespesas = idsFiltrados.map(l => l.id)
-  const mapaVencimento = new Map<string, string>()
-  for (const lote of dividirEmLotes(idsDespesas)) {
-    if (lote.length === 0) continue
-    const parcelasDoLote = await paginarConsulta<{ despesa_id: string; data_vencimento: string; deleted_at: string | null }>((inicio, fim) =>
-      client
-        .from('despesas_parcelas')
-        .select('despesa_id, data_vencimento, deleted_at')
-        .in('despesa_id', lote)
-        .is('deleted_at', null)
-        .range(inicio, fim),
-    )
-    for (const p of parcelasDoLote) {
-      const atual = mapaVencimento.get(p.despesa_id)
-      if (!atual || p.data_vencimento < atual) mapaVencimento.set(p.despesa_id, p.data_vencimento)
-    }
-  }
-
-  // ── 4. Monta os itens finais e ordena — crescente por Emissão,
-  // Documento como desempate (Maycon: documento_numero é texto
-  // livre, não sequencial como número de NF-e) ────────────────────
-  const itens: ItemTotalizacaoDespesas[] = idsFiltrados.map(l => {
-    const tipo = mapaTipo.get(l.fornecedor_id) ?? NAO_CLASSIFICADO
+  const itens: ItemTotalizacaoDespesas[] = idsFiltrados.map(d => {
+    const tipo = mapaTipo.get(d.fornecedor_id) ?? NAO_CLASSIFICADO
+    // Vencimento exibido = menor data_vencimento entre as parcelas
+    // ATIVAS — mesma regra de DespesasTabela.tsx ("primeiraParcela"),
+    // não restrita ao período filtrado
+    const parcelasAtivas = (parcelasPorDespesa.get(d.id) ?? []).filter(p => !p.deleted_at)
+    const vencimento = parcelasAtivas.length > 0
+      ? parcelasAtivas.reduce((menor, p) => (p.data_vencimento < menor ? p.data_vencimento : menor), parcelasAtivas[0].data_vencimento).slice(0, 10)
+      : null
     return {
-      documentoNumero: l.documento_numero,
-      dataEmissao: (l.documento_data_emissao ?? l.created_at).slice(0, 10),
-      vencimento: mapaVencimento.get(l.id)?.slice(0, 10) ?? null, // null quando a despesa não tem nenhuma parcela ativa
+      id: d.id,
+      documentoNumero: d.documento_numero,
+      dataEmissao: (d.documento_data_emissao ?? d.created_at).slice(0, 10),
+      vencimento,
       tipoFornecedor: tipo,
       tipoFornecedorRotulo: rotuloDoTipo(tipo),
-      fornecedorId: l.fornecedor_id,
-      favorecidoNome: l.favorecido_nome,
-      valor: Number(l.valor_original) || 0,
+      fornecedorId: d.fornecedor_id,
+      favorecidoNome: d.favorecido_nome,
+      valor: Number(d.valor_total) || 0,
     }
   })
 
-  itens.sort((a, b) => a.dataEmissao.localeCompare(b.dataEmissao) || (a.documentoNumero ?? '').localeCompare(b.documentoNumero ?? ''))
+  itens.sort((a, b) => (a.vencimento ?? '').localeCompare(b.vencimento ?? '') || (a.documentoNumero ?? '').localeCompare(b.documentoNumero ?? ''))
 
   return {
     filtros,
@@ -257,45 +204,35 @@ export async function gerarRelatorioTotalizacaoDespesas(
 
 // ============================================================
 // buscarFornecedoresParaFiltro()
-// Popula o dropdown de fornecedor da tela (mesmo padrão do
-// buscarClientesParaFiltro do 2.8: dropdown, não busca livre) —
-// lista o cadastro inteiro, não só os que aparecem no período
-// filtrado atual
 // ============================================================
 export async function buscarFornecedoresParaFiltro(client: SupabaseClient = supabase): Promise<FornecedorOpcaoFiltro[]> {
   const linhas = await paginarConsulta<{ id: number; razao: string }>((inicio, fim) =>
-    client
-      .from('fornecedores')
-      .select('id, razao')
-      .order('razao', { ascending: true })
-      .range(inicio, fim),
+    client.from('fornecedores').select('id, razao').order('razao', { ascending: true }).range(inicio, fim),
   )
   return linhas.map(f => ({ id: f.id, nome: f.razao }))
 }
 
 // ============================================================
 // gerarGraficoMesAMesTotalizacaoDespesas()
-// Modo "Mês a mês" do gráfico — soma de valor_original por mês,
-// escopo de um ANO INTEIRO, independente do filtro de período da
-// tabela (mesma decisão explícita do 2.8)
+// Modo "Mês a mês" — soma de valor_total por mês de VENCIMENTO
+// (1º vencimento ativo de cada despesa), escopo de um ANO INTEIRO,
+// independente do filtro de período da tabela
 // ============================================================
 export async function gerarGraficoMesAMesTotalizacaoDespesas(
   ano: number,
   client: SupabaseClient = supabase,
 ): Promise<DadosGrafico> {
-  const linhas = await buscarDespesasNoIntervalo(
-    { dataInicial: `${ano}-01-01`, dataFinal: `${ano}-12-31` },
-    client,
-    'id, documento_numero, documento_data_emissao, created_at, fornecedor_id, favorecido_nome, valor_original',
-  )
+  const { despesas, parcelasPorDespesa } = await buscarDespesasComParcelas(client)
 
   const porMes = new Map<string, number>()
-  for (let m = 1; m <= 12; m++) {
-    porMes.set(`${ano}-${String(m).padStart(2, '0')}`, 0)
-  }
-  for (const l of linhas) {
-    const mes = (l.documento_data_emissao ?? l.created_at).slice(0, 7)
-    porMes.set(mes, (porMes.get(mes) ?? 0) + (Number(l.valor_original) || 0))
+  for (let m = 1; m <= 12; m++) porMes.set(`${ano}-${String(m).padStart(2, '0')}`, 0)
+
+  for (const d of despesas) {
+    const parcelasAtivas = (parcelasPorDespesa.get(d.id) ?? []).filter(p => !p.deleted_at)
+    if (parcelasAtivas.length === 0) continue
+    const primeiroVencimento = parcelasAtivas.reduce((menor, p) => (p.data_vencimento < menor ? p.data_vencimento : menor), parcelasAtivas[0].data_vencimento)
+    const mes = primeiroVencimento.slice(0, 7)
+    if (porMes.has(mes)) porMes.set(mes, (porMes.get(mes) ?? 0) + (Number(d.valor_total) || 0))
   }
 
   return {
@@ -314,19 +251,23 @@ export async function compararPeriodosTotalizacaoDespesas(
   periodoB: FiltroIntervaloDatas,
   client: SupabaseClient = supabase,
 ): Promise<ComparacaoPeriodosResultadoDespesas> {
-  async function totalDoPeriodo(periodo: FiltroIntervaloDatas) {
-    const linhas = await buscarDespesasNoIntervalo(
-      periodo,
-      client,
-      'id, documento_numero, documento_data_emissao, created_at, fornecedor_id, favorecido_nome, valor_original',
-    )
+  const { despesas, parcelasPorDespesa } = await buscarDespesasComParcelas(client)
+
+  function totalDoPeriodo(periodo: FiltroIntervaloDatas) {
+    const filtradas = despesas.filter(d => {
+      const parcelasAtivas = (parcelasPorDespesa.get(d.id) ?? []).filter(p => !p.deleted_at)
+      const bateInicio = parcelasAtivas.some(p => p.data_vencimento >= periodo.dataInicial)
+      const bateFim = parcelasAtivas.some(p => p.data_vencimento <= periodo.dataFinal)
+      return bateInicio && bateFim
+    })
     return {
-      valorTotal: linhas.reduce((s, l) => s + (Number(l.valor_original) || 0), 0),
-      despesas: linhas.length,
+      valorTotal: filtradas.reduce((s, d) => s + (Number(d.valor_total) || 0), 0),
+      despesas: filtradas.length,
     }
   }
 
-  const [resultadoA, resultadoB] = await Promise.all([totalDoPeriodo(periodoA), totalDoPeriodo(periodoB)])
+  const resultadoA = totalDoPeriodo(periodoA)
+  const resultadoB = totalDoPeriodo(periodoB)
 
   return {
     periodoA,

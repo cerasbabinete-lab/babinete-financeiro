@@ -125,7 +125,7 @@ export async function fazerBackupCompleto(usuario: string): Promise<string | und
 
   const nomeArquivo = `backup_completo_${dataArquivo()}_${usuario}.json`;
   await arquivarNaNuvem(payload, nomeArquivo);
-  const resultadoDrive = await replicarBackupNoDrive(nomeArquivo, JSON.stringify(payload, null, 2));
+  const resultadoDrive = await replicarBackupNoDrive(nomeArquivo);
   if (!resultadoDrive.ok) {
     return `Backup arquivado no Supabase, mas falhou ao duplicar no Google Drive: ${resultadoDrive.erro}`;
   }
@@ -143,7 +143,7 @@ export async function fazerBackupTabela(tabela: TabelaBackup, usuario: string): 
   };
   const nomeArquivo = `backup_${tabela}_${dataArquivo()}_${usuario}.json`;
   await arquivarNaNuvem(payload, nomeArquivo);
-  const resultadoDrive = await replicarBackupNoDrive(nomeArquivo, JSON.stringify(payload, null, 2));
+  const resultadoDrive = await replicarBackupNoDrive(nomeArquivo);
   if (!resultadoDrive.ok) {
     return `Backup arquivado no Supabase, mas falhou ao duplicar no Google Drive: ${resultadoDrive.erro}`;
   }

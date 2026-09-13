@@ -496,7 +496,7 @@ export async function fazerBackup(usuario?: string): Promise<string | undefined>
     throw new Error(`Falha ao arquivar backup na nuvem: ${erroUpload.message}`)
   }
 
-  const resultadoDrive = await replicarBackupNoDrive(nomeArquivo, json)
+  const resultadoDrive = await replicarBackupNoDrive(nomeArquivo)
   if (!resultadoDrive.ok) {
     return `Backup arquivado no Supabase, mas falhou ao duplicar no Google Drive: ${resultadoDrive.erro}`
   }

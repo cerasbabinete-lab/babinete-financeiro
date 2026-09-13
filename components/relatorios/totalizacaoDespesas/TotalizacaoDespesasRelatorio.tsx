@@ -16,7 +16,7 @@
 
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   gerarRelatorioTotalizacaoDespesas,
   buscarFornecedoresParaFiltro,
@@ -37,10 +37,14 @@ import { CartaoResumoUi, BarraFiltroExportar, FaixaErro, estilosRelatorio } from
 // documento a documento, sem paginação, então o padrão "últimos 6
 // meses" dos relatórios agregados traria centenas de linhas na
 // primeira carga
+// CORREÇÃO: padrão era "1º do mês até hoje" (limitava a tela a uma
+// fração do mês na primeira carga) — corrigido pra mês completo,
+// filtro manual continua a critério do usuário depois
 function datasPadrao(): { dataInicial: string; dataFinal: string } {
   const hoje = new Date()
-  const dataFinal = hoje.toISOString().slice(0, 10)
-  const dataInicial = `${dataFinal.slice(0, 8)}01`
+  const dataInicial = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-01`
+  const ultimoDiaMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate()
+  const dataFinal = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(ultimoDiaMes).padStart(2, '0')}`
   return { dataInicial, dataFinal }
 }
 
@@ -61,6 +65,45 @@ export default function TotalizacaoDespesasRelatorio() {
   const [fornecedores, setFornecedores] = useState<FornecedorOpcaoFiltro[]>([])
   const [categorias, setCategorias] = useState<FornecedorCategoria[]>([])
   const [incluirGraficoExport, setIncluirGraficoExport] = useState(true)
+
+  // Exportação seletiva — ids marcados (Set, toggle O(1)). Reseta pra
+  // "tudo marcado" toda vez que o relatório recarrega (novo Gerar, ou
+  // filtro mudou) — "ao abrir o relatório, todas as despesas devem
+  // vir marcadas por padrão", e regerar é reabrir na prática
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset legítimo de seleção a partir de uma mudança de prop derivada (novo relatorio carregado), não um loop
+    if (relatorio) setSelecionados(new Set(relatorio.itens.map(i => i.id)))
+  }, [relatorio])
+
+  const checkMestreRef = useRef<HTMLInputElement>(null)
+  const totalItens = relatorio?.itens.length ?? 0
+  const totalSelecionados = selecionados.size
+  useEffect(() => {
+    if (checkMestreRef.current) {
+      checkMestreRef.current.indeterminate = totalSelecionados > 0 && totalSelecionados < totalItens
+    }
+  }, [totalSelecionados, totalItens])
+
+  function alternarSelecao(id: string) {
+    setSelecionados(prev => {
+      const novo = new Set(prev)
+      if (novo.has(id)) novo.delete(id); else novo.add(id)
+      return novo
+    })
+  }
+
+  function alternarTodos() {
+    if (!relatorio) return
+    setSelecionados(prev => (prev.size === relatorio.itens.length ? new Set() : new Set(relatorio.itens.map(i => i.id))))
+  }
+
+  // ids EXCLUÍDOS (não os marcados) — URL curta no caso comum (tudo
+  // marcado = lista vazia), só cresce se o usuário desmarcar bastante
+  const idsExcluidos = useMemo(
+    () => (relatorio ? relatorio.itens.filter(i => !selecionados.has(i.id)).map(i => i.id) : []),
+    [relatorio, selecionados],
+  )
 
   // ── Módulo de gráfico — escopo de data independente da tabela
   // (mesma decisão explícita do 2.8). Abre em "Mês a mês", ano vigente ──
@@ -127,6 +170,7 @@ export default function TotalizacaoDespesasRelatorio() {
     anoGrafico: String(anoGrafico),
     ...(filtrosAplicados.tipoFornecedorFiltro ? { tipoFornecedorFiltro: filtrosAplicados.tipoFornecedorFiltro } : {}),
     ...(filtrosAplicados.fornecedorId ? { fornecedorId: filtrosAplicados.fornecedorId } : {}),
+    ...(idsExcluidos.length > 0 ? { idsExcluidos: idsExcluidos.join(',') } : {}),
   }
 
   return (
@@ -140,7 +184,7 @@ export default function TotalizacaoDespesasRelatorio() {
         onExportarPdf={() => exportar('pdf', paramsExport, nomeArquivo)}
         onExportarXlsx={() => exportar('xlsx', paramsExport, nomeArquivo)}
         exportando={exportando}
-        podeExportar={!!relatorio}
+        podeExportar={!!relatorio && totalSelecionados > 0}
         filtrosExtras={
           <>
             <div>
@@ -221,10 +265,17 @@ export default function TotalizacaoDespesasRelatorio() {
             )}
           </div>
 
+          <div style={{ fontSize: '10.5px', color: '#5a84a6', margin: '-4px 2px 10px' }}>
+            {totalSelecionados} de {totalItens} selecionadas — desmarque as que não quer incluir na exportação
+          </div>
+
           <div style={{ background: '#ffffff', border: '1px solid #dde8f0', borderRadius: '8px', overflow: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
               <thead>
                 <tr style={{ background: '#1a6094', color: '#ffffff' }}>
+                  <th style={{ ...estilosRelatorio.th, width: '32px', textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.3)' }}>
+                    <input ref={checkMestreRef} type="checkbox" checked={totalItens > 0 && totalSelecionados === totalItens} onChange={alternarTodos} title="Selecionar/desselecionar todas" style={{ cursor: 'pointer' }} />
+                  </th>
                   <th style={estilosRelatorio.th}>Documento</th>
                   <th style={estilosRelatorio.th}>Emissão</th>
                   <th style={estilosRelatorio.th}>Vencimento</th>
@@ -236,10 +287,13 @@ export default function TotalizacaoDespesasRelatorio() {
               </thead>
               <tbody>
                 {relatorio.itens.length === 0 ? (
-                  <tr><td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: '#5a84a6' }}>Nenhuma despesa no período selecionado.</td></tr>
+                  <tr><td colSpan={8} style={{ padding: '24px', textAlign: 'center', color: '#5a84a6' }}>Nenhuma despesa no período selecionado.</td></tr>
                 ) : (
                   relatorio.itens.map((item, i) => (
-                    <tr key={`${item.fornecedorId}-${item.documentoNumero}-${item.dataEmissao}-${i}`} style={{ background: i % 2 !== 0 ? '#f7fafc' : '#ffffff', borderBottom: '1px solid #e8f0f7' }}>
+                    <tr key={item.id} style={{ background: i % 2 !== 0 ? '#f7fafc' : '#ffffff', borderBottom: '1px solid #e8f0f7' }}>
+                      <td style={{ ...estilosRelatorio.td, textAlign: 'center', borderRight: '1px solid #dde8f0' }}>
+                        <input type="checkbox" checked={selecionados.has(item.id)} onChange={() => alternarSelecao(item.id)} style={{ cursor: 'pointer' }} />
+                      </td>
                       <td style={estilosRelatorio.td}>{item.documentoNumero ?? '—'}</td>
                       <td style={estilosRelatorio.td}>{formatarDataBR(item.dataEmissao)}</td>
                       <td style={estilosRelatorio.td}>{item.vencimento ? formatarDataBR(item.vencimento) : '—'}</td>

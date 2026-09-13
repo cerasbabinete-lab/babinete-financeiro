@@ -16,6 +16,9 @@
 // O Supabase Storage continua sendo a fonte de verdade: uma falha aqui
 // NUNCA derruba o backup em si — quem chama decide como avisar o
 // usuário (ver replicarBackupNoDrive, que nunca lança exceção).
+// REVISÃO pós-incidente 413: só envia o NOME do arquivo — a rota busca
+// o conteúdo direto do Supabase Storage, então o corpo desta requisição
+// nunca cresce, mesmo para o backup completo de 18 tabelas.
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
@@ -26,15 +29,13 @@ export interface ResultadoReplicacaoDrive {
 }
 
 /**
- * Envia uma cópia do backup (já arquivado no Supabase Storage) para o
- * Google Drive. NUNCA lança exceção — retorna { ok: false, erro } em caso
- * de falha, para que quem chamou decida como avisar o usuário sem
- * derrubar o backup principal, que já foi concluído no Supabase.
+ * Pede para o servidor duplicar, no Google Drive, um backup que JÁ foi
+ * arquivado no Supabase Storage (a rota busca o conteúdo lá, não é enviado
+ * daqui). NUNCA lança exceção — retorna { ok: false, erro } em caso de
+ * falha, para que quem chamou decida como avisar o usuário sem derrubar
+ * o backup principal, que já foi concluído no Supabase.
  */
-export async function replicarBackupNoDrive(
-  nomeArquivo: string,
-  conteudo: string,
-): Promise<ResultadoReplicacaoDrive> {
+export async function replicarBackupNoDrive(nomeArquivo: string): Promise<ResultadoReplicacaoDrive> {
   try {
     const { data: { session } } = await supabase.auth.getSession()
     const token = session?.access_token
@@ -48,7 +49,7 @@ export async function replicarBackupNoDrive(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ nomeArquivo, conteudo }),
+      body: JSON.stringify({ nomeArquivo }),
     })
 
     if (!resp.ok) {
