@@ -74,6 +74,7 @@ import type {
   RelatorioGastosPorTipoFornecedor,
   GastoPorTipoFornecedor,
   GastoPorTipoFornecedorMes,
+  ItemGastoDetalhadoPorTipo,
   TipoFornecedorOuNaoClassificado,
   FiltroIntervaloDatas,
 } from '@/types/relatorios'
@@ -95,6 +96,8 @@ interface LinhaDespesa {
   valor_total: number
   documento_data_emissao: string | null
   created_at: string
+  documento_numero: string | null // pedido de Maycon: coluna Nº Doc. na tabela detalhada
+  favorecido_nome: string // pedido de Maycon: coluna Fornecedor na tabela detalhada
 }
 
 // ============================================================
@@ -112,7 +115,7 @@ export async function gerarRelatorioGastosPorTipoFornecedor(
   const comDataEmissao = await paginarConsulta<LinhaDespesa>((inicio, fim) =>
     client
       .from('despesas')
-      .select('fornecedor_id, valor_total, documento_data_emissao, created_at')
+      .select('fornecedor_id, valor_total, documento_data_emissao, created_at, documento_numero, favorecido_nome')
       .is('deleted_at', null)
       .neq('origem_tipo', 'pessoal_socio')
       .gte('documento_data_emissao', filtros.dataInicial)
@@ -125,7 +128,7 @@ export async function gerarRelatorioGastosPorTipoFornecedor(
   const semDataEmissao = await paginarConsulta<LinhaDespesa>((inicio, fim) =>
     client
       .from('despesas')
-      .select('fornecedor_id, valor_total, documento_data_emissao, created_at')
+      .select('fornecedor_id, valor_total, documento_data_emissao, created_at, documento_numero, favorecido_nome')
       .is('deleted_at', null)
       .neq('origem_tipo', 'pessoal_socio')
       .is('documento_data_emissao', null)
@@ -199,6 +202,7 @@ export async function gerarRelatorioGastosPorTipoFornecedor(
   // ── 3. Agregação por tipo (período inteiro) e por tipo+mês ───
   const porTipoMap = new Map<TipoFornecedorOuNaoClassificado, number>()
   const porTipoPorMesMap = new Map<string, number>() // chave: `${tipo}|${mes}`
+  const detalhado: ItemGastoDetalhadoPorTipo[] = []
 
   for (const d of linhasNoIntervalo) {
     const tipo = mapaTipo.get(d.fornecedor_id) ?? NAO_CLASSIFICADO
@@ -210,7 +214,18 @@ export async function gerarRelatorioGastosPorTipoFornecedor(
     const mes = (d.documento_data_emissao ?? d.created_at).slice(0, 7)
     const chaveMes = `${tipo}|${mes}`
     porTipoPorMesMap.set(chaveMes, (porTipoPorMesMap.get(chaveMes) ?? 0) + valor)
+
+    detalhado.push({
+      mes,
+      tipo,
+      rotulo: rotuloDoTipo(tipo),
+      fornecedorNome: d.favorecido_nome,
+      documentoNumero: d.documento_numero,
+      valor,
+    })
   }
+
+  detalhado.sort((a, b) => a.mes.localeCompare(b.mes) || a.rotulo.localeCompare(b.rotulo) || a.fornecedorNome.localeCompare(b.fornecedorNome))
 
   const porTipo: GastoPorTipoFornecedor[] = Array.from(porTipoMap.entries())
     .map(([tipo, total]) => ({ tipo, rotulo: rotuloDoTipo(tipo), total }))
@@ -235,6 +250,7 @@ export async function gerarRelatorioGastosPorTipoFornecedor(
     tipoFiltro: filtros.tipoFiltro,
     porTipo,
     porTipoPorMes,
+    detalhado,
     totalGeral,
     grafico: {
       tipo: 'pizza',

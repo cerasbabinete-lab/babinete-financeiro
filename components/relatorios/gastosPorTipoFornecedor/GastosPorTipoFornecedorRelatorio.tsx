@@ -77,6 +77,7 @@ export default function GastosPorTipoFornecedorRelatorio() {
   }, [])
 
   const { exportar, exportando, erroExportacao } = useExportarRelatorio('/api/relatorios/gastos-por-tipo-fornecedor')
+  const [incluirGraficoExport, setIncluirGraficoExport] = useState(true)
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -101,6 +102,7 @@ export default function GastosPorTipoFornecedorRelatorio() {
   const paramsExport: Record<string, string> = {
     dataInicial: filtrosAplicados.dataInicial,
     dataFinal: filtrosAplicados.dataFinal,
+    incluirGrafico: String(incluirGraficoExport),
     // Valor bruto do <select> (numérico-como-string ou 'nao_classificado')
     // — a API route faz a mesma conversão via tipoFiltroParaTipo() local
     ...(filtrosAplicados.tipoFiltro ? { tipoFiltro: filtrosAplicados.tipoFiltro } : {}),
@@ -118,6 +120,12 @@ export default function GastosPorTipoFornecedorRelatorio() {
         onExportarXlsx={() => exportar('xlsx', paramsExport, nomeArquivo)}
         exportando={exportando}
         podeExportar={!!relatorio}
+        opcoesExportacaoExtras={
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#5a84a6', cursor: 'pointer' }}>
+            <input type="checkbox" checked={incluirGraficoExport} onChange={e => setIncluirGraficoExport(e.target.checked)} />
+            Incluir gráfico
+          </label>
+        }
         filtrosExtras={
           <div>
             <label style={estilosRelatorio.rotuloFiltro}>Tipo</label>
@@ -155,18 +163,22 @@ export default function GastosPorTipoFornecedorRelatorio() {
                 <tr style={{ background: '#1a6094', color: '#ffffff' }}>
                   <th style={estilosRelatorio.th}>Mês</th>
                   <th style={estilosRelatorio.th}>Tipo</th>
+                  <th style={estilosRelatorio.th}>Fornecedor</th>
+                  <th style={estilosRelatorio.th}>Nº Doc.</th>
                   <th style={{ ...estilosRelatorio.th, textAlign: 'right' }}>Total</th>
                 </tr>
               </thead>
               <tbody>
-                {relatorio.porTipoPorMes.length === 0 ? (
-                  <tr><td colSpan={3} style={{ padding: '24px', textAlign: 'center', color: '#5a84a6' }}>Nenhuma despesa no período selecionado.</td></tr>
+                {relatorio.detalhado.length === 0 ? (
+                  <tr><td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: '#5a84a6' }}>Nenhuma despesa no período selecionado.</td></tr>
                 ) : (
-                  relatorio.porTipoPorMes.map((g, i) => (
+                  relatorio.detalhado.map((g, i) => (
                     <tr key={i} style={{ background: i % 2 !== 0 ? '#f7fafc' : '#ffffff', borderBottom: '1px solid #e8f0f7' }}>
                       <td style={estilosRelatorio.td}>{formatarMesBR(g.mes)}</td>
                       <td style={estilosRelatorio.td}>{g.rotulo}</td>
-                      <td style={{ ...estilosRelatorio.td, textAlign: 'right' }}>{formatarMoeda(g.total)}</td>
+                      <td style={estilosRelatorio.td}>{g.fornecedorNome}</td>
+                      <td style={estilosRelatorio.td}>{g.documentoNumero ?? '—'}</td>
+                      <td style={{ ...estilosRelatorio.td, textAlign: 'right' }}>{formatarMoeda(g.valor)}</td>
                     </tr>
                   ))
                 )}

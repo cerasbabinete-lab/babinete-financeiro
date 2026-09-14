@@ -339,11 +339,28 @@ export interface GastoPorTipoFornecedorMes extends GastoPorTipoFornecedor {
   mes: string // 'YYYY-MM'
 }
 
+// ItemGastoDetalhadoPorTipo — pedido de Maycon (mockup com nomes/nº
+// doc fictícios): tabela detalhada, 1 linha por despesa, com Fornecedor
+// e Nº Doc. Não dá pra colocar essas colunas na tabela agregada
+// (porTipoPorMes) — uma linha somada não tem "1 fornecedor" nem "1
+// documento", pode ser dezenas. Mesma fonte/filtro que já alimenta
+// porTipo/porTipoPorMes (despesas empresariais, não soft-deletadas),
+// só sem agregar
+export interface ItemGastoDetalhadoPorTipo {
+  mes: string // 'YYYY-MM' — mesmo critério de agrupamento de porTipoPorMes (documento_data_emissao, fallback created_at)
+  tipo: TipoFornecedorOuNaoClassificado
+  rotulo: string
+  fornecedorNome: string // despesas.favorecido_nome
+  documentoNumero: string | null // despesas.documento_numero — "se houver" (pedido explícito), recibo/holerite pode não ter
+  valor: number // despesas.valor_total — mesmo campo somado em porTipo/porTipoPorMes, aqui por linha
+}
+
 export interface RelatorioGastosPorTipoFornecedor {
   periodo: FiltroIntervaloDatas
   tipoFiltro?: TipoFornecedorOuNaoClassificado // filtro opcional (Seção 2.6)
   porTipo: GastoPorTipoFornecedor[]     // visão do período — usada no gráfico de pizza/rosca
   porTipoPorMes: GastoPorTipoFornecedorMes[] // visão mensal — usada no gráfico de barras
+  detalhado: ItemGastoDetalhadoPorTipo[] // tabela da tela/exportação — ver ItemGastoDetalhadoPorTipo acima
   totalGeral: number
   grafico: DadosGrafico // tipo: 'pizza' (visão período) ou 'barras' (visão mensal) — Seção 1.5
 }

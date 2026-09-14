@@ -63,6 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const dataInicial = String(req.query.dataInicial ?? '')
   const dataFinal = String(req.query.dataFinal ?? '')
   const formato = String(req.query.formato ?? '')
+  const incluirGrafico = String(req.query.incluirGrafico ?? 'true') === 'true'
   const tipoFiltro = tipoFiltroParaTipo(req.query.tipoFiltro ? String(req.query.tipoFiltro) : undefined)
 
   if (!dataInicial || !dataFinal) return res.status(400).json({ erro: 'dataInicial e dataFinal são obrigatórios' })
@@ -74,14 +75,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const relatorio = await gerarRelatorioGastosPorTipoFornecedor({ dataInicial, dataFinal, tipoFiltro }, supabaseAdmin)
     const periodoDescricao = formatarPeriodoDescricao(dataInicial, dataFinal)
 
-    // Tabela: uma linha por combinação tipo+mês (visão mensal
-    // detalhada) — a visão "por tipo" (período inteiro) fica nos
-    // cartões de resumo. Rótulo já vem resolvido em cada linha
-    // (relatorio.porTipoPorMes[i].rotulo) — sem dicionário externo
-    const linhasTabela = relatorio.porTipoPorMes.map(g => ({
+    // Tabela: detalhada, 1 linha por despesa (Fornecedor + Nº Doc.,
+    // pedido de Maycon) — a visão agregada "por tipo" (período
+    // inteiro) fica nos cartões de resumo. Rótulo já vem resolvido
+    // em cada linha (relatorio.detalhado[i].rotulo) — sem dicionário externo
+    const linhasTabela = relatorio.detalhado.map(g => ({
       mes: formatarMesBR(g.mes),
       tipo: g.rotulo,
-      total: formatarMoeda(g.total),
+      fornecedor: g.fornecedorNome,
+      documento: g.documentoNumero ?? '—',
+      total: formatarMoeda(g.valor),
     }))
 
     const cartoes: CartaoResumo[] = relatorio.porTipo.map(t => ({
@@ -92,12 +95,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (formato === 'pdf') {
       const doc = criarDocumentoRelatorio({ tituloRelatorio: 'Gastos por tipo de fornecedor', periodoDescricao })
       if (cartoes.length > 0) desenharCartoesResumo(doc, cartoes)
-      doc.y = desenharGrafico(doc, relatorio.grafico, { x: 40, y: doc.y, largura: 515, altura: 200 })
+      if (incluirGrafico) {
+        doc.y = desenharGrafico(doc, relatorio.grafico, { x: 40, y: doc.y, largura: 515, altura: 200 })
+      }
 
       const colunas: ColunaTabela[] = [
-        { chave: 'mes', rotulo: 'Mês', larguraProporcional: 1 },
-        { chave: 'tipo', rotulo: 'Tipo', larguraProporcional: 1.6 },
-        { chave: 'total', rotulo: 'Total', larguraProporcional: 1.2, alinhamento: 'right' },
+        { chave: 'mes', rotulo: 'Mês', larguraProporcional: 0.8 },
+        { chave: 'tipo', rotulo: 'Tipo', larguraProporcional: 1.3 },
+        { chave: 'fornecedor', rotulo: 'Fornecedor', larguraProporcional: 1.6 },
+        { chave: 'documento', rotulo: 'Nº Doc.', larguraProporcional: 1 },
+        { chave: 'total', rotulo: 'Total', larguraProporcional: 1, alinhamento: 'right' },
       ]
       desenharTabela(doc, colunas, linhasTabela)
       finalizarComRodape(doc)
@@ -116,6 +123,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const colunasExcel: ColunaExcel[] = [
       { chave: 'mes', rotulo: 'Mês', larguraCaracteres: 12 },
       { chave: 'tipo', rotulo: 'Tipo', larguraCaracteres: 22 },
+      { chave: 'fornecedor', rotulo: 'Fornecedor', larguraCaracteres: 32 },
+      { chave: 'documento', rotulo: 'Nº Doc.', larguraCaracteres: 16 },
       { chave: 'total', rotulo: 'Total', larguraCaracteres: 16 },
     ]
     const buffer = gerarBufferExcel({
