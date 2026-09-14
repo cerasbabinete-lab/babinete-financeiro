@@ -106,7 +106,7 @@ export default function ContasReceberFiltros({
   // Sem isso, um timeout agendado poderia restaurar o texto após o limpar
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current) // Cancela timeout pendente
-    setInputBusca(filtros.busca)                               // Sincroniza com valor externo
+    setInputBusca(filtros.busca)                               // eslint-disable-line react-hooks/set-state-in-effect -- Sincroniza com valor externo
   }, [filtros.busca])
 
   // Limpa o debounce ao desmontar para evitar setState em componente desmontado
@@ -279,7 +279,7 @@ export default function ContasReceberFiltros({
         </button>
         {modoPeriodoLivre && (
           <span style={{ fontSize: '11px', color: '#b07d00', marginLeft: '4px' }}>
-            (Período Livre ativo — limpe as datas no painel "Filtros" para voltar)
+            (Período Livre ativo — limpe as datas no painel &quot;Filtros&quot; para voltar)
           </span>
         )}
       </div>
