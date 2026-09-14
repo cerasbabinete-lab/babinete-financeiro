@@ -27,7 +27,6 @@ import {
   calcularFormaPagamento,
   formatarCnpjCpf,
   formatarMoeda,
-  formatarDataBR,
   buscarTransportadoras,
 } from '@/lib/receitasService'
 import { OPCOES_MODALIDADE_FRETE } from '@/types/receitas'
@@ -82,7 +81,7 @@ export default function ReceitasModal({ modo, receita, onFechar, onSalvo }: Rece
 
   useEffect(() => {
     if (!receita || modo === 'novo') return
-    setCpfCnpj(receita.cliente_cpf_cnpj ? formatarCnpjCpf(receita.cliente_cpf_cnpj) : '')
+    setCpfCnpj(receita.cliente_cpf_cnpj ? formatarCnpjCpf(receita.cliente_cpf_cnpj) : '') // eslint-disable-line react-hooks/set-state-in-effect
     setClienteNome(receita.cliente_nome ?? '')
     setClienteEnd([receita.cliente_logradouro, receita.cliente_numero, receita.cliente_bairro].filter(Boolean).join(', '))
     setClienteMun(receita.cliente_municipio ?? '')

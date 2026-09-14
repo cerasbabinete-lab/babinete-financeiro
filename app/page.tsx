@@ -123,10 +123,10 @@ export default function HomePage() {
       // — resolverUsernameExibicao() cobre o caso especial do Admin
       // temporário (cerasbabinete@gmail.com -> "ceras"), ver lib/authUsername.ts
       const email = user.email ?? ''
-      setUsuario(resolverUsernameExibicao(email)) // eslint-disable-line react-hooks/set-state-in-effect
+      setUsuario(resolverUsernameExibicao(email))
 
       // Libera o render do conteúdo — auth confirmada com sucesso
-      setAuthCarregando(false) // eslint-disable-line react-hooks/set-state-in-effect
+      setAuthCarregando(false)
     }).catch(() => {
       // Falha de rede, timeout ou outage do Supabase → redireciona para login como fallback seguro
       // Sem catch: authCarregando ficaria true para sempre e o usuário veria tela em branco
@@ -281,7 +281,11 @@ function CardConteudo({
         gap: '10px',          // Espaço entre o ícone e o texto do label
       }}
     >
-      {/* Ícone do módulo — SVG em /public/img/, dimensões fixas 72×72 conforme spec */}
+      {/* Ícone do módulo — SVG em /public/img/, dimensões fixas 72×72 conforme spec.
+          Mantido como <img> nativo (não next/image): é SVG de tamanho fixo, sem
+          ganho real de otimização, e evita risco de mudança de comportamento
+          visual em todos os cards da Home nesta reta final. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={modulo.icon}   // Caminho do SVG vindo da constante MODULOS
         alt={modulo.label}  // Texto alternativo para acessibilidade

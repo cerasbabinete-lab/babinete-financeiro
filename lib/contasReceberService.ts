@@ -1817,7 +1817,6 @@ export async function restaurarBackup(titulos: ContaReceber[]): Promise<void> {
 
   for (const titulo of titulos) {
     // Remove o campo virtual de join — não existe na tabela
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { eventos: _ev, ...dadosTitulo } = titulo
 
     // Upsert pelo id — preserva histórico de datas (created_at, updated_at)

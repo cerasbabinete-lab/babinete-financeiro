@@ -415,7 +415,6 @@ export default function DespesasModal({ modo, despesa, resultadoImportacao, onFe
         deleted_at: null,
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const parcelasPayload = parcelas.map(({ id: _id, ...resto }) => resto)
 
       if (isEditar && despesa) {

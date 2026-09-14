@@ -147,7 +147,7 @@ export default function ContasReceberPage() {
   // isMobile = null até o primeiro matchMedia — guard de hidratação SSR
   useEffect(() => {
     const mq      = window.matchMedia('(max-width: 768px)')
-    setIsMobile(mq.matches)
+    setIsMobile(mq.matches) // eslint-disable-line react-hooks/set-state-in-effect
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
@@ -188,7 +188,7 @@ export default function ContasReceberPage() {
   }, [filtros])
 
   useEffect(() => {
-    if (!authCarregando) carregarTitulos()
+    if (!authCarregando) carregarTitulos() // eslint-disable-line react-hooks/set-state-in-effect
   }, [authCarregando, carregarTitulos])
 
   // ── Carrega near-due para o banner ────────────────────────
@@ -439,128 +439,6 @@ export default function ContasReceberPage() {
     )
   }
 
-  // ── Banner de pílulas de contadores ───────────────────────
-  const ContadoresBanner = () => {
-    const totalCtd = contadores.emAberto + contadores.atrasados + contadores.baixados + contadores.emCartorio + contadores.protestados + contadores.cancelados
-    if (totalCtd === 0) return null
-
-    const pilulas: { label: string; valor: number; bg: string; cor: string }[] = [
-      { label: 'Em Aberto',   valor: contadores.emAberto,    bg: '#dcfce7', cor: '#166534' },
-      { label: 'Atrasados',   valor: contadores.atrasados,   bg: '#fff5f5', cor: '#c0392b' },
-      { label: 'Baixados',    valor: contadores.baixados,    bg: '#eaf3de', cor: '#27ae60' },
-      { label: 'Em Cartório', valor: contadores.emCartorio,  bg: '#fce7f3', cor: '#9d174d' },
-      { label: 'Protestados', valor: contadores.protestados, bg: '#fff4e6', cor: '#c06000' },
-      { label: 'Cancelados',  valor: contadores.cancelados,  bg: '#f1f1f1', cor: '#888888' },
-    ].filter(p => p.valor > 0)
-
-    return (
-      <div style={{
-        display:      'flex',
-        alignItems:   'center',
-        gap:          '6px',
-        margin:       '0 0 10px',
-        padding:      '6px 12px',
-        background:   '#f7fafc',
-        border:       '1px solid #dde8f0',
-        borderRadius: '5px',
-        flexWrap:     'wrap',
-        fontFamily:   'Tahoma, Geneva, sans-serif',
-      }}>
-        <span style={{ fontSize: '11px', color: '#5a84a6', marginRight: '2px', whiteSpace: 'nowrap' }}>
-          Situação:
-        </span>
-        {pilulas.map(p => (
-          <span
-            key={p.label}
-            style={{
-              display:      'inline-flex',
-              alignItems:   'center',
-              gap:          '5px',
-              padding:      '2px 10px',
-              borderRadius: '10px',
-              background:   p.bg,
-              color:        p.cor,
-              fontSize:     '11px',
-              fontWeight:   700,
-              whiteSpace:   'nowrap',
-              border:       `1px solid ${p.cor}22`,
-            }}
-          >
-            <span style={{ fontSize: '13px', fontWeight: 700 }}>{p.valor}</span>
-            {p.label}
-          </span>
-        ))}
-      </div>
-    )
-  }
-
-  // ── Banner de feedback inline ─────────────────────────────
-  const FeedbackBanner = () => (
-    <>
-      {msgSucesso && (
-        <div style={{
-          margin: '0 0 10px', padding: '8px 12px',
-          background: '#eaf3de', border: '1px solid #b7d98f',
-          borderRadius: '5px', color: '#3b6d11', fontSize: '12px',
-          fontFamily: 'Tahoma, Geneva, sans-serif',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        }}>
-          <span>
-            <i className="ti ti-check" style={{ marginRight: '6px' }} aria-hidden="true" />
-            {msgSucesso}
-          </span>
-          <button onClick={() => setMsgSucesso(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b6d11', fontSize: '14px' }}>✕</button>
-        </div>
-      )}
-      {msgErro && (
-        <div style={{
-          margin: '0 0 10px', padding: '8px 12px',
-          background: '#fef2f2', border: '1px solid #fca5a5',
-          borderRadius: '5px', color: '#a32d2d', fontSize: '12px',
-          fontFamily: 'Tahoma, Geneva, sans-serif',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        }}>
-          <span>
-            <i className="ti ti-alert-triangle" style={{ marginRight: '6px' }} aria-hidden="true" />
-            {msgErro}
-          </span>
-          <button onClick={() => setMsgErro(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a32d2d', fontSize: '14px' }}>✕</button>
-        </div>
-      )}
-    </>
-  )
-
-  // ── Banner de alerta near-due ─────────────────────────────
-  const AlertaBanner = () => {
-    if (titulosNearDue.length === 0) return null
-    return (
-      <div
-        onClick={() => setModalAvisosOpen(true)}
-        style={{
-          margin:       '0 0 10px',
-          padding:      '8px 14px',
-          background:   '#fff8e1',
-          border:       '1px solid #ffe082',
-          borderRadius: '5px',
-          color:        '#7a5c00',
-          fontSize:     '12px',
-          fontFamily:   'Tahoma, Geneva, sans-serif',
-          cursor:       'pointer',
-          display:      'flex',
-          alignItems:   'center',
-          gap:          '8px',
-        }}
-      >
-        <i className="ti ti-bell-ringing" style={{ fontSize: '16px', flexShrink: 0 }} aria-hidden="true" />
-        <span>
-          <strong>{titulosNearDue.length} título{titulosNearDue.length !== 1 ? 's' : ''}</strong>
-          {titulosNearDue.length === 1 ? ' vence' : ' vencem'} nos próximos 5 dias — clique para enviar avisos
-        </span>
-        <i className="ti ti-chevron-right" style={{ fontSize: '12px', marginLeft: 'auto', flexShrink: 0 }} aria-hidden="true" />
-      </div>
-    )
-  }
-
   // ============================================================
   // Render — Desktop
   // ============================================================
@@ -584,9 +462,9 @@ export default function ContasReceberPage() {
             onImportado={() => { carregarTitulos(); carregarNearDue() }}
           />
 
-          <FeedbackBanner />
-          <ContadoresBanner />
-          <AlertaBanner />
+          <FeedbackBanner msgSucesso={msgSucesso} msgErro={msgErro} onFecharSucesso={() => setMsgSucesso(null)} onFecharErro={() => setMsgErro(null)} />
+          <ContadoresBanner contadores={contadores} />
+          <AlertaBanner titulosNearDue={titulosNearDue} onClick={() => setModalAvisosOpen(true)} />
 
           {/* Filtros: busca + vencimento + status */}
           <ContasReceberFiltros
@@ -650,9 +528,9 @@ export default function ContasReceberPage() {
           <div style={{ fontSize: '9px', color: '#5a84a6' }}>{total} título{total !== 1 ? 's' : ''}</div>
         </div>
 
-        <FeedbackBanner />
-        <ContadoresBanner />
-        <AlertaBanner />
+        <FeedbackBanner msgSucesso={msgSucesso} msgErro={msgErro} onFecharSucesso={() => setMsgSucesso(null)} onFecharErro={() => setMsgErro(null)} />
+        <ContadoresBanner contadores={contadores} />
+        <AlertaBanner titulosNearDue={titulosNearDue} onClick={() => setModalAvisosOpen(true)} />
 
         {/* Filtros mobile */}
         <ContasReceberFiltros
@@ -723,6 +601,158 @@ export default function ContasReceberPage() {
           onCancelar={handleCancelarPreviewMobile}
         />
       )}
+    </div>
+  )
+}
+
+// ============================================================
+// ContadoresBanner
+// Banner de pílulas com contagem de títulos por status.
+// Içado para module scope (react-hooks/static-components) —
+// antes era declarado dentro de ContasReceberPage, recriado a
+// cada render; agora recebe `contadores` via prop
+// ============================================================
+function ContadoresBanner({ contadores }: { contadores: ContadoresTitulos }) {
+  const totalCtd = contadores.emAberto + contadores.atrasados + contadores.baixados + contadores.emCartorio + contadores.protestados + contadores.cancelados
+  if (totalCtd === 0) return null
+
+  const pilulas: { label: string; valor: number; bg: string; cor: string }[] = [
+    { label: 'Em Aberto',   valor: contadores.emAberto,    bg: '#dcfce7', cor: '#166534' },
+    { label: 'Atrasados',   valor: contadores.atrasados,   bg: '#fff5f5', cor: '#c0392b' },
+    { label: 'Baixados',    valor: contadores.baixados,    bg: '#eaf3de', cor: '#27ae60' },
+    { label: 'Em Cartório', valor: contadores.emCartorio,  bg: '#fce7f3', cor: '#9d174d' },
+    { label: 'Protestados', valor: contadores.protestados, bg: '#fff4e6', cor: '#c06000' },
+    { label: 'Cancelados',  valor: contadores.cancelados,  bg: '#f1f1f1', cor: '#888888' },
+  ].filter(p => p.valor > 0)
+
+  return (
+    <div style={{
+      display:      'flex',
+      alignItems:   'center',
+      gap:          '6px',
+      margin:       '0 0 10px',
+      padding:      '6px 12px',
+      background:   '#f7fafc',
+      border:       '1px solid #dde8f0',
+      borderRadius: '5px',
+      flexWrap:     'wrap',
+      fontFamily:   'Tahoma, Geneva, sans-serif',
+    }}>
+      <span style={{ fontSize: '11px', color: '#5a84a6', marginRight: '2px', whiteSpace: 'nowrap' }}>
+        Situação:
+      </span>
+      {pilulas.map(p => (
+        <span
+          key={p.label}
+          style={{
+            display:      'inline-flex',
+            alignItems:   'center',
+            gap:          '5px',
+            padding:      '2px 10px',
+            borderRadius: '10px',
+            background:   p.bg,
+            color:        p.cor,
+            fontSize:     '11px',
+            fontWeight:   700,
+            whiteSpace:   'nowrap',
+            border:       `1px solid ${p.cor}22`,
+          }}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 700 }}>{p.valor}</span>
+          {p.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+// ============================================================
+// FeedbackBanner
+// Banner de sucesso/erro inline. Içado para module scope
+// (react-hooks/static-components) — recebe mensagens e
+// callbacks de fechar via props
+// ============================================================
+function FeedbackBanner({
+  msgSucesso, msgErro, onFecharSucesso, onFecharErro,
+}: {
+  msgSucesso: string | null
+  msgErro: string | null
+  onFecharSucesso: () => void
+  onFecharErro: () => void
+}) {
+  return (
+    <>
+      {msgSucesso && (
+        <div style={{
+          margin: '0 0 10px', padding: '8px 12px',
+          background: '#eaf3de', border: '1px solid #b7d98f',
+          borderRadius: '5px', color: '#3b6d11', fontSize: '12px',
+          fontFamily: 'Tahoma, Geneva, sans-serif',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <span>
+            <i className="ti ti-check" style={{ marginRight: '6px' }} aria-hidden="true" />
+            {msgSucesso}
+          </span>
+          <button onClick={onFecharSucesso} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b6d11', fontSize: '14px' }}>✕</button>
+        </div>
+      )}
+      {msgErro && (
+        <div style={{
+          margin: '0 0 10px', padding: '8px 12px',
+          background: '#fef2f2', border: '1px solid #fca5a5',
+          borderRadius: '5px', color: '#a32d2d', fontSize: '12px',
+          fontFamily: 'Tahoma, Geneva, sans-serif',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <span>
+            <i className="ti ti-alert-triangle" style={{ marginRight: '6px' }} aria-hidden="true" />
+            {msgErro}
+          </span>
+          <button onClick={onFecharErro} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a32d2d', fontSize: '14px' }}>✕</button>
+        </div>
+      )}
+    </>
+  )
+}
+
+// ============================================================
+// AlertaBanner
+// Banner de alerta de títulos vencendo em breve. Içado para
+// module scope (react-hooks/static-components) — recebe a
+// lista e o callback de clique via props
+// ============================================================
+function AlertaBanner({
+  titulosNearDue, onClick,
+}: {
+  titulosNearDue: TituloAvisoVencimento[]
+  onClick: () => void
+}) {
+  if (titulosNearDue.length === 0) return null
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        margin:       '0 0 10px',
+        padding:      '8px 14px',
+        background:   '#fff8e1',
+        border:       '1px solid #ffe082',
+        borderRadius: '5px',
+        color:        '#7a5c00',
+        fontSize:     '12px',
+        fontFamily:   'Tahoma, Geneva, sans-serif',
+        cursor:       'pointer',
+        display:      'flex',
+        alignItems:   'center',
+        gap:          '8px',
+      }}
+    >
+      <i className="ti ti-bell-ringing" style={{ fontSize: '16px', flexShrink: 0 }} aria-hidden="true" />
+      <span>
+        <strong>{titulosNearDue.length} título{titulosNearDue.length !== 1 ? 's' : ''}</strong>
+        {titulosNearDue.length === 1 ? ' vence' : ' vencem'} nos próximos 5 dias — clique para enviar avisos
+      </span>
+      <i className="ti ti-chevron-right" style={{ fontSize: '12px', marginLeft: 'auto', flexShrink: 0 }} aria-hidden="true" />
     </div>
   )
 }

@@ -43,7 +43,7 @@ export default function ReceitasTabela({
 
   // Reseta confirmação de exclusão quando a lista de receitas muda (ex: após filtro)
   // Evita que uma linha filtrada retorne com o confirm já aberto
-  useEffect(() => { setConfirmandoId(null) }, [receitas])
+  useEffect(() => { setConfirmandoId(null) }, [receitas]) // eslint-disable-line react-hooks/set-state-in-effect
 
   return (
     <div style={{

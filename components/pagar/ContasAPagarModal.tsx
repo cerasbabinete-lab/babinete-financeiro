@@ -110,7 +110,7 @@ export default function ContasAPagarModal({ titulo, modo, abrirEmBaixa, onFechar
   // Sincroniza todo o estado local do formulário sempre que o modal
   // abre com um título diferente (ou fecha/abre de novo)
   useEffect(() => {
-    setObservacoes(titulo?.observacoes ?? '')
+    setObservacoes(titulo?.observacoes ?? '') // eslint-disable-line react-hooks/set-state-in-effect
     setNossoNumero(titulo?.nosso_numero ?? '')
     setLinhaDigitavel(titulo?.linha_digitavel ?? '')
     setStatusEdit(titulo?.status ?? 'em_aberto')

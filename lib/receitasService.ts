@@ -533,7 +533,7 @@ export function lerArquivoBackup(file: File): Promise<Receita[]> {
 // ============================================================
 export async function restaurarBackup(receitas: Receita[]): Promise<void> {
   for (const receita of receitas) {
-    const { itens, duplicatas, transportadora, created_at, updated_at, ...dadosReceita } = receita
+    const { itens, duplicatas, transportadora: _transportadora, created_at: _createdAt, updated_at: _updatedAt, ...dadosReceita } = receita
 
     // Upsert da receita principal (conflict em chave_acesso)
     const { data, error } = await supabase
@@ -553,7 +553,6 @@ export async function restaurarBackup(receitas: Receita[]): Promise<void> {
     await supabase.from(TABELA_ITENS).delete().eq('receita_id', receitaId)
     if (itens && itens.length > 0) {
       const itensLimpos = itens.map(
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         ({ id: _id, receita_id: _rid, created_at: _ca, ...rest }) => ({ ...rest, receita_id: receitaId })
       )
       // Verifica erro do insert — evita perda silenciosa de dados fiscais
@@ -565,7 +564,6 @@ export async function restaurarBackup(receitas: Receita[]): Promise<void> {
     await supabase.from(TABELA_DUPLIC).delete().eq('receita_id', receitaId)
     if (duplicatas && duplicatas.length > 0) {
       const duplicatasLimpos = duplicatas.map(
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         ({ id: _id, receita_id: _rid, created_at: _ca, ...rest }) => ({ ...rest, receita_id: receitaId })
       )
       // Verifica erro do insert — evita perda silenciosa de dados fiscais

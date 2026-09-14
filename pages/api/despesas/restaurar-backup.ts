@@ -81,7 +81,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // conjunto restaurado bate exatamente com o que estava no backup,
     // sem sobras de parcelas que não existem mais no arquivo.
     for (const despesa of despesas) {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { parcelas, created_at: _ca, updated_at: _ua, ...dadosDespesa } = despesa
 
       const { error: erroDespesa } = await supabaseAdmin
@@ -98,7 +97,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (parcelas && parcelas.length > 0) {
         const parcelasLimpas = parcelas.map(
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           ({ id: _id, created_at: _ca, updated_at: _ua, ...rest }) => ({ ...rest, despesa_id: despesa.id })
         )
         const { error: erroParcelas } = await supabaseAdmin.from('despesas_parcelas').insert(parcelasLimpas)

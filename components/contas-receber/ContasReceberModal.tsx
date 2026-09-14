@@ -57,7 +57,6 @@ export default function ContasReceberModal({
 
   return (
     <ModalContent
-      modo={modo}
       titulo={titulo}
       isVisualizar={isVisualizar}
       isEditar={isEditar}
@@ -74,7 +73,6 @@ export default function ContasReceberModal({
 // ao abrir/fechar (key prop na page garante reset)
 // ============================================================
 function ModalContent({
-  modo,
   titulo,
   isVisualizar,
   isEditar,
@@ -83,7 +81,6 @@ function ModalContent({
   onSalvo,
   onEditar,
 }: {
-  modo:         ModoModal
   titulo:       ContaReceber | null
   isVisualizar: boolean
   isEditar:     boolean
@@ -734,11 +731,11 @@ function ModalContent({
               </div>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <label style={{ fontSize: '12px', color: '#3a6080', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <input type="radio" name="formaBaixa" value="pix" checked={formaBaixa === 'pix'} onChange={(_e: React.ChangeEvent<HTMLInputElement>) => setFormaBaixa('pix')} />
+                  <input type="radio" name="formaBaixa" value="pix" checked={formaBaixa === 'pix'} onChange={() => setFormaBaixa('pix')} />
                   PIX
                 </label>
                 <label style={{ fontSize: '12px', color: '#3a6080', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <input type="radio" name="formaBaixa" value="transferencia" checked={formaBaixa === 'transferencia'} onChange={(_e: React.ChangeEvent<HTMLInputElement>) => setFormaBaixa('transferencia')} />
+                  <input type="radio" name="formaBaixa" value="transferencia" checked={formaBaixa === 'transferencia'} onChange={() => setFormaBaixa('transferencia')} />
                   Transferência
                 </label>
                 <span style={{ fontSize: '11px', color: '#5a84a6' }}>

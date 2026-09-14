@@ -57,8 +57,8 @@ export default function BackupPage() {
         router.push('/login')
         return
       }
-      setUsuario(resolverUsernameExibicao(user.email)) // eslint-disable-line react-hooks/set-state-in-effect
-      setAuthCarregando(false) // eslint-disable-line react-hooks/set-state-in-effect
+      setUsuario(resolverUsernameExibicao(user.email))
+      setAuthCarregando(false)
     }).catch(() => {
       router.push('/login')
     })

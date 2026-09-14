@@ -218,8 +218,8 @@ export default function DashboardPage() {
         return
       }
       const email = user.email ?? ''
-      setUsuario(resolverUsernameExibicao(email)) // eslint-disable-line react-hooks/set-state-in-effect
-      setAuthCarregando(false) // eslint-disable-line react-hooks/set-state-in-effect
+      setUsuario(resolverUsernameExibicao(email))
+      setAuthCarregando(false)
     }).catch(() => {
       router.push('/login')
     })

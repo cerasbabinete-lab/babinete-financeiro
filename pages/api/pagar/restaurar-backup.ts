@@ -77,7 +77,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // vale para o uso normal do módulo, não para uma restauração
     // completa de estado a partir de um backup.
     for (const titulo of titulos) {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { eventos, created_at: _ca, updated_at: _ua, ...dadosTitulo } = titulo
 
       const { error: erroTitulo } = await supabaseAdmin

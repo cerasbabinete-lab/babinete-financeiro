@@ -41,7 +41,7 @@ export default function ReceitasMobileList({
 
   // Reseta bottom-sheet e confirmação quando a lista muda (ex: após filtro ou exclusão)
   // Evita estados obsoletos aparecendo ao limpar filtros
-  useEffect(() => { setSheetId(null); setConfirmandoId(null) }, [receitas])
+  useEffect(() => { setSheetId(null); setConfirmandoId(null) }, [receitas]) // eslint-disable-line react-hooks/set-state-in-effect
 
   if (receitas.length === 0) {
     return (

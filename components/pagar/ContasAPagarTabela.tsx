@@ -32,7 +32,7 @@ export default function ContasAPagarTabela({ titulos, onVisualizar, onEditar, on
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [acaoConfirmando, setAcaoConfirmando] = useState<{ id: string; tipo: 'cancelar' } | null>(null)
 
-  useEffect(() => { setAcaoConfirmando(null) }, [titulos])
+  useEffect(() => { setAcaoConfirmando(null) }, [titulos]) // eslint-disable-line react-hooks/set-state-in-effect
 
   return (
     <div style={{ width: '100%', overflowX: 'auto', border: '1px solid #dde8f0', borderRadius: '8px', fontFamily: 'Tahoma, Geneva, sans-serif' }}>

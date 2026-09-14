@@ -42,7 +42,7 @@ export default function ReceitasFiltros({
   const [inputBusca, setInputBusca] = useState(filtros.busca)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => { setInputBusca(filtros.busca) }, [filtros.busca])
+  useEffect(() => { setInputBusca(filtros.busca) }, [filtros.busca]) // eslint-disable-line react-hooks/set-state-in-effect
 
   useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
 

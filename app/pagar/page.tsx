@@ -180,7 +180,7 @@ export default function ContasAPagarPage() {
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
-    setIsMobile(mq.matches)
+    setIsMobile(mq.matches) // eslint-disable-line react-hooks/set-state-in-effect
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
@@ -214,14 +214,14 @@ export default function ContasAPagarPage() {
     }
   }, [filtros])
 
-  useEffect(() => { if (!authCarregando) carregarTitulos() }, [authCarregando, carregarTitulos])
+  useEffect(() => { if (!authCarregando) carregarTitulos() }, [authCarregando, carregarTitulos]) // eslint-disable-line react-hooks/set-state-in-effect
 
   // ── Mês selecionado — sincroniza a faixa de vencimento do filtro
   // sempre que o mês trocar, preservando busca/status já digitados
   // (QA fix 14/08/2026) ──
   useEffect(() => {
     const { inicio, fim } = calcularFaixaDoMes(mesSelecionado)
-    setFiltros((f) => ({ ...f, vencimentoDe: inicio, vencimentoAte: fim }))
+    setFiltros((f) => ({ ...f, vencimentoDe: inicio, vencimentoAte: fim })) // eslint-disable-line react-hooks/set-state-in-effect
   }, [mesSelecionado])
 
   // ── Pendências de meses anteriores — só busca quando o mês
@@ -245,7 +245,7 @@ export default function ContasAPagarPage() {
     }
   }, [mesSelecionado])
 
-  useEffect(() => { if (!authCarregando) carregarPendentesAnteriores() }, [authCarregando, carregarPendentesAnteriores])
+  useEffect(() => { if (!authCarregando) carregarPendentesAnteriores() }, [authCarregando, carregarPendentesAnteriores]) // eslint-disable-line react-hooks/set-state-in-effect
 
   useEffect(() => {
     if (!msgSucesso) return

@@ -52,7 +52,7 @@ export default function ContasReceberTabela({
   const [acaoConfirmando, setAcaoConfirmando] = useState<{ id: string; tipo: 'cancelar' | 'baixar' } | null>(null)
 
   // Reseta confirmação quando a lista muda (ex: após filtro ou operação)
-  useEffect(() => { setAcaoConfirmando(null) }, [titulos])
+  useEffect(() => { setAcaoConfirmando(null) }, [titulos]) // eslint-disable-line react-hooks/set-state-in-effect
 
   return (
     <div style={{

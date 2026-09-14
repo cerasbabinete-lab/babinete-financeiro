@@ -46,7 +46,7 @@ export default function ContasReceberMobileList({
   const [acaoConfirmando, setAcaoConfirmando] = useState<'cancelar' | 'baixar' | null>(null)
 
   // Reseta ao mudar a lista (filtro, operação, etc.)
-  useEffect(() => { setSheetId(null); setAcaoConfirmando(null) }, [titulos])
+  useEffect(() => { setSheetId(null); setAcaoConfirmando(null) }, [titulos]) // eslint-disable-line react-hooks/set-state-in-effect
 
   if (titulos.length === 0) {
     return (

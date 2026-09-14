@@ -66,7 +66,6 @@ export default function BackupPainel({ usuario, isMobile }: BackupPainelProps) {
 
   useEffect(() => {
     carregarBackupsNuvem()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function aoBaixarDaNuvem(nome: string) {

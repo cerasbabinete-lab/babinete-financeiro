@@ -150,7 +150,7 @@ export default function ReceitasPage() {
   // Detecção mobile — isMobile inicia como null para evitar hidratação SSR
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
-    setIsMobile(mq.matches)
+    setIsMobile(mq.matches) // eslint-disable-line react-hooks/set-state-in-effect
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
@@ -197,11 +197,11 @@ export default function ReceitasPage() {
   // Sincroniza mês selecionado → filtros de data (padrão Contas a Pagar)
   useEffect(() => {
     const { inicio, fim } = calcularFaixaDoMes(mesSelecionado)
-    setFiltros((f) => ({ ...f, dataEmissaoDe: inicio, dataEmissaoAte: fim }))
+    setFiltros((f) => ({ ...f, dataEmissaoDe: inicio, dataEmissaoAte: fim })) // eslint-disable-line react-hooks/set-state-in-effect
   }, [mesSelecionado])
 
   useEffect(() => {
-    if (!authCarregando) carregarReceitas()
+    if (!authCarregando) carregarReceitas() // eslint-disable-line react-hooks/set-state-in-effect
   }, [authCarregando, carregarReceitas])
 
   // Recarrega transportadoras após import para atualizar dropdown
@@ -253,24 +253,6 @@ export default function ReceitasPage() {
       </div>
     )
   }
-
-  // ── Feedback inline ──
-  const FeedbackBanner = () => (
-    <>
-      {msgSucesso && (
-        <div style={{ margin: '0 0 10px', padding: '8px 12px', background: '#eaf3de', border: '1px solid #b7d98f', borderRadius: '5px', color: '#3b6d11', fontSize: '12px', fontFamily: 'Tahoma, Geneva, sans-serif', display: 'flex', justifyContent: 'space-between' }}>
-          <span><i className="ti ti-check" style={{ marginRight: '6px' }} />{msgSucesso}</span>
-          <button onClick={() => setMsgSucesso(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b6d11' }}>✕</button>
-        </div>
-      )}
-      {msgErro && (
-        <div style={{ margin: '0 0 10px', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '5px', color: '#a32d2d', fontSize: '12px', fontFamily: 'Tahoma, Geneva, sans-serif', display: 'flex', justifyContent: 'space-between' }}>
-          <span><i className="ti ti-alert-triangle" style={{ marginRight: '6px' }} />{msgErro}</span>
-          <button onClick={() => setMsgErro(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a32d2d' }}>✕</button>
-        </div>
-      )}
-    </>
-  )
 
   // ============================================================
   // Render — Desktop
@@ -326,7 +308,7 @@ export default function ReceitasPage() {
             </div>
           )}
 
-          <FeedbackBanner />
+          <FeedbackBanner msgSucesso={msgSucesso} msgErro={msgErro} onFecharSucesso={() => setMsgSucesso(null)} onFecharErro={() => setMsgErro(null)} />
 
           {/* Seletor de mês — emissão (padrão Contas a Pagar) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
@@ -417,7 +399,7 @@ export default function ReceitasPage() {
           <div style={{ fontSize: '9px', color: '#5a84a6' }}>{total} registros</div>
         </div>
 
-        <FeedbackBanner />
+        <FeedbackBanner msgSucesso={msgSucesso} msgErro={msgErro} onFecharSucesso={() => setMsgSucesso(null)} onFecharErro={() => setMsgErro(null)} />
 
         {/* Banner de NFs com títulos em aberto — mobile */}
         {contadoresReceitas.nfsComAberto > 0 && (
@@ -510,5 +492,37 @@ export default function ReceitasPage() {
         onSalvo={handleSalvo}
       />
     </div>
+  )
+}
+
+// ============================================================
+// FeedbackBanner
+// Banner de sucesso/erro inline. Içado para module scope
+// (react-hooks/static-components) — recebe mensagens e
+// callbacks de fechar via props
+// ============================================================
+function FeedbackBanner({
+  msgSucesso, msgErro, onFecharSucesso, onFecharErro,
+}: {
+  msgSucesso: string | null
+  msgErro: string | null
+  onFecharSucesso: () => void
+  onFecharErro: () => void
+}) {
+  return (
+    <>
+      {msgSucesso && (
+        <div style={{ margin: '0 0 10px', padding: '8px 12px', background: '#eaf3de', border: '1px solid #b7d98f', borderRadius: '5px', color: '#3b6d11', fontSize: '12px', fontFamily: 'Tahoma, Geneva, sans-serif', display: 'flex', justifyContent: 'space-between' }}>
+          <span><i className="ti ti-check" style={{ marginRight: '6px' }} />{msgSucesso}</span>
+          <button onClick={onFecharSucesso} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b6d11' }}>✕</button>
+        </div>
+      )}
+      {msgErro && (
+        <div style={{ margin: '0 0 10px', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '5px', color: '#a32d2d', fontSize: '12px', fontFamily: 'Tahoma, Geneva, sans-serif', display: 'flex', justifyContent: 'space-between' }}>
+          <span><i className="ti ti-alert-triangle" style={{ marginRight: '6px' }} />{msgErro}</span>
+          <button onClick={onFecharErro} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a32d2d' }}>✕</button>
+        </div>
+      )}
+    </>
   )
 }
