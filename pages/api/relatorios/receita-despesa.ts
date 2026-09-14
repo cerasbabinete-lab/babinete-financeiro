@@ -43,6 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const dataInicial = String(req.query.dataInicial ?? '')
   const dataFinal = String(req.query.dataFinal ?? '')
   const formato = String(req.query.formato ?? '')
+  const incluirGrafico = String(req.query.incluirGrafico ?? 'true') === 'true'
 
   if (!dataInicial || !dataFinal) return res.status(400).json({ erro: 'dataInicial e dataFinal são obrigatórios' })
   if (formato !== 'pdf' && formato !== 'xlsx') {
@@ -83,7 +84,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // gráfico, não escondido no rodapé em fonte reduzida (esse é o
       // disclaimer padrão, desenhado à parte por finalizarComRodape)
       desenharAvisoDestacado(doc, AVISO_RECEITA_DESPESA)
-      doc.y = desenharGrafico(doc, relatorio.grafico, { x: 40, y: doc.y, largura: 515, altura: 200 })
+      if (incluirGrafico) {
+        doc.y = desenharGrafico(doc, relatorio.grafico, { x: 40, y: doc.y, largura: 515, altura: 200 })
+      }
 
       const colunas: ColunaTabela[] = [
         { chave: 'mes', rotulo: 'Mês', larguraProporcional: 0.9 },

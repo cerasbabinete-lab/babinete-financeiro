@@ -42,6 +42,7 @@ export default function ReceitaDespesaRelatorio() {
   const [erro, setErro] = useState('')
 
   const { exportar, exportando, erroExportacao } = useExportarRelatorio('/api/relatorios/receita-despesa')
+  const [incluirGraficoExport, setIncluirGraficoExport] = useState(true)
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -65,6 +66,7 @@ export default function ReceitaDespesaRelatorio() {
   const paramsExport: Record<string, string> = {
     dataInicial: filtrosAplicados.dataInicial,
     dataFinal: filtrosAplicados.dataFinal,
+    incluirGrafico: String(incluirGraficoExport),
   }
 
   return (
@@ -79,6 +81,12 @@ export default function ReceitaDespesaRelatorio() {
         onExportarXlsx={() => exportar('xlsx', paramsExport, nomeArquivo)}
         exportando={exportando}
         podeExportar={!!relatorio}
+        opcoesExportacaoExtras={
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#5a84a6', cursor: 'pointer' }}>
+            <input type="checkbox" checked={incluirGraficoExport} onChange={e => setIncluirGraficoExport(e.target.checked)} />
+            Incluir gráfico
+          </label>
+        }
       />
 
       {(erro || erroExportacao) && <FaixaErro mensagem={erro || erroExportacao} />}

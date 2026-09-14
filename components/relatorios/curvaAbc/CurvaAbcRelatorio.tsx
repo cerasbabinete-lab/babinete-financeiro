@@ -45,6 +45,7 @@ export default function CurvaAbcRelatorio() {
   const [carregandoDrillDown, setCarregandoDrillDown] = useState(false)
 
   const { exportar, exportando, erroExportacao } = useExportarRelatorio('/api/relatorios/curva-abc')
+  const [incluirGraficoExport, setIncluirGraficoExport] = useState(true)
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -83,7 +84,7 @@ export default function CurvaAbcRelatorio() {
   }
 
   const nomeArquivo = `curva_abc_${filtrosAplicados.dimensao}_${filtrosAplicados.dataInicial}_a_${filtrosAplicados.dataFinal}`
-  const paramsExport: Record<string, string> = { dataInicial: filtrosAplicados.dataInicial, dataFinal: filtrosAplicados.dataFinal, dimensao: filtrosAplicados.dimensao }
+  const paramsExport: Record<string, string> = { dataInicial: filtrosAplicados.dataInicial, dataFinal: filtrosAplicados.dataFinal, dimensao: filtrosAplicados.dimensao, incluirGrafico: String(incluirGraficoExport) }
 
   return (
     <div style={{ fontFamily: 'Tahoma, Geneva, sans-serif' }}>
@@ -97,6 +98,12 @@ export default function CurvaAbcRelatorio() {
         onExportarXlsx={() => exportar('xlsx', paramsExport, nomeArquivo)}
         exportando={exportando}
         podeExportar={!!relatorio}
+        opcoesExportacaoExtras={
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#5a84a6', cursor: 'pointer' }}>
+            <input type="checkbox" checked={incluirGraficoExport} onChange={e => setIncluirGraficoExport(e.target.checked)} />
+            Incluir gráfico
+          </label>
+        }
         filtrosExtras={
           <div>
             <label style={estilosRelatorio.rotuloFiltro}>Dimensão</label>

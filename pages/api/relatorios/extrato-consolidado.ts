@@ -41,6 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const dataInicial = String(req.query.dataInicial ?? '')
   const dataFinal = String(req.query.dataFinal ?? '')
   const formato = String(req.query.formato ?? '')
+  const incluirGrafico = String(req.query.incluirGrafico ?? 'true') === 'true'
   const lado = String(req.query.lado ?? 'ambos') as LadoExtrato | 'ambos'
   const status = String(req.query.status ?? 'tudo') as StatusFiltroExtrato
   const nivelDetalhe = String(req.query.nivelDetalhe ?? 'detalhado') as NivelDetalheExtrato
@@ -71,7 +72,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (formato === 'pdf') {
       const doc = criarDocumentoRelatorio({ tituloRelatorio: 'Extrato consolidado', periodoDescricao })
       if (cartoes.length > 0) desenharCartoesResumo(doc, cartoes)
-      doc.y = desenharGrafico(doc, relatorio.grafico, { x: 40, y: doc.y, largura: 515, altura: 200 })
+      if (incluirGrafico) {
+        doc.y = desenharGrafico(doc, relatorio.grafico, { x: 40, y: doc.y, largura: 515, altura: 200 })
+      }
 
       if (relatorio.itens) {
         const colunas: ColunaTabela[] = [

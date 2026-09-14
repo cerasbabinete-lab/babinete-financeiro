@@ -39,6 +39,7 @@ export default function RetiradasRelatorio() {
   const [erro, setErro] = useState('')
 
   const { exportar, exportando, erroExportacao } = useExportarRelatorio('/api/relatorios/retiradas')
+  const [incluirGraficoExport, setIncluirGraficoExport] = useState(true)
 
   useEffect(() => {
     buscarNomesBeneficiarios().then(setNomesBeneficiarios).catch(() => { /* filtro fica vazio, não bloqueia a tela */ })
@@ -67,6 +68,7 @@ export default function RetiradasRelatorio() {
   const paramsExport: Record<string, string> = {
     dataInicial: filtrosAplicados.dataInicial,
     dataFinal: filtrosAplicados.dataFinal,
+    incluirGrafico: String(incluirGraficoExport),
     ...(filtrosAplicados.beneficiarioFiltro ? { beneficiarioFiltro: filtrosAplicados.beneficiarioFiltro } : {}),
   }
 
@@ -82,6 +84,12 @@ export default function RetiradasRelatorio() {
         onExportarXlsx={() => exportar('xlsx', paramsExport, nomeArquivo)}
         exportando={exportando}
         podeExportar={!!relatorio}
+        opcoesExportacaoExtras={
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#5a84a6', cursor: 'pointer' }}>
+            <input type="checkbox" checked={incluirGraficoExport} onChange={e => setIncluirGraficoExport(e.target.checked)} />
+            Incluir gráfico
+          </label>
+        }
         filtrosExtras={
           <div>
             <label style={estilosRelatorio.rotuloFiltro}>Beneficiário</label>

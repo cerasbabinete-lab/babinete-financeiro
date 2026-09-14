@@ -36,6 +36,7 @@ export default function FluxoCaixaRelatorio() {
   const [erro, setErro] = useState('')
 
   const { exportar, exportando, erroExportacao } = useExportarRelatorio('/api/relatorios/fluxo-caixa')
+  const [incluirGraficoExport, setIncluirGraficoExport] = useState(true)
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -53,6 +54,7 @@ export default function FluxoCaixaRelatorio() {
   useEffect(() => { carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
   const nomeArquivo = `fluxo_caixa_${filtrosAplicados.dataInicial}_a_${filtrosAplicados.dataFinal}`
+  const paramsExport = { ...filtrosAplicados, incluirGrafico: String(incluirGraficoExport) }
 
   return (
     <div style={{ fontFamily: 'Tahoma, Geneva, sans-serif' }}>
@@ -62,10 +64,16 @@ export default function FluxoCaixaRelatorio() {
         onChangeDataInicial={v => setFiltros(f => ({ ...f, dataInicial: v }))}
         onChangeDataFinal={v => setFiltros(f => ({ ...f, dataFinal: v }))}
         onGerar={() => setFiltrosAplicados(filtros)}
-        onExportarPdf={() => exportar('pdf', filtrosAplicados, nomeArquivo)}
-        onExportarXlsx={() => exportar('xlsx', filtrosAplicados, nomeArquivo)}
+        onExportarPdf={() => exportar('pdf', paramsExport, nomeArquivo)}
+        onExportarXlsx={() => exportar('xlsx', paramsExport, nomeArquivo)}
         exportando={exportando}
         podeExportar={!!relatorio}
+        opcoesExportacaoExtras={
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#5a84a6', cursor: 'pointer' }}>
+            <input type="checkbox" checked={incluirGraficoExport} onChange={e => setIncluirGraficoExport(e.target.checked)} />
+            Incluir gráfico
+          </label>
+        }
       />
 
       {(erro || erroExportacao) && <FaixaErro mensagem={erro || erroExportacao} />}

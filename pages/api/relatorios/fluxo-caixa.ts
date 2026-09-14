@@ -45,6 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const dataInicial = String(req.query.dataInicial ?? '')
   const dataFinal = String(req.query.dataFinal ?? '')
   const formato = String(req.query.formato ?? '')
+  const incluirGrafico = String(req.query.incluirGrafico ?? 'true') === 'true'
 
   if (!dataInicial || !dataFinal) return res.status(400).json({ erro: 'dataInicial e dataFinal são obrigatórios' })
   if (formato !== 'pdf' && formato !== 'xlsx') {
@@ -71,7 +72,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (formato === 'pdf') {
       const doc = criarDocumentoRelatorio({ tituloRelatorio: 'Fluxo de caixa realizado', periodoDescricao })
       desenharCartoesResumo(doc, cartoes)
-      doc.y = desenharGrafico(doc, relatorio.grafico, { x: 40, y: doc.y, largura: 515, altura: 200 })
+      if (incluirGrafico) {
+        doc.y = desenharGrafico(doc, relatorio.grafico, { x: 40, y: doc.y, largura: 515, altura: 200 })
+      }
 
       const colunas: ColunaTabela[] = [
         { chave: 'data', rotulo: 'Data', larguraProporcional: 1 },

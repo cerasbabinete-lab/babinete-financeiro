@@ -52,6 +52,7 @@ export default function FaturamentoRelatorio() {
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
   const [exportando, setExportando] = useState<'pdf' | 'xlsx' | null>(null)
+  const [incluirGraficoExport, setIncluirGraficoExport] = useState(true)
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -90,6 +91,7 @@ export default function FaturamentoRelatorio() {
         dataInicial: filtrosAplicados.dataInicial,
         dataFinal: filtrosAplicados.dataFinal,
         formato,
+        incluirGrafico: String(incluirGraficoExport),
       })
       const res = await fetch(`/api/relatorios/faturamento?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -173,6 +175,10 @@ export default function FaturamentoRelatorio() {
 
         <div style={{ flex: 1 }} />
 
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#5a84a6', cursor: 'pointer', paddingBottom: '6px' }}>
+          <input type="checkbox" checked={incluirGraficoExport} onChange={e => setIncluirGraficoExport(e.target.checked)} />
+          Incluir gráfico
+        </label>
         <button onClick={() => handleExportar('pdf')} disabled={exportando !== null || !relatorio} style={botaoSecundarioStyle}>
           <i className="ti ti-file-type-pdf" aria-hidden="true" /> {exportando === 'pdf' ? 'Gerando...' : 'Exportar PDF'}
         </button>

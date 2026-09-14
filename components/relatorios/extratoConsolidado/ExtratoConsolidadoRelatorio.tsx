@@ -93,6 +93,7 @@ export default function ExtratoConsolidadoRelatorio() {
   const [erro, setErro] = useState('')
 
   const { exportar, exportando, erroExportacao } = useExportarRelatorio('/api/relatorios/extrato-consolidado')
+  const [incluirGraficoExport, setIncluirGraficoExport] = useState(true)
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -110,7 +111,7 @@ export default function ExtratoConsolidadoRelatorio() {
   useEffect(() => { carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
   const nomeArquivo = `extrato_consolidado_${filtrosAplicados.dataInicial}_a_${filtrosAplicados.dataFinal}`
-  const paramsExport: Record<string, string> = { ...filtrosAplicados }
+  const paramsExport: Record<string, string> = { ...filtrosAplicados, incluirGrafico: String(incluirGraficoExport) }
 
   return (
     <div style={{ fontFamily: 'Tahoma, Geneva, sans-serif' }}>
@@ -124,6 +125,12 @@ export default function ExtratoConsolidadoRelatorio() {
         onExportarXlsx={() => exportar('xlsx', paramsExport, nomeArquivo)}
         exportando={exportando}
         podeExportar={!!relatorio}
+        opcoesExportacaoExtras={
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#5a84a6', cursor: 'pointer' }}>
+            <input type="checkbox" checked={incluirGraficoExport} onChange={e => setIncluirGraficoExport(e.target.checked)} />
+            Incluir gráfico
+          </label>
+        }
         filtrosExtras={
           <>
             <div>
