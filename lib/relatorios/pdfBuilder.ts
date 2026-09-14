@@ -19,6 +19,25 @@
 //             documento exportado, aprovado por exemplo renderizado
 //             — cabeçalho, cartões, gráfico, tabela zebrada, rodapé
 //             fixo em toda página com paginação)
+//
+// AJUSTE COSMÉTICO (pedido de Maycon, aprovado por mockup antes de
+// aplicar) — vale pros 10 relatórios atuais, por ser arquivo
+// compartilhado: (1) logo do cabeçalho trocado pra logo_cb_azul.png
+// (mesmo PNG original, recolorido pixel a pixel pra #1a6094,
+// preservando o canal alpha — não redesenhado). logo_cb.png original
+// NÃO foi tocado, continua preto/cinza — também é usado no DANFE
+// (pages/api/danfe.ts, gerar-danfe.ts), fora do escopo pedido.
+// (2) Todos os tamanhos de fonte reduzidos (2 rodadas de ajuste,
+// aprovadas por mockup a cada uma — 2ª rodada reduziu tudo mais um
+// degrau, 3ª rodada subiu só as linhas de dado da tabela de volta
+// pra 7pt a pedido, depois REVERTIDA — versão final same da 2ª
+// rodada, linhas em 6pt). Reduzi só os tetos/pisos MAX/MIN de cada
+// bloco com shrink-to-fit já existente (cartões, cabeçalho de
+// tabela) — a lógica de medir largura/altura real antes de desenhar
+// (já corrigida 3× por bugs de sobreposição, ver comentários abaixo)
+// não foi alterada, só os números que ela usa como limite superior e
+// inferior. Testado com a linha mais longa do relatório de
+// referência (razão social que quebra em 2 linhas) antes de aplicar.
 // ============================================================
 
 import PDFDocument from 'pdfkit'
@@ -77,7 +96,14 @@ function desenharCabecalho(doc: PDFKit.PDFDocument, opcoes: { tituloRelatorio: s
   const xLogo = MARGEM.left
   const yLogo = 28
 
-  const logoPath = path.join(process.cwd(), 'public', 'img', 'logo_cb.png')
+  // CORREÇÃO COSMÉTICA (pedido de Maycon) — logo azul (#1a6094) só
+  // no módulo Relatórios, não no logo_cb.png original (esse também é
+  // usado no DANFE, pages/api/danfe.ts e gerar-danfe.ts — fora do
+  // escopo pedido, por isso arquivo NOVO em vez de sobrescrever).
+  // logo_cb_azul.png é o mesmo PNG, recolorido pixel a pixel
+  // preservando o canal alpha (bordas suaves) — não é um logo
+  // redesenhado, é o original com a cor trocada
+  const logoPath = path.join(process.cwd(), 'public', 'img', 'logo_cb_azul.png')
   if (fs.existsSync(logoPath)) {
     doc.image(logoPath, xLogo, yLogo, { fit: [larguraLogo, alturaLogo] })
   } else {
@@ -91,9 +117,9 @@ function desenharCabecalho(doc: PDFKit.PDFDocument, opcoes: { tituloRelatorio: s
   // Nome da empresa + CNPJ à direita do espaço da logo
   const xTexto = xLogo + larguraLogo + 14
   const larguraTexto = LARGURA_UTIL - larguraLogo - 14
-  doc.font('Helvetica-Bold').fontSize(12).fillColor(COR_PRIMARIA)
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(COR_PRIMARIA)
      .text('CERAS BABINETE LTDA ME', xTexto, yLogo + 4, { width: larguraTexto })
-  doc.font('Helvetica').fontSize(8).fillColor(COR_TEXTO_CLARO)
+  doc.font('Helvetica').fontSize(6).fillColor(COR_TEXTO_CLARO)
      .text('CNPJ: 10.666.614/0001-60', xTexto, yLogo + 20, { width: larguraTexto })
 
   // Linha horizontal separadora, cor primária
@@ -105,9 +131,9 @@ function desenharCabecalho(doc: PDFKit.PDFDocument, opcoes: { tituloRelatorio: s
   const agora = new Date()
   const dataHoraGeracao = agora.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 
-  doc.font('Helvetica-Bold').fontSize(14).fillColor(COR_PRIMARIA)
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(COR_PRIMARIA)
      .text(opcoes.tituloRelatorio, MARGEM.left, yLinha + 10)
-  doc.font('Helvetica').fontSize(9).fillColor(COR_TEXTO)
+  doc.font('Helvetica').fontSize(7).fillColor(COR_TEXTO)
      .text(`Período: ${opcoes.periodoDescricao}  |  Gerado em ${dataHoraGeracao}`, MARGEM.left, yLinha + 28)
 
   doc.y = yLinha + 46
@@ -151,10 +177,10 @@ export function desenharCartoesResumo(doc: PDFKit.PDFDocument, cartoes: CartaoRe
   const larguraDisponivel = larguraCartao - PADDING_INTERNO * 2
   const y = doc.y
 
-  const ROTULO_FONTE_MAX = 8
-  const ROTULO_FONTE_MIN = 6
-  const VALOR_FONTE_MAX = 13
-  const VALOR_FONTE_MIN = 8
+  const ROTULO_FONTE_MAX = 6
+  const ROTULO_FONTE_MIN = 5
+  const VALOR_FONTE_MAX = 9
+  const VALOR_FONTE_MIN = 6
 
   // Maior tamanho de fonte (dentro de [min,max]) que faz o texto
   // caber em 1 linha na largura disponível. Se nem no piso couber,
@@ -240,8 +266,8 @@ export function desenharTabela(
   // medida (não assumida) já usado nos cartões, aplicado aqui no
   // cabeçalho — calculado 1x antes do primeiro desenho, reaproveitado
   // em toda repetição de cabeçalho nas páginas seguintes.
-  const FONTE_CABECALHO_MAX = 8
-  const FONTE_CABECALHO_MIN = 6
+  const FONTE_CABECALHO_MAX = 6
+  const FONTE_CABECALHO_MIN = 5
 
   function tamanhoFonteCabecalhoQueCabe(texto: string, larguraDisponivel: number): number {
     doc.font('Helvetica-Bold')
@@ -320,7 +346,7 @@ export function desenharTabela(
     // Fix: mesmo princípio de altura medida (não assumida) — cada
     // linha mede sua própria altura de conteúdo ANTES de decidir
     // quebra de página, desenhar o zebrado e avançar doc.y.
-    doc.font('Helvetica').fontSize(8)
+    doc.font('Helvetica').fontSize(6)
     const alturaConteudo = Math.max(
       ...colunas.map((col, i) => doc.heightOfString(linha[col.chave] ?? '—', { width: larguras[i] - 12 })),
     )
@@ -340,7 +366,7 @@ export function desenharTabela(
 
     let x = MARGEM.left
     colunas.forEach((col, i) => {
-      doc.font('Helvetica').fontSize(8).fillColor(COR_TEXTO)
+      doc.font('Helvetica').fontSize(6).fillColor(COR_TEXTO)
          .text(linha[col.chave] ?? '—', x + 6, y + PADDING_VERTICAL_LINHA_TOPO, { width: larguras[i] - 12, align: col.alinhamento ?? 'left' })
       x += larguras[i]
     })
@@ -366,7 +392,7 @@ export function desenharAvisoDestacado(doc: PDFKit.PDFDocument, texto: string) {
   // não tem "medir texto sem desenhar" direto, mas doc.heightOfString
   // faz exatamente isso, respeitando a largura que o texto vai usar
   const larguraTexto = LARGURA_UTIL - PADDING * 2
-  doc.font('Helvetica-Oblique').fontSize(8)
+  doc.font('Helvetica-Oblique').fontSize(6)
   const alturaTexto = doc.heightOfString(texto, { width: larguraTexto })
   const alturaBloco = alturaTexto + PADDING * 2
 
@@ -378,7 +404,7 @@ export function desenharAvisoDestacado(doc: PDFKit.PDFDocument, texto: string) {
   doc.rect(MARGEM.left, y, LARGURA_UTIL, alturaBloco).fill('#fdf6e8')
   doc.strokeColor('#e8d5a3').lineWidth(1).rect(MARGEM.left, y, LARGURA_UTIL, alturaBloco).stroke()
 
-  doc.font('Helvetica-Oblique').fontSize(8).fillColor('#7a5c1e')
+  doc.font('Helvetica-Oblique').fontSize(6).fillColor('#7a5c1e')
      .text(texto, MARGEM.left + PADDING, y + PADDING, { width: larguraTexto })
 
   doc.y = y + alturaBloco + 12
@@ -434,7 +460,7 @@ export function finalizarComRodape(doc: PDFKit.PDFDocument) {
     // texto sozinha já provoca uma página em branco extra
     const margemInferiorOriginal = doc.page.margins.bottom
     doc.page.margins.bottom = 0
-    doc.font('Helvetica').fontSize(7).fillColor(COR_TEXTO_CLARO)
+    doc.font('Helvetica').fontSize(5).fillColor(COR_TEXTO_CLARO)
        .text(`Página ${i + 1} de ${paginas.count}`, MARGEM.left + LARGURA_UTIL - 70, yLinha + 6, { width: 70, align: 'right' })
     doc.page.margins.bottom = margemInferiorOriginal
   }
