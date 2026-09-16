@@ -38,9 +38,10 @@ import UsuariosTabela from '@/components/usuarios/UsuariosTabela'
 import UsuarioFormModal from '@/components/usuarios/UsuarioFormModal'
 import VisitanteFormModal from '@/components/usuarios/VisitanteFormModal'
 import LogAcessoTabela from '@/components/usuarios/LogAcessoTabela'
+import NotificacoesConfiguracao from '@/components/usuarios/NotificacoesConfiguracao'
 
 type ModoModal = 'novo' | 'editar' | null
-type AbaPagina = 'usuarios' | 'log'
+type AbaPagina = 'usuarios' | 'log' | 'notificacoes'
 
 export default function UsuariosPage() {
 
@@ -290,7 +291,7 @@ export default function UsuariosPage() {
           (checagem de acesso no topo desta página), então não precisa
           de gate extra aqui */}
       <div style={{ display: 'flex', gap: '4px', borderBottom: '1px solid #dde8f0', marginBottom: '12px' }}>
-        {(['usuarios', 'log'] as const).map(aba => (
+        {(['usuarios', 'log', 'notificacoes'] as const).map(aba => (
           <button
             key={aba}
             onClick={() => setAbaAtiva(aba)}
@@ -300,7 +301,7 @@ export default function UsuariosPage() {
               color: abaAtiva === aba ? '#1a6094' : '#5a84a6', cursor: 'pointer', marginBottom: '-1px',
             }}
           >
-            {aba === 'usuarios' ? 'Usuários' : 'Log de Acesso'}
+            {aba === 'usuarios' ? 'Usuários' : aba === 'log' ? 'Log de Acesso' : 'Notificações'}
           </button>
         ))}
       </div>
@@ -368,8 +369,10 @@ export default function UsuariosPage() {
               onResetarSenha={handleResetarSenha}
               onExcluir={handleExcluir}
             />
-          ) : (
+          ) : abaAtiva === 'log' ? (
             <LogAcessoTabela />
+          ) : (
+            <NotificacoesConfiguracao />
           )}
         </main>
 
@@ -413,8 +416,10 @@ export default function UsuariosPage() {
             onResetarSenha={handleResetarSenha}
             onExcluir={handleExcluir}
           />
-        ) : (
+        ) : abaAtiva === 'log' ? (
           <LogAcessoTabela />
+        ) : (
+          <NotificacoesConfiguracao />
         )}
       </main>
 
