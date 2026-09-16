@@ -203,6 +203,7 @@ export default function LoginPage() {
             </label>
             <input
               type="text"
+              name="campo-identificacao-1"
               value={username}
               onChange={e => setUsername(e.target.value)}
               placeholder="seu usuário"
@@ -242,6 +243,7 @@ export default function LoginPage() {
             </label>
             <input
               type="password"
+              name="campo-identificacao-2"
               value={senha}
               onChange={e => setSenha(e.target.value)}
               placeholder="••••••••"
